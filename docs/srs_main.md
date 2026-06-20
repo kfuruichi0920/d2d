@@ -255,6 +255,14 @@ LLM Gateway
 
 ### 7.2 文書構造抽出
 
+Word文書抽出の詳細要求は、[Word文書情報抽出プラグイン 詳細要求](word_extractor_requirements.md) に定義する。
+
+Excel文書抽出の詳細要求は、[Excel文書情報抽出プラグイン 詳細要求](excel_extractor_requirements.md) に定義する。
+
+PowerPoint文書抽出の詳細要求は、[PowerPoint文書情報抽出プラグイン 詳細要求](powerpoint_extractor_requirements.md) に定義する。
+
+PDF文書抽出の詳細要求は、[PDF文書情報抽出プラグイン 詳細要求](pdf_extractor_requirements.md) に定義する。
+
 | ID      | 要求                                  |
 | ------- | ----------------------------------- |
 | EXT-001 | 章、節、項番を抽出できること                      |
@@ -800,3 +808,4 @@ feature.stateMachineSimulator.enabled
 12. 商用利用可能なライブラリ構成とし、依存ライセンスを管理できること。
 
 以上を本ツールの要求仕様とする。
+
