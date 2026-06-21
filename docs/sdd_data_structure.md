@@ -76,6 +76,7 @@ erDiagram
     INTERMEDIATE_ITEM ||--o| INTERMEDIATE_STATE_TRANSITION : detail
     INTERMEDIATE_ITEM ||--o| INTERMEDIATE_INTERFACE : detail
     INTERMEDIATE_ITEM ||--o| INTERMEDIATE_VERIFICATION : detail
+    INTERMEDIATE_ITEM ||--o| INTERMEDIATE_SCENARIO : detail
 
     INTERMEDIATE_TABLE ||--o{ INTERMEDIATE_TABLE_COLUMN : has
     INTERMEDIATE_TABLE ||--o{ INTERMEDIATE_TABLE_ROW : has
@@ -714,6 +715,7 @@ intermediate_state_event_action
 intermediate_interface
 intermediate_interface_item
 intermediate_verification
+intermediate_scenario
 
 chunk
 chunk_item
