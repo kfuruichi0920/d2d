@@ -154,7 +154,10 @@ d2d/                               # リポジトリルート
 │
 ├── src/                           # React / TypeScript (renderer process)
 │   ├── app/
-│   │   ├── layout/                # AppShell・アクティビティバー・ペイン管理
+│   │   ├── layout/                # Workbench Shell・アクティビティバー・ペイン管理
+│   │   ├── commands/              # Command登録・コマンドパレット・ショートカット
+│   │   ├── resources/             # Resource URI・Editor Provider解決
+│   │   ├── workbench/             # Editor Group・Tabs・Panel・Layout永続化
 │   │   └── routes/                # ビュー間ナビゲーション（TanStack Router）
 │   ├── features/                  # 機能別ディレクトリ（個別機能・共通機能単位）
 │   │   ├── extractor/             # 文書抽出機能

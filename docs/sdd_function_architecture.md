@@ -88,6 +88,20 @@ CLIから呼び出し可能な機能は以下である。
 | CLI-005: 原本取込・抽出処理 | 文書抽出機能 |
 | CLI-006: LLM候補生成 | LLMプロバイダ機能 |
 
+### 4.4 UI Workbenchレイヤー
+
+UI Workbenchは独立した業務機能ではなく、UI向けのプレゼンテーション層として位置づける。Resource、Editor、View、Command、Selection、Context、Layoutを管理し、基盤機能 API を経由して共通機能・個別機能を呼び出す。
+
+| 項目 | 内容 |
+| --- | --- |
+| 位置づけ | プレゼンテーション層（Workbench 型 UI） |
+| 主な責務 | Resourceを開く、Editor/Viewを表示する、Commandを実行する、Selection/Contextを管理する、Layoutを保存・復元する |
+| 利用するAPI | UI と同じ基盤機能 API（プロジェクト管理、ジョブ管理、ストアアクセス管理、設定管理等） |
+| 状態連携 | Selection、Context、Eventを介して、Editor、Side Bar、Panel、Status Barを同期する |
+| 対象設計書 | `sdd_ui_design.md` |
+
+UI Workbenchは、文書抽出、トレーサビリティ、LLM候補生成、レポート出力のような業務処理を直接実装しない。各操作はCommandとして定義し、基盤機能 API を通じて処理を実行する。
+
 ---
 
 ## 5. データ流れ
