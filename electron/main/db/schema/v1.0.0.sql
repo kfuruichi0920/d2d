@@ -548,3 +548,79 @@ CREATE INDEX IF NOT EXISTS idx_trace_link_relation_type
 
 CREATE INDEX IF NOT EXISTS idx_llm_run_input
   ON llm_run_ref(input_ref_uid);
+
+-- ============================================================
+-- LLM 支援テーブル (Phase 7)
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS llm_provider_config (
+  uid          TEXT NOT NULL PRIMARY KEY,
+  provider     TEXT NOT NULL CHECK(provider IN ('openai','gemini','ollama','azure_openai','anthropic')),
+  display_name TEXT NOT NULL,
+  model_name   TEXT NOT NULL,
+  endpoint_url TEXT,
+  max_tokens   INTEGER NOT NULL DEFAULT 4096,
+  temperature  REAL NOT NULL DEFAULT 0.2,
+  is_default   INTEGER NOT NULL DEFAULT 0 CHECK(is_default IN (0,1)),
+  created_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+);
+
+CREATE TABLE IF NOT EXISTS llm_prompt_template (
+  uid          TEXT NOT NULL PRIMARY KEY,
+  name         TEXT NOT NULL UNIQUE,
+  description  TEXT,
+  purpose      TEXT NOT NULL CHECK(purpose IN (
+    'extract_terms','generate_trace','classify','summarize','review','custom'
+  )),
+  is_builtin   INTEGER NOT NULL DEFAULT 0 CHECK(is_builtin IN (0,1)),
+  created_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+  updated_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+);
+
+CREATE TABLE IF NOT EXISTS llm_prompt_version (
+  uid             TEXT    NOT NULL PRIMARY KEY,
+  template_uid    TEXT    NOT NULL REFERENCES llm_prompt_template(uid) ON DELETE CASCADE,
+  version         INTEGER NOT NULL DEFAULT 1,
+  system_prompt   TEXT,
+  user_template   TEXT    NOT NULL,
+  variables_json  TEXT,
+  created_at      TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+  UNIQUE(template_uid, version)
+);
+
+CREATE TABLE IF NOT EXISTS llm_run_log (
+  uid                TEXT NOT NULL PRIMARY KEY,
+  llm_run_ref_uid    TEXT REFERENCES llm_run_ref(uid),
+  provider           TEXT,
+  model_name         TEXT,
+  prompt_tokens      INTEGER,
+  completion_tokens  INTEGER,
+  total_tokens       INTEGER,
+  estimated_cost_usd REAL,
+  latency_ms         INTEGER,
+  error_message      TEXT,
+  created_at         TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+);
+
+CREATE TABLE IF NOT EXISTS llm_candidate (
+  uid              TEXT NOT NULL PRIMARY KEY,
+  llm_run_ref_uid  TEXT REFERENCES llm_run_ref(uid),
+  target_uid       TEXT REFERENCES entity_registry(uid),
+  candidate_type   TEXT NOT NULL CHECK(candidate_type IN (
+    'term','trace_link','summary','classification','custom'
+  )),
+  content_json     TEXT NOT NULL,
+  review_status    TEXT NOT NULL DEFAULT 'pending' CHECK(review_status IN (
+    'pending','accepted','modified','rejected'
+  )),
+  reviewed_by      TEXT,
+  reviewed_at      TEXT,
+  created_at       TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_llm_run_log_ref
+  ON llm_run_log(llm_run_ref_uid);
+CREATE INDEX IF NOT EXISTS idx_llm_candidate_status
+  ON llm_candidate(review_status);
+CREATE INDEX IF NOT EXISTS idx_llm_candidate_type
+  ON llm_candidate(candidate_type);

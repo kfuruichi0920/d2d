@@ -8,6 +8,7 @@ import { registerIntermediateHandlers } from './handlers/intermediate'
 import { registerArtifactsHandlers } from './handlers/artifacts'
 import { registerDesignHandlers } from './handlers/design'
 import { registerTraceabilityHandlers } from './handlers/traceability'
+import { registerLlmHandlers } from './handlers/llm'
 
 export function registerAllIpcHandlers(): void {
   registerProjectHandlers()
@@ -20,4 +21,5 @@ export function registerAllIpcHandlers(): void {
   registerArtifactsHandlers()
   registerDesignHandlers()
   registerTraceabilityHandlers()
+  registerLlmHandlers()
 }

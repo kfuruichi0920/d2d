@@ -170,6 +170,97 @@ export interface DbToTextResult {
   manifestPath: string
 }
 
+// ---- LLM 関連型 ----
+
+export type LlmProvider = 'openai' | 'gemini' | 'ollama' | 'azure_openai' | 'anthropic'
+export type PromptPurpose = 'extract_terms' | 'generate_trace' | 'classify' | 'summarize' | 'review' | 'custom'
+export type ReviewStatus = 'pending' | 'accepted' | 'modified' | 'rejected'
+export type CandidateType = 'term' | 'trace_link' | 'summary' | 'classification' | 'custom'
+
+export interface ProviderConfig {
+  uid: string
+  provider: LlmProvider
+  display_name: string
+  model_name: string
+  endpoint_url: string | null
+  max_tokens: number
+  temperature: number
+  is_default: number
+  created_at: string
+}
+
+export interface PromptTemplate {
+  uid: string
+  name: string
+  description: string | null
+  purpose: PromptPurpose
+  is_builtin: number
+  created_at: string
+  updated_at: string
+}
+
+export interface PromptVersion {
+  uid: string
+  template_uid: string
+  version: number
+  system_prompt: string | null
+  user_template: string
+  variables_json: string | null
+  created_at: string
+}
+
+export interface LlmRunLog {
+  uid: string
+  llm_run_ref_uid: string | null
+  provider: string | null
+  model_name: string | null
+  prompt_tokens: number | null
+  completion_tokens: number | null
+  total_tokens: number | null
+  estimated_cost_usd: number | null
+  latency_ms: number | null
+  error_message: string | null
+  created_at: string
+  tool_name?: string | null
+}
+
+export interface LlmRunLogStats {
+  total_runs: number
+  total_tokens: number | null
+  total_cost_usd: number | null
+  avg_latency_ms: number | null
+  error_count: number
+}
+
+export interface CandidateRow {
+  uid: string
+  llm_run_ref_uid: string | null
+  target_uid: string | null
+  candidate_type: CandidateType
+  content_json: string
+  review_status: ReviewStatus
+  reviewed_by: string | null
+  reviewed_at: string | null
+  created_at: string
+}
+
+export interface LlmRunResult {
+  llmRunRefUid: string
+  content: string
+  promptTokens: number
+  completionTokens: number
+  totalTokens: number
+  latencyMs: number
+  estimatedCostUsd: number
+  masked: boolean
+}
+
+export interface MaskPreviewResult {
+  masked: string
+  maskCount: number
+  changes: string[]
+}
+
 export interface D2DApi {
   project: {
     open: (filePath: string) => Promise<ProjectInfo>
@@ -269,6 +360,30 @@ export interface D2DApi {
     addSynonym: (glossaryUid: string, synonymText: string, synonymKind?: string) => Promise<string>
     listSynonyms: (glossaryUid: string) => Promise<GlossarySynonymRow[]>
     deleteSynonym: (uid: string) => Promise<void>
+  }
+  llm: {
+    listProviders: () => Promise<ProviderConfig[]>
+    createProvider: (opts: Omit<ProviderConfig, 'uid' | 'created_at'>) => Promise<string>
+    updateProvider: (uid: string, fields: Partial<ProviderConfig>) => Promise<void>
+    deleteProvider: (uid: string) => Promise<void>
+    run: (opts: { messages: Array<{ role: string; content: string }>; providerConfigUid?: string; inputRefUid?: string; toolName?: string; maskSensitive?: boolean }) => Promise<LlmRunResult>
+    listLogs: (limit?: number) => Promise<LlmRunLog[]>
+    logStats: () => Promise<LlmRunLogStats>
+    seedBuiltins: () => Promise<void>
+    listTemplates: () => Promise<PromptTemplate[]>
+    getTemplate: (uid: string) => Promise<PromptTemplate | null>
+    createTemplate: (opts: { name: string; description?: string; purpose: PromptPurpose; systemPrompt?: string; userTemplate: string; variablesJson?: string }) => Promise<string>
+    addTemplateVersion: (templateUid: string, opts: { systemPrompt?: string; userTemplate: string; variablesJson?: string }) => Promise<string>
+    getLatestVersion: (templateUid: string) => Promise<PromptVersion | null>
+    listVersions: (templateUid: string) => Promise<PromptVersion[]>
+    deleteTemplate: (uid: string) => Promise<void>
+    renderTemplate: (template: string, variables: Record<string, string>) => Promise<string>
+    listCandidates: (opts: { status?: ReviewStatus; candidateType?: CandidateType; limit?: number }) => Promise<CandidateRow[]>
+    getCandidate: (uid: string) => Promise<CandidateRow | null>
+    reviewCandidate: (uid: string, status: ReviewStatus, modifiedJson?: string) => Promise<void>
+    deleteCandidate: (uid: string) => Promise<void>
+    candidateStats: () => Promise<{ pending: number; accepted: number; rejected: number; modified: number }>
+    maskPreview: (text: string) => Promise<MaskPreviewResult>
   }
   events: {
     on: (channel: string, listener: (...args: unknown[]) => void) => () => void

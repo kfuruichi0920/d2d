@@ -4,6 +4,7 @@ import {
   SerendieSymbolLink,
   SerendieSymbolLoader,
   SerendieSymbolGear,
+  SerendieSymbolBriefcase,
 } from '@serendie/symbols'
 import { useWorkbenchStore, type ActivityBarItem } from '../../stores/workbenchStore'
 
@@ -16,6 +17,7 @@ interface ActivityItem {
 const ITEMS: ActivityItem[] = [
   { id: 'explorer', Icon: SerendieSymbolFolder, label: 'エクスプローラー' },
   { id: 'trace', Icon: SerendieSymbolLink, label: 'トレース' },
+  { id: 'llm', Icon: SerendieSymbolBriefcase, label: 'LLM 支援' },
   { id: 'jobs', Icon: SerendieSymbolLoader, label: 'ジョブ' },
   { id: 'settings', Icon: SerendieSymbolGear, label: '設定' },
 ]

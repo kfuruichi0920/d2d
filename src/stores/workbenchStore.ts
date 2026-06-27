@@ -9,6 +9,9 @@ export type ViewId =
   | 'glossary'
   | 'trace-matrix'
   | 'trace-graph'
+  | 'llm-candidates'
+  | 'llm-logs'
+  | 'llm-prompts'
   | 'jobs'
   | 'settings'
 
@@ -19,7 +22,7 @@ export interface Tab {
   resourceUid?: string
 }
 
-export type ActivityBarItem = 'explorer' | 'trace' | 'jobs' | 'settings'
+export type ActivityBarItem = 'explorer' | 'trace' | 'llm' | 'jobs' | 'settings'
 
 export type PanelTab = 'jobs' | 'output' | 'problems'
 
@@ -124,6 +127,9 @@ export const VIEW_META: Record<ViewId, { label: string }> = {
   glossary: { label: '用語集' },
   'trace-matrix': { label: 'トレースマトリクス' },
   'trace-graph': { label: 'トレースグラフ' },
+  'llm-candidates': { label: 'LLM候補レビュー' },
+  'llm-logs': { label: 'LLMログ' },
+  'llm-prompts': { label: 'プロンプト管理' },
   jobs: { label: 'ジョブ' },
   settings: { label: '設定' },
 }

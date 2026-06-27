@@ -9,6 +9,9 @@ const DesignElementsPage = lazy(() => import('../../pages/DesignElementsPage').t
 const GlossaryPage = lazy(() => import('../../pages/GlossaryPage').then(m => ({ default: m.GlossaryPage })))
 const TraceMatrixPage = lazy(() => import('../../pages/TraceMatrixPage').then(m => ({ default: m.TraceMatrixPage })))
 const TraceGraphPage = lazy(() => import('../../pages/TraceGraphPage').then(m => ({ default: m.TraceGraphPage })))
+const LlmCandidatePage = lazy(() => import('../../pages/LlmCandidatePage').then(m => ({ default: m.LlmCandidatePage })))
+const LlmLogPage = lazy(() => import('../../pages/LlmLogPage').then(m => ({ default: m.LlmLogPage })))
+const LlmPromptsPage = lazy(() => import('../../pages/LlmPromptsPage').then(m => ({ default: m.LlmPromptsPage })))
 const JobsView = lazy(() => import('./views/JobsView').then(m => ({ default: m.JobsView })))
 const SettingsView = lazy(() => import('./views/SettingsView').then(m => ({ default: m.SettingsView })))
 
@@ -21,6 +24,9 @@ function ViewContent({ viewId }: { viewId: ViewId }): React.JSX.Element {
     case 'glossary': return <GlossaryPage />
     case 'trace-matrix': return <TraceMatrixPage />
     case 'trace-graph': return <TraceGraphPage />
+    case 'llm-candidates': return <LlmCandidatePage />
+    case 'llm-logs': return <LlmLogPage />
+    case 'llm-prompts': return <LlmPromptsPage />
     case 'jobs': return <JobsView />
     case 'settings': return <SettingsView />
   }
