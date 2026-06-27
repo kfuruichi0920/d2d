@@ -30,6 +30,12 @@ const api: D2DApi = {
     deleteApiKey: (service, account) =>
       ipcRenderer.invoke('settings:deleteApiKey', service, account)
   },
+  import: {
+    document: (filePath) => ipcRenderer.invoke('import:document', filePath),
+    openDialog: () => ipcRenderer.invoke('import:openDialog'),
+    listDocuments: () => ipcRenderer.invoke('import:listDocuments'),
+    getDocument: (uid) => ipcRenderer.invoke('import:getDocument', uid)
+  },
   events: {
     on: (channel, listener) => {
       const wrapped = (_event: Electron.IpcRendererEvent, ...args: unknown[]) =>

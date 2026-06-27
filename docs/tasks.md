@@ -1,6 +1,6 @@
 # D2D 開発タスク管理
 
-> **更新日**: 2026-06-28  
+> **更新日**: 2026-06-28 (2回目更新)  
 > **管理方針**: このファイルが唯一のタスク進捗管理表。完了・着手・変更のたびに更新する。  
 > **ステータス凡例**: ✅ 完了 / 🔄 進行中 / ⬜ 未着手 / ⏸ 保留
 
@@ -14,7 +14,7 @@
 | T002 | ディレクトリ構造構築（electron/ src/ preload/ workers/） | NFR-030 | — | 2026-06-28 | ✅ |
 | T003 | 開発環境整備（ESLint / Prettier / Vitest / Playwright） | NFR-030 | — | 2026-06-28 | ✅ |
 | T004 | electron-builder 設定（Windows NSIS インストーラー） | APP-001 | — | 2026-06-28 | ✅ |
-| T005 | Serendie Design System npm パッケージセットアップ | UI-027, UI-028 | — | — | ⬜ |
+| T005 | Serendie Design System npm パッケージセットアップ | UI-027, UI-028 | — | 2026-06-28 | ✅ |
 
 ---
 
@@ -37,14 +37,14 @@
 
 | タスクID | タイトル | 対応要求 | 計画 | 実績 | ステータス |
 |---------|---------|---------|------|------|----------|
-| T201 | ファイル取込基盤（`source_document` / `blob_resource` / `source_location` 保存・ハッシュ計算） | IMP-001〜009 | — | — | ⬜ |
-| T202 | Word 抽出ワーカー（Python / python-docx）→ `extracted_document` | IMP-001, EXT-001〜008 | — | — | ⬜ |
-| T203 | Excel 抽出ワーカー（Python / openpyxl）→ セル・行列構造 | IMP-002, EXT-009 | — | — | ⬜ |
-| T204 | PowerPoint 抽出ワーカー（Python / python-pptx） | IMP-003, EXT-010 | — | — | ⬜ |
-| T205 | PDF 抽出ワーカー（Python / pdfminer.six / pdfplumber） | IMP-005, EXT-012 | — | — | ⬜ |
-| T206 | テキスト / Markdown / CSV / TSV / JSON / YAML 取込 | IMP-006 | — | — | ⬜ |
-| T207 | Python Worker プロセス通信基盤（stdin/stdout JSONL・job_id） | NFR-032 | — | — | ⬜ |
-| T208 | PyInstaller ビルド設定（実行ファイル同梱） | APP-001 | — | — | ⬜ |
+| T201 | ファイル取込基盤（`source_document` / `blob_resource` / SHA-256ハッシュ計算） | IMP-001〜009 | — | 2026-06-28 | ✅ |
+| T202 | Word 抽出ワーカー（Python / python-docx）→ `extracted_document` | IMP-001, EXT-001〜008 | — | 2026-06-28 | ✅ |
+| T203 | Excel 抽出ワーカー（Python / openpyxl）→ セル・行列構造 | IMP-002, EXT-009 | — | 2026-06-28 | ✅ |
+| T204 | PowerPoint 抽出ワーカー（Python / python-pptx） | IMP-003, EXT-010 | — | 2026-06-28 | ✅ |
+| T205 | PDF 抽出ワーカー（Python / pdfplumber） | IMP-005, EXT-012 | — | 2026-06-28 | ✅ |
+| T206 | テキスト / Markdown / CSV / TSV / JSON / YAML / Visio 取込 | IMP-004, IMP-006 | — | 2026-06-28 | ✅ |
+| T207 | Python Worker プロセス通信基盤（stdin/stdout JSONL・job_id） | NFR-032 | — | 2026-06-28 | ✅ |
+| T208 | PyInstaller ビルド設定（d2d-worker.spec・requirements.txt） | APP-001 | — | 2026-06-28 | ✅ |
 | T209 | 抽出結果レビューUI（一覧・状態管理・原本並列表示） | EXT-020〜024 | — | — | ⬜ |
 
 ---
@@ -145,16 +145,16 @@
 
 | Phase | タスク数 | 完了 | 進行中 | 未着手 | 進捗率 |
 |-------|---------|------|-------|-------|-------|
-| Phase 0 — プロジェクト基盤 | 5 | 4 | 0 | 1 | 80% |
+| Phase 0 — プロジェクト基盤 | 5 | 5 | 0 | 0 | 100% |
 | Phase 1 — Local Backend | 8 | 8 | 0 | 0 | 100% |
-| Phase 2 — 原本取込・抽出 | 9 | 0 | 0 | 9 | 0% |
+| Phase 2 — 原本取込・抽出 | 9 | 8 | 0 | 1 | 89% |
 | Phase 3 — 中間データ処理 | 7 | 0 | 0 | 7 | 0% |
 | Phase 4 — 設計モデル | 8 | 0 | 0 | 8 | 0% |
 | Phase 5 — トレーサビリティ | 6 | 0 | 0 | 6 | 0% |
 | Phase 6 — UI / Workbench | 12 | 0 | 0 | 12 | 0% |
 | Phase 7 — LLM 支援 | 9 | 0 | 0 | 9 | 0% |
 | Phase 8 — エクスポート/Git/CLI | 8 | 0 | 0 | 8 | 0% |
-| **合計** | **72** | **12** | **0** | **60** | **17%** |
+| **合計** | **72** | **21** | **0** | **51** | **29%** |
 
 ---
 

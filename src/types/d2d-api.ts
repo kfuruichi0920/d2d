@@ -18,6 +18,7 @@ export interface CreateProjectOptions {
 
 export interface AppSettings {
   theme: 'konjo' | 'asagi' | 'sumire' | 'tsutsuji' | 'kurikawa'
+  colorMode: 'system' | 'light' | 'dark'
   language: 'ja' | 'en'
   exportOnSave: boolean
   autoUpdateCheck: boolean
@@ -74,7 +75,33 @@ export interface D2DApi {
     setApiKey: (service: string, account: string, key: string) => Promise<void>
     deleteApiKey: (service: string, account: string) => Promise<void>
   }
+  import: {
+    document: (filePath: string) => Promise<ImportedDocument>
+    openDialog: () => Promise<string[]>
+    listDocuments: () => Promise<SourceDocumentRow[]>
+    getDocument: (uid: string) => Promise<SourceDocumentRow | null>
+  }
   events: {
     on: (channel: string, listener: (...args: unknown[]) => void) => () => void
   }
+}
+
+export interface ImportedDocument {
+  sourceDocumentUid: string
+  blobUid: string
+  fileName: string
+  fileType: string
+  fileHash: string
+  blobPath: string
+}
+
+export interface SourceDocumentRow {
+  uid: string
+  file_name: string
+  file_type: string
+  file_hash: string
+  imported_at: string
+  code: string
+  status: string
+  title: string
 }

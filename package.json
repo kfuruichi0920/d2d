@@ -23,14 +23,22 @@
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json"
   },
   "dependencies": {
+    "@ark-ui/react": "^5.37.2",
     "@electron-toolkit/preload": "^3.0.0",
     "@electron-toolkit/utils": "^3.0.0",
+    "@serendie/design-token": "^1.4.6",
+    "@serendie/symbols": "^1.0.3",
+    "@serendie/ui": "^3.6.0",
+    "@tanstack/react-router": "^1.170.16",
+    "@tanstack/react-table": "^8.21.3",
+    "@tanstack/react-virtual": "^3.14.4",
     "adm-zip": "^0.5.16",
     "better-sqlite3": "^9.6.0",
     "electron-updater": "^6.3.9",
     "keytar": "^7.9.0",
     "simple-git": "^3.27.0",
-    "uuid": "^11.0.0"
+    "uuid": "^11.0.0",
+    "zustand": "^5.0.14"
   },
   "devDependencies": {
     "@electron-toolkit/eslint-config-prettier": "^2.0.0",

@@ -13,6 +13,7 @@ const KEYTAR_SERVICE = 'd2d-app'
 
 const DEFAULT_APP_SETTINGS: AppSettings = {
   theme: 'konjo',
+  colorMode: 'system',
   language: 'ja',
   exportOnSave: false,
   autoUpdateCheck: true
