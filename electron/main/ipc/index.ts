@@ -1,0 +1,11 @@
+import { registerProjectHandlers } from './handlers/project'
+import { registerStoreHandlers } from './handlers/store'
+import { registerJobHandlers } from './handlers/jobs'
+import { registerSettingsHandlers } from './handlers/settings'
+
+export function registerAllIpcHandlers(): void {
+  registerProjectHandlers()
+  registerStoreHandlers()
+  registerJobHandlers()
+  registerSettingsHandlers()
+}

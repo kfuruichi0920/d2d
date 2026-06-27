@@ -1,0 +1,58 @@
+appId: com.d2d.app
+productName: D2D
+copyright: Copyright © 2025 D2D Project
+
+directories:
+  buildResources: resources
+  output: release
+
+files:
+  - out/**/*
+  - "!**/*.map"
+  - "!**/node_modules/.cache/**"
+  - "!**/node_modules/.vite/**"
+
+extraResources:
+  - from: workers/python/dist
+    to: workers/python
+    filter:
+      - "**/*"
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: resources/icon.ico
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  installerIcon: resources/icon.ico
+  uninstallerIcon: resources/icon.ico
+  shortcutName: D2D
+  include: resources/installer.nsh
+  deleteAppDataOnUninstall: false
+
+mac:
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+  icon: resources/icon.icns
+  category: public.app-category.developer-tools
+  entitlementsInherit: resources/entitlements.mac.plist
+  hardenedRuntime: true
+  gatekeeperAssess: false
+
+linux:
+  target:
+    - AppImage
+    - deb
+  icon: resources/icon.png
+  category: Development
+
+publish:
+  provider: generic
+  url: https://releases.example.com/d2d
