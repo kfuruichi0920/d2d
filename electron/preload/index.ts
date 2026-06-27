@@ -36,6 +36,77 @@ const api: D2DApi = {
     listDocuments: () => ipcRenderer.invoke('import:listDocuments'),
     getDocument: (uid) => ipcRenderer.invoke('import:getDocument', uid)
   },
+  extract: {
+    document: (sourceDocumentUid) => ipcRenderer.invoke('extract:document', sourceDocumentUid),
+    status: (extractedDocumentUid) => ipcRenderer.invoke('extract:status', extractedDocumentUid)
+  },
+  intermediate: {
+    create: (opts) => ipcRenderer.invoke('intermediate:create', opts),
+    list: () => ipcRenderer.invoke('intermediate:list'),
+    get: (uid) => ipcRenderer.invoke('intermediate:get', uid),
+    listItems: (uid) => ipcRenderer.invoke('intermediate:listItems', uid),
+    promoteFromExtracted: (extractedDocumentUid, intermediateDocumentUid) =>
+      ipcRenderer.invoke('intermediate:promoteFromExtracted', extractedDocumentUid, intermediateDocumentUid),
+    listChunks: (uid) => ipcRenderer.invoke('intermediate:listChunks', uid),
+    createChunk: (intermediateDocumentUid, itemUids, tokenCount) =>
+      ipcRenderer.invoke('intermediate:createChunk', intermediateDocumentUid, itemUids, tokenCount),
+    deleteChunk: (uid) => ipcRenderer.invoke('intermediate:deleteChunk', uid)
+  },
+  artifacts: {
+    listSettings: () => ipcRenderer.invoke('artifacts:listSettings'),
+    createSetting: (name, typeId, sortOrder) =>
+      ipcRenderer.invoke('artifacts:createSetting', name, typeId, sortOrder),
+    deleteSetting: (uid) => ipcRenderer.invoke('artifacts:deleteSetting', uid),
+    generateArchive: (label) => ipcRenderer.invoke('artifacts:generateArchive', label),
+    listArchives: () => ipcRenderer.invoke('artifacts:listArchives')
+  },
+  trace: {
+    subgraph: (rootUid, opts) => ipcRenderer.invoke('trace:subgraph', rootUid, opts),
+    impacted: (uid, maxDepth) => ipcRenderer.invoke('trace:impacted', uid, maxDepth),
+    roots: (uid, maxDepth) => ipcRenderer.invoke('trace:roots', uid, maxDepth),
+    matrix: (fromTypes, toTypes, relationTypes) => ipcRenderer.invoke('trace:matrix', fromTypes, toTypes, relationTypes),
+    stats: () => ipcRenderer.invoke('trace:stats'),
+    exportJson: (rootUid, maxDepth) => ipcRenderer.invoke('trace:exportJson', rootUid, maxDepth),
+    exportMatrixJson: (fromTypes, toTypes, relationTypes) => ipcRenderer.invoke('trace:exportMatrixJson', fromTypes, toTypes, relationTypes),
+    exportMatrixCsv: (fromTypes, toTypes, relationTypes) => ipcRenderer.invoke('trace:exportMatrixCsv', fromTypes, toTypes, relationTypes),
+    exportMatrixMarkdown: (fromTypes, toTypes, relationTypes) => ipcRenderer.invoke('trace:exportMatrixMarkdown', fromTypes, toTypes, relationTypes),
+    exportSubgraphMarkdown: (rootUid, maxDepth) => ipcRenderer.invoke('trace:exportSubgraphMarkdown', rootUid, maxDepth),
+    dbToText: () => ipcRenderer.invoke('store:dbToText'),
+    sqliteDump: () => ipcRenderer.invoke('store:sqliteDump'),
+  },
+  design: {
+    listResources: (entityType, limit) => ipcRenderer.invoke('design:listResources', entityType, limit),
+    getResource: (uid) => ipcRenderer.invoke('design:getResource', uid),
+    deleteResource: (uid) => ipcRenderer.invoke('design:deleteResource', uid),
+    updateStatus: (uid, status) => ipcRenderer.invoke('design:updateStatus', uid, status),
+    updateField: (uid, entityType, fields) => ipcRenderer.invoke('design:updateField', uid, entityType, fields),
+    createLabel: (opts) => ipcRenderer.invoke('design:createLabel', opts),
+    createText: (opts) => ipcRenderer.invoke('design:createText', opts),
+    createList: (opts) => ipcRenderer.invoke('design:createList', opts),
+    createTable: (opts) => ipcRenderer.invoke('design:createTable', opts),
+    createCode: (opts) => ipcRenderer.invoke('design:createCode', opts),
+    createModel: (opts) => ipcRenderer.invoke('design:createModel', opts),
+    createScenario: (opts) => ipcRenderer.invoke('design:createScenario', opts),
+    createInterface: (opts) => ipcRenderer.invoke('design:createInterface', opts),
+    createStateTransition: (opts) => ipcRenderer.invoke('design:createStateTransition', opts),
+    createDataStructure: (opts) => ipcRenderer.invoke('design:createDataStructure', opts),
+    createTraceLink: (fromUid, toUid, relationType, opts) =>
+      ipcRenderer.invoke('design:createTraceLink', fromUid, toUid, relationType, opts),
+    listTraceLinks: (uid, direction) => ipcRenderer.invoke('design:listTraceLinks', uid, direction),
+    deleteTraceLink: (uid) => ipcRenderer.invoke('design:deleteTraceLink', uid),
+    getTraceSubgraph: (rootUid, maxDepth, relationTypes) =>
+      ipcRenderer.invoke('design:getTraceSubgraph', rootUid, maxDepth, relationTypes),
+    createGlossaryTerm: (opts) => ipcRenderer.invoke('design:createGlossaryTerm', opts),
+    listGlossaryTerms: (opts) => ipcRenderer.invoke('design:listGlossaryTerms', opts),
+    getGlossaryTerm: (uid) => ipcRenderer.invoke('design:getGlossaryTerm', uid),
+    updateGlossaryTerm: (uid, updates) => ipcRenderer.invoke('design:updateGlossaryTerm', uid, updates),
+    deleteGlossaryTerm: (uid) => ipcRenderer.invoke('design:deleteGlossaryTerm', uid),
+    confirmGlossaryTerm: (uid) => ipcRenderer.invoke('design:confirmGlossaryTerm', uid),
+    addSynonym: (glossaryUid, synonymText, synonymKind) =>
+      ipcRenderer.invoke('design:addSynonym', glossaryUid, synonymText, synonymKind),
+    listSynonyms: (glossaryUid) => ipcRenderer.invoke('design:listSynonyms', glossaryUid),
+    deleteSynonym: (uid) => ipcRenderer.invoke('design:deleteSynonym', uid),
+  },
   events: {
     on: (channel, listener) => {
       const wrapped = (_event: Electron.IpcRendererEvent, ...args: unknown[]) =>
