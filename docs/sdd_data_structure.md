@@ -542,7 +542,7 @@ CREATE VIRTUAL TABLE fts_entity_text USING fts5(
 );
 ```
 
-`ON DELETE CASCADE` は、共通台帳の削除に連動して詳細行を消すために採用する。ただし、UIでは誤削除を避けるため、通常操作は `status='deleted'` による論理削除を優先する。`archived` は状態値として採用しない。
+`ON DELETE CASCADE` は、共通台帳の削除に連動して詳細行を消すために採用する。ただし、UIでは誤削除を避けるため、通常操作は `status='deleted'` による論理削除を優先する。
 
 `state_transition.from_state_uid` と `state_transition.to_state_uid` は `ON DELETE RESTRICT` とする。状態を削除すると遷移の意味が壊れるため、先に遷移を削除または変更させる。
 
@@ -602,7 +602,6 @@ exports/manifest/
 
 | 項目 | 内容 | 優先度 |
 | --- | --- | --- |
-| `entity_type` 一覧 | 要求、UC、状態、状態遷移以外の設計要素種別を確定する | 高 |
 | FTS5実装詳細 | MeCab形態素解析結果の登録形式、更新タイミング、検索対象列、辞書管理を定義する | 高 |
 | マイグレーション実装手順 | `schema_version` の `x.x.x` 自動更新、DDL適用順、バックアップ、失敗時ロールバックを定義する | 中 |
 | blob manifest 仕様 | blobの相対パス、ハッシュ、生成元、削除検出方法 | 中 |
