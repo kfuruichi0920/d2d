@@ -8,67 +8,115 @@
 
 ## 2. プロジェクトルート構成
 
+すべての設計データは単一の `project.db` に保存する。DB外の大容量ファイル（原本・画像・表・LLMログ等）は `blobs/` に格納し、テキスト派生出力（差分確認・LLM入力用）は `exports/` に格納する。
+
 ```
 <project_root>/
-├── project.d2d                      # プロジェクト定義ファイル（JSON）
-├── project.db                       # プロジェクト共通 SQLite DB（正本）
+├── project.d2d                    # プロジェクト定義ファイル（JSON）
+├── project.db                     # SQLite DB（正本・全テーブルを単一ファイルで管理）
 │
-├── originals/                       # ①原本データ（改変しない）
-│   └── <original_file_id>/
-│       └── <original_filename>      # 原本ファイルの保管コピー
+├── blobs/                         # DB外バイナリ・大容量ファイル
+│   ├── originals/                 # ①原本ファイルの保管コピー（改変しない）
+│   │   └── <source_document_uid>/
+│   │       └── <original_filename>
+│   ├── extracted/                 # ②PDFページ画像、Office抽出副産物、OCR中間物
+│   ├── figures/                   # ②③ 図・画像・レンダリング結果
+│   ├── tables/                    # ②③ CSV・JSON化した表データ
+│   ├── llm/                       # prompt・completion・評価ログ
+│   └── exports/                   # blob形式の派生成果物（dump等）
 │
-├── extracted/                       # ②抽出データ（原本ファイル単位）
-│   └── <original_file_id>/
-│       ├── extracted.db             # SQLite: extracted_item, extraction_run 等
-│       ├── figures/
-│       │   └── <figure_ref_id>.<ext>
-│       └── tables/
-│           └── <table_ref_id>.csv
+├── exports/                       # テキスト派生出力（Git管理対象）
+│   ├── db_to_text/                # DB to Text 出力（Git diff 主要媒体）
+│   │   ├── entity_registry.jsonl
+│   │   ├── extracted_document.jsonl
+│   │   ├── intermediate_document.jsonl
+│   │   ├── resource_*.jsonl       # 各設計リソーステーブル
+│   │   └── trace_link.jsonl
+│   ├── sqlite_dump/               # SQLite dump（調査・履歴参照用）
+│   │   ├── schema.sql
+│   │   └── data.sql
+│   └── manifest/                  # ZIPアーカイブ生成時・export時に作成（派生成果物）
+│       └── blob_manifest.json
 │
-├── artifacts/                       # ③中間データ（成果物単位）
-│   └── <artifact_id>/
-│       ├── intermediate.db          # SQLite: intermediate_item, doc_node, 詳細テーブル群
-│       ├── chunks.jsonl             # LLM入力用チャンク（派生、再生成可）
-│       ├── figures/
-│       └── tables/
-│
-├── design/                          # ④設計モデル（プロジェクト全体）
-│   ├── design.db                    # SQLite: design_element, design_relation
-│   └── model_text/
-│       └── <element_id>.puml        # PlantUML / SysMLv2 テキスト＋要素ID対応表
-│
-├── db_to_text/                      # DB to Text 派生出力（Git 管理対象）
-│   ├── extracted/
-│   │   └── <original_file_id>/
-│   │       └── items.md
-│   ├── artifacts/
-│   │   └── <artifact_id>/
-│   │       └── document.md
-│   └── design/
-│       ├── elements.md
-│       ├── relations.md
-│       └── trace_matrix.md
-│
-├── logs/                            # ジョブログ・LLMログ（Git 管理外推奨）
+├── logs/                          # ジョブログ・LLMログ（Git 管理外推奨）
 │   ├── jobs/
-│   │   └── <job_id>.jsonl
+│   │   └── <job_uid>.jsonl
 │   └── llm/
-│       └── <llm_run_ref_id>.jsonl
+│       └── <llm_run_ref_uid>.jsonl
 │
-└── archives/                        # ZIP アーカイブ（Git 管理外）
-    └── <artifact_id>_<yyyymmdd_hhmmss>.zip
+└── archives/                      # ZIP アーカイブ（Git 管理外）
+    └── <artifact_name>_<yyyymmdd_hhmmss>.zip
 ```
 
 ---
 
-## 3. project.d2d
+## 3. データ階層とファイル・テーブルの対応
+
+4階層データ（①〜④）がどのファイルおよびテーブルに対応するかを示す。
+
+```mermaid
+flowchart TD
+    subgraph ①原本データ
+        SD["source_document\nsource_location\nblob_resource"]
+        ORIG["blobs/originals/"]
+    end
+
+    subgraph ②抽出データ
+        ED["extracted_document\nextracted_item"]
+        EXBLOB["blobs/extracted/\nblobs/figures/\nblobs/tables/"]
+    end
+
+    subgraph ③中間データ
+        IMD["intermediate_document\nintermediate_item\nchunk / chunk_item"]
+    end
+
+    subgraph ④設計モデル
+        REG["entity_registry\nresource_*\ntrace_link"]
+    end
+
+    subgraph project.db
+        SD
+        ED
+        IMD
+        REG
+    end
+
+    ORIG -->|blob_resource参照| SD
+    EXBLOB -->|blob_resource参照| ED
+
+    SD -->|抽出| ED
+    ED -->|統合・正規化| IMD
+    IMD -->|モデル化| REG
+
+    subgraph exports/
+        DBT["db_to_text/\n（Git差分媒体）"]
+        DUMP["sqlite_dump/\n（調査・復元用）"]
+        MANIF["manifest/\n（blob整合確認用）"]
+    end
+
+    REG -.->|DB to Text| DBT
+    IMD -.->|DB to Text| DBT
+    ED -.->|DB to Text| DBT
+```
+
+| 階層 | テーブル（project.db） | blobs/ | exports/ |
+| -- | --- | --- | --- |
+| ①原本データ | `source_document`、`source_location`、`blob_resource` | `blobs/originals/` | — |
+| ②抽出データ | `extracted_document`、`extracted_item` | `blobs/extracted/`、`blobs/figures/`、`blobs/tables/` | `exports/db_to_text/extracted_document.jsonl` 等 |
+| ③中間データ | `intermediate_document`、`intermediate_item`、`chunk`、`chunk_item` | `blobs/figures/`、`blobs/tables/` | `exports/db_to_text/intermediate_document.jsonl` 等 |
+| ④設計モデル | `entity_registry`、`resource_*`（16種）、`trace_link`、`llm_run_ref` | `blobs/llm/` | `exports/db_to_text/resource_*.jsonl`、`trace_link.jsonl` 等 |
+| 派生成果物 | — | `blobs/exports/` | `exports/sqlite_dump/`、`exports/manifest/` |
+
+---
+
+## 4. project.d2d
 
 プロジェクトを開く起点となるファイル。アプリはこのファイルを開くことでプロジェクトルートを特定し、同一ディレクトリの `project.db` を読み込む。
 
 ```json
 {
   "d2d_version": "1",
-  "project_id": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+  "project_uid": "018fe6c2-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
   "schema_version": "1.0.0",
   "created_at": "2025-01-01T00:00:00Z"
 }
@@ -78,54 +126,63 @@
 
 ---
 
-## 4. SQLite DB のテーブル割り当て
+## 5. SQLite DB のテーブル割り当て
 
-| DB ファイル | 含むテーブル |
+すべてのテーブルを単一の `project.db` に格納する。情報種別ごとに DB ファイルを分けない（詳細は `sdd_data_structure.md` 参照）。
+
+| テーブルグループ | テーブル名 |
 | --- | --- |
-| `project.db` | project, project_setting, artifact_type_def, artifact_name_def, dev_phase_def, original_file, original_location, artifact, trace_subject, trace_link, review_record, review_action, llm_run_ref, glossary_term, term_synonym |
-| `extracted/<original_file_id>/extracted.db` | extraction_run, extracted_item, table_resource, figure_resource, formula_resource |
-| `artifacts/<artifact_id>/intermediate.db` | intermediate_item, intermediate_doc_node, intermediate_title, intermediate_text, intermediate_table, intermediate_table_column, intermediate_table_row, intermediate_table_cell, intermediate_figure, intermediate_model, intermediate_state_transition, intermediate_state, intermediate_event, intermediate_transition, intermediate_state_event_action, intermediate_interface, intermediate_interface_item, intermediate_verification, intermediate_scenario, chunk, chunk_item |
-| `design/design.db` | design_element, design_relation |
-
-分割の方針：プロジェクト共通情報は `project.db` に集約し、データ量が多くなる層別の設計情報は層ごとのDBに分散する。これにより Git diff の粒度を層単位に保てる。
+| プロジェクト管理 | `project`、`project_artifact_setting`、`project_artifact_relation`、`project_dev_phase_setting` |
+| 共通台帳・取込管理 | `entity_registry`、`batch_operation_info` |
+| 原本・blob参照 | `source_document`、`source_location`、`blob_resource` |
+| 抽出データ | `extracted_document`、`extracted_item` |
+| 中間データ | `intermediate_document`、`intermediate_item`、`chunk`、`chunk_item` |
+| 設計リソース（16種） | `resource_label`、`resource_text`、`resource_list`、`resource_figure`、`resource_table`、`resource_formula`、`resource_code`、`resource_model`、`resource_scenario`、`resource_interface`、`resource_state_transition`、`resource_data_structure`、`resource_reference`、`resource_metadata`、`resource_glossary`、`resource_glossary_synonym` |
+| トレース・LLM | `trace_link`、`llm_run_ref` |
 
 ---
 
-## 5. ファイル命名規則
+## 6. ファイル命名規則
 
 | 対象 | 命名規則 | 例 |
 | --- | --- | --- |
-| original_file_id | UUID v4 | `f3a2b1c0-1234-...` |
-| artifact_id | UUID v4 | `a1b2c3d4-5678-...` |
-| 図ファイル | `<figure_ref_id>.<mime拡張子>` | `fig_001.png` |
-| 表ファイル | `<table_ref_id>.csv` | `tbl_001.csv` |
-| ZIP アーカイブ | `<artifact_id>_<yyyymmdd_hhmmss>.zip` | `a1b2..._20250601_120000.zip` |
-| PlantUML テキスト | `<element_id>.puml` | `elem_req_001.puml` |
-| ジョブログ | `<job_id>.jsonl` | `job_abc123.jsonl` |
-| LLM ログ | `<llm_run_ref_id>.jsonl` | `llm_xyz789.jsonl` |
+| エンティティUID（uid） | UUIDv7 形式 TEXT | `018fe6c2-xxxx-7xxx-xxxx-xxxxxxxxxxxx` |
+| 原本保管ディレクトリ | `blobs/originals/<source_document_uid>/` | `blobs/originals/018fe6c2-.../spec.docx` |
+| 図ファイル | `blobs/figures/<blob_uid>.<mime拡張子>` | `blobs/figures/018fxxxx-....png` |
+| 表ファイル | `blobs/tables/<blob_uid>.csv` | `blobs/tables/018fxxxx-....csv` |
+| LLM プロンプトログ | `blobs/llm/<llm_run_ref_uid>_prompt.jsonl` | `blobs/llm/018fxxxx-..._prompt.jsonl` |
+| LLM 結果ログ | `blobs/llm/<llm_run_ref_uid>_result.jsonl` | `blobs/llm/018fxxxx-..._result.jsonl` |
+| DB to Text | `exports/db_to_text/<table_name>.jsonl` | `exports/db_to_text/trace_link.jsonl` |
+| ZIP アーカイブ | `archives/<artifact_name>_<yyyymmdd_hhmmss>.zip` | `archives/req_spec_20250601_120000.zip` |
+| ジョブログ | `logs/jobs/<job_uid>.jsonl` | `logs/jobs/018fxxxx-....jsonl` |
+| LLM ログ（高水準） | `logs/llm/<llm_run_ref_uid>.jsonl` | `logs/llm/018fxxxx-....jsonl` |
+| PlantUML テキスト | `blobs/exports/<element_uid>.puml` | `blobs/exports/018fxxxx-....puml` |
 
 ---
 
-## 6. Git 管理対象と管理外
+## 7. Git 管理対象と管理外
 
 | パス | Git 管理 | 理由 |
 | --- | --- | --- |
 | `project.d2d` | 対象 | プロジェクト定義 |
-| `project.db` | 対象 | 正本データ（バイナリ diff は db_to_text で補完） |
-| `originals/` | 対象 | 原本の同一性追跡 |
-| `extracted/` | 対象 | 抽出結果の変更履歴 |
-| `artifacts/` | 対象 | 中間データの変更履歴 |
-| `design/` | 対象 | 設計モデルの変更履歴 |
-| `db_to_text/` | 対象 | Git diff による変更差分の可読化（主要差分確認媒体） |
+| `project.db` | 対象 | 正本データ（バイナリ diff は `exports/db_to_text/` で補完） |
+| `blobs/originals/` | 対象 | 原本の同一性追跡 |
+| `blobs/figures/` | 対象 | 図・画像の変更履歴 |
+| `blobs/tables/` | 対象 | 表データの変更履歴 |
+| `exports/db_to_text/` | 対象 | Git diff による変更差分の可読化（主要差分確認媒体） |
+| `exports/sqlite_dump/` | 対象 | スキーマ差分・復元補助 |
+| `exports/manifest/` | 対象 | blob整合確認（派生成果物） |
+| `blobs/extracted/` | 管理外（.gitignore 推奨） | 大容量・再生成可能 |
+| `blobs/llm/` | 管理外（.gitignore） | 大容量・機密情報含む可能性 |
+| `blobs/exports/` | 管理外（.gitignore） | 派生成果物・再生成可能 |
 | `logs/` | 管理外（.gitignore） | 大容量・再生成可能 |
 | `archives/` | 管理外（.gitignore） | ZIP は差分比較専用 |
-| `artifacts/*/chunks.jsonl` | 管理外（.gitignore） | 派生成果物・再生成可能 |
 
-SQLite バイナリは diff が読みにくいため、`.gitattributes` で `*.db binary` を指定し、`db_to_text/` の Markdown / JSONL 出力を主な差分確認媒体とする。
+SQLite バイナリは diff が読みにくいため、`.gitattributes` で `*.db binary` を指定し、`exports/db_to_text/` の JSONL 出力を主な差分確認媒体とする。
 
 ---
 
-## 7. アプリ側ソースコードディレクトリ構成
+## 8. アプリ側ソースコードディレクトリ構成
 
 Electron + Vite + TypeScript 構成での推奨ソース構成。
 
@@ -140,10 +197,7 @@ d2d/                               # リポジトリルート
 │   │   │   ├── jobs.ts
 │   │   │   └── settings.ts
 │   │   ├── store/                 # SQLite アクセス層（better-sqlite3）
-│   │   │   ├── project-db.ts
-│   │   │   ├── extracted-db.ts
-│   │   │   ├── intermediate-db.ts
-│   │   │   └── design-db.ts
+│   │   │   └── project-db.ts      # 単一 project.db へのアクセス層
 │   │   ├── jobs/                  # ジョブ管理（キュー・進捗・再実行）
 │   │   ├── workers/               # 外部ワーカー起動・JSONL 通信管理
 │   │   │   ├── worker-host.ts     # stdin/stdout JSONL プロトコル
@@ -196,14 +250,18 @@ d2d/                               # リポジトリルート
 
 ---
 
-## 8. .gitignore / .gitattributes 推奨設定
+## 9. .gitignore / .gitattributes 推奨設定
 
 **.gitignore**
 ```
-# ログ・派生成果物
-**/logs/
-**/archives/
-**/artifacts/*/chunks.jsonl
+# blob派生物・大容量ファイル
+blobs/extracted/
+blobs/llm/
+blobs/exports/
+
+# ログ・アーカイブ
+logs/
+archives/
 
 # ビルド成果物
 dist/
@@ -226,6 +284,7 @@ workers/python/.venv/
 # テキスト正規化
 *.md   text eol=lf
 *.json text eol=lf
+*.jsonl text eol=lf
 *.ts   text eol=lf
 *.py   text eol=lf
 ```
