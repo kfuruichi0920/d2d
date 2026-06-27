@@ -598,11 +598,148 @@ exports/manifest/
 | マイグレーション方針 | `schema_version` は `x.x.x` 形式とし、一番下の桁から自動更新する | 小さな互換変更は下位桁で管理し、破壊的変更だけ上位桁へ進めると運用しやすい | 上位桁を上げる条件、DDL適用順、バックアップ手順は実装設計で定義する |
 | `updated_at` 更新方針 | DBトリガーではなくアプリで自動更新する | 更新責務をアプリ側に集約し、SQLiteトリガーの見落としや移行時の差異を避ける | DBを直接更新する保守ツールも同じ更新規約に従う |
 
-## 10. 次に設計すべき項目
+## 10. 詳細設計補足
 
-| 項目 | 内容 | 優先度 |
+9章で確定した方針に基づき、実装時に迷いやすい `entity_type`、全文検索、マイグレーション、blob manifest、削除操作を以下の通り定義する。
+
+### 10.1 entity_type 一覧
+
+`entity_type` は `entity_registry` 上の種別識別子である。詳細テーブルを持つ主要エンティティは、原則として `entity_type` と詳細テーブルを1対1で対応させる。`project` は最上位管理単位であり、共通台帳登録は可能だが詳細テーブル側から `entity_registry` へFK接続する通常詳細テーブルとは扱いを分ける。整合性はDBトリガーではなくアプリで保証する。
+
+| entity_type | 対応テーブル | code prefix | 役割 | 備考 |
+| --- | --- | --- | --- | --- |
+| `project` | `project` | `PRJ` | プロジェクト | 通常はプロジェクト作成時に1件作成する |
+| `source_document` | `source_document` | `DOC` | 原本ファイル | Word、Excel、PDF等の原本単位 |
+| `source_location` | `source_location` | `LOC` | 原本内位置 | ページ、章節、セル範囲、座標等 |
+| `blob_resource` | `blob_resource` | `BLOB` | DB外ファイル参照 | 原本、画像、表、ログ等の外部ファイル |
+| `extracted_item` | `extracted_item` | `EXT` | 抽出要素 | title/text/table/figure/formula |
+| `table_resource` | `table_resource` | `TBL` | 表リソース | CSV、JSON、SQLite table等 |
+| `requirement` | `requirement` | `REQ` | 要求 | `REQ-000001` 形式 |
+| `use_case` | `use_case` | `UC` | ユースケース | `UC-000001` 形式 |
+| `state_definition` | `state_definition` | `STATE` | 状態 | `STATE-000001` 形式 |
+| `state_transition` | `state_transition` | `TR` | 状態遷移 | `TR-000001` 形式 |
+| `trace_link` | `trace_link` | `TRACE` | トレース関係 | 関係自体も台帳登録する |
+| `llm_run_ref` | `llm_run_ref` | `LLM` | LLM実行参照 | prompt/resultはblob参照 |
+
+`code` は `prefix-000001` の形式とし、6桁ゼロ埋め、欠番許容、再採番禁止とする。採番はアプリ側で行う。同時編集による競合は初期設計では扱わず、人と運用で解消する。
+
+将来、新しい詳細テーブルを追加する場合は、`entity_type` のCHECK制約、code prefix、DB to Text出力対象、FTS対象有無を同じマイグレーションで追加する。
+
+### 10.2 FTS5実装詳細
+
+日本語全文検索は、MeCabで形態素解析した結果を `fts_entity_text.search_text` に登録し、SQLite FTS5で検索する。RAGは初期導入しないため、FTS5は検索画面と参照補助のための索引として扱う。
+
+| 項目 | 設計 |
+| --- | --- |
+| FTSテーブル | `fts_entity_text` |
+| 登録単位 | `entity_registry.uid` 1件につきFTS 1件 |
+| 同期責務 | アプリが作成・更新・削除時に同期する |
+| 削除時の扱い | `status='deleted'` に更新した時点でFTSから除外または検索対象外にする |
+| MeCab入力 | `title`、本文系カラム、条件系カラム、根拠説明を連結した文字列 |
+| MeCab出力 | 表層形または基本形を空白区切りにした検索用テキスト |
+| 辞書 | 初期は標準辞書を使い、専門用語辞書はプロジェクト設定として後から追加可能にする |
+| 更新タイミング | 対象エンティティの本文、タイトル、状態、根拠説明が変わったとき |
+| 検索対象外 | `status='deleted'` のエンティティ、機密ログ、検索不要な一時blob |
+
+FTS登録対象列は以下を初期範囲とする。
+
+| entity_type | 対象列 | FTS用途 |
 | --- | --- | --- |
-| FTS5実装詳細 | MeCab形態素解析結果の登録形式、更新タイミング、検索対象列、辞書管理を定義する | 高 |
-| マイグレーション実装手順 | `schema_version` の `x.x.x` 自動更新、DDL適用順、バックアップ、失敗時ロールバックを定義する | 中 |
-| blob manifest 仕様 | blobの相対パス、ハッシュ、生成元、削除検出方法 | 中 |
-| 削除操作設計 | `status='deleted'` のUI表示、復元可否、物理削除時のblob削除、参照中データ削除ルール | 中 |
+| `entity_registry` | `title` | 共通タイトル検索 |
+| `extracted_item` | `text_content` | 抽出本文検索 |
+| `requirement` | `body_text`, `acceptance_criteria` | 要求本文・条件検索 |
+| `use_case` | `primary_actor`, `precondition_text`, `main_flow_text`, `alternate_flow_text`, `postcondition_text` | ユースケース検索 |
+| `state_definition` | `state_name`, `description`, `invariant_text` | 状態検索 |
+| `state_transition` | `event_text`, `condition_text`, `action_text` | 遷移条件・処理検索 |
+| `trace_link` | `rationale` | 根拠説明検索 |
+
+FTSの再構築は、アプリの保守機能として `entity_registry` と詳細テーブルから全件再生成できるようにする。DBトリガーではなくアプリ同期にすることで、MeCab実行、辞書設定、除外条件をアプリ側に集約する。
+
+### 10.3 マイグレーション実装手順
+
+`project.schema_version` は `x.x.x` 形式とし、通常の互換変更では一番下の桁を自動更新する。例として、`1.0.0` に索引や非破壊的な列を追加する場合は `1.0.1` とする。
+
+| 変更種別 | バージョン更新 | 例 |
+| --- | --- | --- |
+| パッチ変更 | 第3桁を更新 | index追加、CHECK緩和、export項目追加 |
+| 互換的な機能追加 | 第2桁を更新 | 新しい詳細テーブル追加、新しいentity_type追加 |
+| 破壊的変更 | 第1桁を更新 | カラム削除、意味変更、必須制約追加 |
+
+マイグレーション処理順は以下とする。
+
+1. 現在の `schema_version` を読む。
+2. 適用可能なマイグレーションを昇順に決定する。
+3. `project.db` と `blobs/` のmanifestをバックアップする。
+4. `BEGIN IMMEDIATE` でトランザクションを開始する。
+5. DDL、データ補正、索引再作成、FTS再構築を順に実行する。
+6. 整合性チェックを行う。
+7. `schema_version` を一番下の桁から自動更新する。
+8. `COMMIT` する。
+9. DB to Text JSONLを再出力する。
+
+失敗時は `ROLLBACK` し、バックアップから復元できる状態を維持する。マイグレーションログはDB正本には履歴テーブルとして残さず、export/log側の派生成果物として保存する。
+
+整合性チェックは以下を最低限行う。
+
+| チェック | 内容 |
+| --- | --- |
+| FKチェック | `PRAGMA foreign_key_check` を実行する |
+| 台帳整合 | `entity_registry.entity_type` と詳細テーブル存在をアプリで検査する |
+| code重複 | `UNIQUE(entity_type, code)` 違反がないことを確認する |
+| deleted除外 | `status='deleted'` が検索・通常一覧から除外されることを確認する |
+| blob参照 | `blob_resource.relative_path` の存在と `sha256` を確認する |
+| FTS再構築 | FTS件数と対象エンティティ件数の差分を確認する |
+
+### 10.4 blob manifest 仕様
+
+blob manifest はDB外ファイルの検査とGit差分確認のために生成する派生成果物である。DB正本ではない。出力先は `exports/manifest/blob_manifest.json` とする。
+
+manifestは以下の構造とする。
+
+```json
+{
+  "schema_version": "1.0.0",
+  "generated_at": "2026-06-27T00:00:00Z",
+  "project_uid": "018fe6c2-...",
+  "files": [
+    {
+      "blob_uid": "018fe6c2-...",
+      "code": "BLOB-000001",
+      "relative_path": "blobs/originals/spec.docx",
+      "mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "byte_size": 123456,
+      "sha256": "...",
+      "referenced_by": ["DOC-000001"],
+      "exists": true
+    }
+  ]
+}
+```
+
+| 項目 | 内容 |
+| --- | --- |
+| `blob_uid` | `blob_resource.uid` |
+| `code` | `entity_registry.code` |
+| `relative_path` | project root基準の相対パス |
+| `mime_type` | MIME種別 |
+| `byte_size` | ファイルサイズ |
+| `sha256` | ファイル内容ハッシュ |
+| `referenced_by` | 参照元entityのcode配列 |
+| `exists` | manifest生成時点でファイルが存在するか |
+
+manifest生成時は、DBにあるがファイルが存在しないmissing blob、ファイルはあるがDB参照がないorphan blob、ハッシュ不一致のmodified blobを検出する。orphan blobは自動削除せず、保守画面または保守コマンドで確認してから削除する。
+
+### 10.5 削除操作設計
+
+通常の削除操作は物理削除ではなく、`entity_registry.status='deleted'` への更新とする。`archived` は使用しない。
+
+| 操作 | DB処理 | blob処理 | 備考 |
+| --- | --- | --- | --- |
+| 通常削除 | `status='deleted'`, `updated_at` 更新 | 削除しない | 一覧・検索・FTSから除外する |
+| 復元 | `status` を削除前の状態または `draft` に戻す | 変更しない | 復元時にFTSを再登録する |
+| 物理削除 | `entity_registry` を削除し、CASCADEで詳細行を削除 | 参照がなくなったblobのみ候補化 | 保守操作に限定する |
+| blob物理削除 | `blob_resource` 参照とmanifestを確認して削除 | ファイル削除 | orphan確認後に実行する |
+
+通常画面の検索条件では、明示指定がない限り `status <> 'deleted'` を付与する。FTS検索も同じく `deleted` を除外する。DB to Text JSONLは、通常出力では `deleted` を除外し、監査用出力では `deleted` を含めるオプションを持つ。
+
+物理削除時は、`ON DELETE CASCADE` により台帳から詳細テーブルへの孤児行を防ぐ。ただし、状態遷移の状態参照のように意味が壊れる参照は `RESTRICT` を維持し、先に参照元を削除または変更させる。
