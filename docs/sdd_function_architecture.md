@@ -1,0 +1,613 @@
+# 機能構成詳細設計書
+
+## 1. 位置づけ
+
+本書は、D2D の機能種別、機能間のデータ流れ、呼び出し関係、イベント連携を定義する。
+
+---
+
+## 2. 設計方針
+
+本書では、機能を以下の3種類に分けて扱う。
+
+| 区分 | 位置づけ |
+| --- | --- |
+| 基盤機能 | 個別機能や共通機能を動かすためのホスト機能。プロジェクト、設定、ジョブ、成果物、ストア、イベント等を扱う |
+| 共通機能 | 複数の個別機能から横断的に利用される支援機能。トレーサビリティ、履歴・差分参照、LLM、レポート等を扱う |
+| 個別機能 | ①原本、②抽出データ、③中間データ、④設計モデルを生成・編集する主処理機能 |
+
+基盤機能は業務上の設計判断や抽出処理を直接担わず、共通機能および個別機能へ安全なAPI境界を提供する。共通機能と個別機能は、基盤機能を経由して成果物、設計モデル、設定、ログへアクセスする。
+
+Electron 実装上の実行責務は以下の通り分離する。
+
+| 実行層 | 主責務 | 実装上の扱い |
+| --- | --- | --- |
+| Renderer | UI表示、入力操作、表示範囲の要求、進捗表示 | 大量データを保持せず、必要な範囲だけを Backend API に要求する |
+| Main | Electron Shell、OS統合、ファイル選択、RendererとのIPC、Backend起動・停止、Backend接続情報管理 | 業務ロジック、DB検索、文書解析、PlantUML実行、LLM処理を直接実装しない |
+| Local Backend | 業務ロジック、File I/O、`project.db`、`blobs/`、解析、キャッシュ、表示用データ生成、ジョブ実行 | ファイルとDBを直接扱い、Rendererには表示・編集に必要な粒度のデータだけを返す |
+
+基盤機能、共通機能、個別機能は Local Backend 側に配置する。Main は Gateway / Shell として、Renderer からの要求を Local Backend へ中継し、ファイル選択など OS 統合が必要な操作だけを担当する。
+
+API は細かいレコード取得を大量に呼ぶ形にしない。`importDocument(filePath)`、`searchElements(query, paging, sort)`、`getTraceSubgraph(elementId, depth, filters)`、`renderPlantUml(sourceId or textHash)`、`getTableViewport(tableId, range, filters)`、`exportReport(reportId, format)` のように、ユーザー操作単位または表示単位でまとめる。`readLine(filePath, lineNo)`、`getCell(row, col)`、`getNode(nodeId)` / `getEdge(edgeId)` の大量反復呼び出しは禁止する。
+
+---
+
+## 3. 本ツール側の基盤機能
+
+本ツール側の基盤機能は、個別機能を動かすためのホスト機能に限定する。基盤機能は、文書抽出、トレーサビリティ、LLM候補生成、レポート出力のような業務上の処理を直接担わない。機能の有効/無効切替も扱わず、機能登録、プロジェクト、設定、権限、ジョブ、イベント、成果物、ストアへの安全なAPI境界を提供する。
+
+| 基盤機能 | 役割 | 個別機能への提供内容 |
+| --- | --- | --- |
+| 機能管理 | 機能単位の登録、機能種別、入出力、設定、権限、対応schema_versionを管理する | 機能定義の参照、権限チェック、設定参照、schema_version整合確認 |
+| プロジェクト管理 | プロジェクトファイルを開き、利用するプロジェクトを切り替える | project_uid、プロジェクトルート、設定、schema_versionの解決 |
+| 設定管理 | アプリ全体設定とプロジェクト別設定を管理する | APIキー参照、モデル設定、パス、プロキシ、テーマ、ショートカット、外部送信可否の参照 |
+| ジョブ管理 | 長時間処理、進捗、失敗状態、条件付き再実行を扱う | ジョブ起動、進捗通知、ジョブログ保存、再実行条件の保持 |
+| 成果物管理 | ①原本、②抽出データ、③中間データ、ZIPアーカイブ、差分比較用インポートを扱う | `project.db` / `blobs/` の読込・保存、成果物UID解決、ZIP生成、ZIP差分比較用インポート |
+| ストアアクセス管理 | `project.db`、`blobs/`、DB to Text、SQLite dump、関係グラフ索引への安全なアクセスを扱う | 正本データの読込・保存、トランザクション境界、schema_version整合確認、索引更新の呼び出し |
+| LLM実行ログ管理 | LLM実行証跡、プロンプト、応答、入力参照を保存する | `llm_run_ref` 登録、プロンプトログ参照、応答ログ参照、APIキー等の機密情報除外 |
+| イベント通知 | 機能間の疎結合な通知を扱う | 取込完了、抽出完了、成果物更新、設計モデル更新、関係更新等のイベント購読・発行 |
+
+---
+
+## 4. 機能分類
+
+本ツールの機能は、複数の個別機能から横断的に利用される共通機能と、4階層データの生成・編集を担当する個別機能に分ける。Renderer、CLI、Electron Main は、基盤機能 API を経由して成果物、設計モデル、設定、ログへアクセスし、直接ファイルI/OやDB更新を行わない。Local Backend 内の各機能は、ストアアクセス管理を通じて `project.db` と `blobs/` を扱う。
+
+### 4.1 共通機能
+
+共通機能は、複数の個別機能から横断的に利用される支援機能である。
+
+> **共通の基盤機能利用**: 全共通機能は、プロジェクト管理・設定管理・ジョブ管理・成果物管理・ストアアクセス管理・イベント通知を利用する。以下の表では差分のみ記載する。
+
+| 共通機能 | 主責務 | 主な入力 | 主な出力 | 追加で利用する基盤機能 |
+| --- | --- | --- | --- | --- |
+| トレーサビリティ機能 | 台帳登録された設計リソース間の根拠・由来・変換関係、関係クエリ、影響分析を行う | `entity_registry`、`resource_*`、`trace_link`、`llm_run_ref` | 関係クエリ結果、表、階層リスト、表示用サブグラフ、JSON / CSV / Markdown | 必要に応じてLLM実行ログ管理 |
+| 履歴・差分参照機能 | Git履歴、DB to Text、SQLite dump、ZIP差分から変更前後を参照する | Git履歴、DB to Text、SQLite dump、ZIPアーカイブ、②③④成果物 | Diffビュー、差分結果、履歴参照ビュー | ― |
+| LLMプロバイダ機能 | LLMによる候補生成、要約、分類、関係候補生成を提供する | 入力チャンク、プロンプト、プロジェクト設定 | 候補情報、LLM実行参照、プロンプトログ、応答ログ | LLM実行ログ管理 |
+| レポート出力機能 | ②③④から文書風レポート、一覧、関係情報を生成する | ②③④データ、トレース情報、フィルタ条件 | Markdown / HTML レポート | 必要に応じてLLM実行ログ管理 |
+
+### 4.2 個別機能
+
+個別機能は、①〜④の生成・編集を担当する主処理機能である。個別機能同士の連携は、原則として成果物・設計情報・トレース情報・イベントを介して行う。
+
+> **共通の基盤機能利用**: 全個別機能は、プロジェクト管理・設定管理・ジョブ管理・成果物管理・ストアアクセス管理・イベント通知・LLM実行ログ管理（必要時）を利用する。
+
+| 個別機能 | 主責務 | 主な入力 | 主な出力 | 連携する共通機能 |
+| --- | --- | --- | --- | --- |
+| 文書抽出機能 | ①原本ファイル単位の②抽出データを生成する | ①原本データ、抽出設定 | ②抽出データ、抽出ログ、画像リソース | LLMプロバイダ、トレーサビリティ、履歴・差分参照 |
+| 中間データ処理機能 | ②抽出データを成果物単位に統合し③中間データを生成する | ②抽出データ、既存③中間データ、成果物定義 | ③中間データ、チャンク、用語候補、正規化表、図表説明候補 | 設計編集、LLMプロバイダ、トレーサビリティ、履歴・差分参照 |
+| 設計編集機能 | ③中間データおよび④設計モデルの編集、検索、レビュー補助、モデル表現編集を行う | ③中間データ、④設計モデル、用語、レビュー記録 | 更新済み③中間データ、④設計要素・設計関係、PlantUML / SysMLv2テキスト、要素ID対応表 | LLMプロバイダ、トレーサビリティ、履歴・差分参照 |
+
+### 4.3 CLIレイヤー
+
+CLIは独立した機能ではなく、UIと同様のプレゼンテーション層として位置づける。基盤機能の同一 API を経由して共通機能・個別機能を呼び出す。
+
+| 項目 | 内容 |
+| --- | --- |
+| 位置づけ | プレゼンテーション層（UIの代替実行経路） |
+| 利用するAPI | UI と同じ基盤機能 API（プロジェクト管理、ジョブ管理、ストアアクセス管理等） |
+| 利用するプロジェクト・DB・設定 | UI と同一（SRS CLI-008） |
+| 出力形式 | JSON / JSONL / Markdown / CSV / TSV（SRS CLI-007） |
+
+CLIから呼び出し可能な機能は以下である。
+
+| CLI要求 | 対応機能 |
+| --- | --- |
+| CLI-001: 関係性クエリ実行 | トレーサビリティ機能 |
+| CLI-002: 用語抽出 | 中間データ処理機能（用語候補生成） |
+| CLI-003: DB to Text出力 | 履歴・差分参照機能 / 基盤機能（ストアアクセス管理） |
+| CLI-004: ZIPアーカイブ生成 | 基盤機能（成果物管理） |
+| CLI-005: 原本取込・抽出処理 | 文書抽出機能 |
+| CLI-006: LLM候補生成 | LLMプロバイダ機能 |
+
+### 4.4 UI Workbenchレイヤー
+
+UI Workbenchは独立した業務機能ではなく、UI向けのプレゼンテーション層として位置づける。Resource、Editor、View、Command、Selection、Context、Layoutを管理し、基盤機能 API を経由して共通機能・個別機能を呼び出す。
+
+| 項目 | 内容 |
+| --- | --- |
+| 位置づけ | プレゼンテーション層（Workbench 型 UI） |
+| 主な責務 | Resourceを開く、Editor/Viewを表示する、Commandを実行する、Selection/Contextを管理する、Layoutを保存・復元する |
+| 利用するAPI | UI と同じ基盤機能 API（プロジェクト管理、ジョブ管理、ストアアクセス管理、設定管理等） |
+| 状態連携 | Selection、Context、Eventを介して、Editor、Side Bar、Panel、Status Barを同期する |
+| 対象設計書 | `sdd_ui_design.md` |
+
+UI Workbenchは、文書抽出、トレーサビリティ、LLM候補生成、レポート出力のような業務処理を直接実装しない。各操作はCommandとして定義し、基盤機能 API を通じて処理を実行する。
+
+---
+
+## 5. データ流れ
+
+### 5.1 主要データフロー
+
+```mermaid
+flowchart TD
+    Source[(①原本データ)]
+    Extracted[(②抽出データ\n原本ファイル単位)]
+    IntermediateData[(③中間データ\n成果物単位)]
+    DesignModel[(④設計モデル\n設計要素・設計関係)]
+
+    Importer[文書抽出機能]
+    Intermediate[中間データ処理機能]
+    DesignEdit[設計編集機能]
+    Trace[トレーサビリティ機能]
+    Report[レポート出力機能]
+
+    Source --> Importer
+    Importer --> Extracted
+    Extracted --> Intermediate
+    Intermediate --> IntermediateData
+    IntermediateData --> DesignEdit
+    DesignEdit --> IntermediateData
+    DesignEdit --> DesignModel
+    Extracted -.根拠・由来.-> Trace
+    IntermediateData -.根拠・由来.-> Trace
+    DesignModel -.設計関係.-> Trace
+    Extracted --> Report
+    IntermediateData --> Report
+    DesignModel --> Report
+```
+
+| データ流れ | ルール |
+| --- | --- |
+| ①原本データから②抽出データ | 文書抽出機能が、原本ファイル単位で②抽出データを生成する |
+| ②抽出データから③中間データ | 中間データ処理機能が、②抽出データを入力として、成果物単位に統合・整理した③中間データを生成する |
+| ③中間データの編集 | 設計編集機能が、③中間データ上の図、表、モデル、シナリオ、IF、状態遷移等を編集する |
+| ③中間データから④設計モデル | 設計編集機能または中間データ処理機能が、③中間データの設計内容を根拠として④設計モデル候補を作成し、人間レビュー後に④正本へ反映する |
+| ②〜④のID付与 | ②抽出データ、③中間データ、④設計モデルの情報単位にはIDを付与し、トレース分析とDB to Text出力の対象にする |
+| 設計意味関係 | ④設計モデル上の意味関係も、台帳登録された `resource_*` 間の `trace_link` として扱う |
+| 根拠・由来・変換関係 | 原本、②抽出データ、③中間データ、④設計モデル間の根拠・由来・変換関係は、`entity_registry` に登録された設計リソース間の `trace_link` として扱う。`extracted_item` と `intermediate_item` は文書構成JSON内要素とリソースの対応管理であり、トレース端点にはしない |
+
+### 5.2 正本と派生成果物
+
+| 対象 | 正本/派生 | 扱い |
+| --- | --- | --- |
+| ②抽出データ | 正本 | `project.db` の抽出系テーブルと `blobs/` 配下の画像・抽出副産物として保存する |
+| ③中間データ | 正本 | `project.db` の中間データ系テーブルと `blobs/` 配下の関連ファイルとして保存する |
+| ④設計モデル | 正本 | `entity_registry` と `resource_*` 詳細テーブル、`trace_link` を中心に `project.db` へ保存し、大容量データは `blobs/` に分離する |
+| manifest.json | 派生成果物 | ZIPアーカイブ生成時のみ作成する |
+| DB to Text | 派生成果物または一時成果物 | ②③④に共通する差分表示、LLM入力、Git履歴確認用の出力とする |
+| SQLite dump | 派生成果物または一時成果物 | 差分表示、履歴参照、調査用に生成する |
+| 関係グラフ索引 | 索引または派生成果物 | `trace_link` を元に、関係探索、影響分析、可視化用に生成する |
+| change_history_view | 派生ビュー | DB正本に永続化せず、Git、DB to Text、SQLite dump等から生成する |
+
+---
+
+## 6. 呼び出し関係
+
+```mermaid
+flowchart TD
+    Host[本ツール側基盤機能]
+
+    Importer[文書抽出機能]
+    Intermediate[中間データ処理機能]
+    DesignEdit[設計編集機能]
+    Trace[トレーサビリティ機能]
+    History[履歴・差分参照機能]
+    LLM[LLMプロバイダ機能]
+    Report[レポート出力機能]
+
+    Host -.基盤API.-> Importer
+    Host -.基盤API.-> Intermediate
+    Host -.基盤API.-> DesignEdit
+    Host -.基盤API.-> Trace
+    Host -.基盤API.-> History
+    Host -.基盤API.-> LLM
+    Host -.基盤API.-> Report
+
+    Intermediate -.必要時に編集機能を利用.-> DesignEdit
+    Report -.トレース情報取得.-> Trace
+    Report -.履歴差分参照.-> History
+
+    Importer -.候補生成.-> LLM
+    Intermediate -.候補生成.-> LLM
+    DesignEdit -.候補生成.-> LLM
+    Trace -.候補生成.-> LLM
+    Report -.要約候補生成.-> LLM
+
+    Importer -.差分参照.-> History
+    Intermediate -.差分参照.-> History
+    DesignEdit -.差分参照.-> History
+    Trace -.差分参照.-> History
+
+    Importer -.ID解決.-> Trace
+    Intermediate -.ID解決.-> Trace
+    DesignEdit -.ID解決.-> Trace
+    History -.ID解決.-> Trace
+```
+
+| 呼び出し関係 | ルール |
+| --- | --- |
+| 基盤API境界 | 各個別機能は、本ツール側基盤機能を経由して成果物、設計モデル、設定、ログへアクセスする |
+| 中間データ処理から設計編集 | 中間データ処理機能は、③中間データを生成・整理する過程で、必要に応じて設計編集機能を呼び出せる |
+| LLMプロバイダの横断利用 | LLMプロバイダ機能は、各機能から候補生成用途で呼び出せる。LLM出力は候補であり、②③④の正本を直接更新しない |
+| 履歴・差分参照の横断利用 | 履歴・差分参照機能は、Git履歴、DB to Text、SQLite dump、ZIPアーカイブを用いて変更前、特定時点、時点間差分を参照する |
+| トレーサビリティの横断利用 | トレーサビリティ機能は、②抽出データ、③中間データ、④設計モデルの情報単位IDを対象に、関係表示、関係クエリ、影響分析を実行する |
+| レポート出力 | レポート出力機能は、②抽出データ、③中間データ、④設計モデル、トレース情報、履歴差分を対象に、Markdown / HTML を生成する |
+
+---
+
+## 7. 禁止事項
+
+| 禁止事項 | 理由 |
+| --- | --- |
+| 文書抽出機能が③中間データまたは④設計モデルを直接更新すること | ②抽出データ、③中間データ、④設計モデルの責務を分離するため |
+| 中間データ処理機能が文書抽出機能の実装に依存すること | ②抽出データの成果物契約だけで処理できるようにするため |
+| LLMプロバイダ機能が②/③/④の正本を直接更新すること | LLM出力は候補であり、人間レビュー前に確定させないため |
+| トレーサビリティ機能が設計要素や中間データ本文を直接編集すること | トレースはID間の根拠・由来・関係管理と分析を行う機能であり、各データ階層の編集責務ではないため |
+| 履歴・差分参照機能が `project.db`、`blobs/`、DB to Text出力の元データを直接上書きすること | 履歴・差分参照は比較・参照機能であり、正本成果物の更新責務を持たないため |
+| 通常保存時にmanifestを正本として更新すること | manifestはZIPアーカイブ生成時またはexport時に作成する派生成果物であるため |
+| `change_history` をDB正本として永続化すること | 変更履歴はDB to Text、SQLite dump、Git log、Git diff等から派生表示するため |
+
+---
+
+## 8. 代表的な処理フロー
+
+各シーケンス図のライフラインは §2 の実行層定義に従う。データライフラインとして①〜④の各データ階層を明示する。
+
+### 8.1 プロジェクトファイルを開く
+
+```mermaid
+sequenceDiagram
+    participant UI as Renderer
+    participant Main as Main
+    participant Host as Local Backend
+    participant Project as プロジェクト管理
+    participant Source as ①原本データ
+    participant Extracted as ②抽出データ
+    participant IntermediateData as ③中間データ
+    participant DesignModel as ④設計モデル
+    participant Trace as トレーサビリティ機能
+    participant History as 履歴・差分参照機能
+    participant LLM as LLMプロバイダ機能
+
+    UI->>Main: プロジェクトファイルを開く
+    Main->>Host: Backend起動確認、プロジェクトを開く要求
+    Host->>Project: project_uid、root_path、schema_version、設定を読み込む
+    Project-->>Host: プロジェクト情報
+    Host->>Source: ①原本データの登録状態を確認
+    Host->>Extracted: ②抽出データの成果物状態を確認
+    Host->>IntermediateData: ③中間データの成果物状態を確認
+    Host->>DesignModel: ④設計モデルと関係索引を確認
+    Host->>Trace: entity_registry、resource_*、trace_linkの索引を確認
+    Host->>History: Git履歴、DB to Text、SQLite dump、ZIP差分参照対象を確認
+    Host->>LLM: プロジェクト単位の外部送信可否を確認
+    Host-->>Main: プロジェクト状態、警告、利用可能ビュー
+    Main-->>UI: 表示用データだけを返す
+```
+
+### 8.2 原本から②抽出データを生成する
+
+```mermaid
+sequenceDiagram
+    participant UI as Renderer
+    participant Main as Main
+    participant Host as Local Backend
+    participant Source as ①原本データ
+    participant Extracted as ②抽出データ
+    participant Importer as 文書抽出機能
+    participant LLM as LLMプロバイダ機能
+    participant Trace as トレーサビリティ機能
+
+    UI->>Main: 原本ファイルを指定して抽出ジョブ開始
+    Main->>Host: ファイルパスと抽出条件を渡してジョブ開始
+    Host->>Source: 原本ファイル、ハッシュ、原本リソースUIDを登録または確認
+    Host->>Importer: ①原本データの抽出を依頼
+    Importer->>Source: 原本内容と位置情報を取得
+    Importer-->>Host: ルールベース抽出結果候補
+    Host-->>Main: 表示用候補データ
+    Main-->>UI: 候補を表示
+    opt LLM候補生成を利用する場合
+        Importer->>LLM: 見出し判定、読み順、抽出補助を依頼
+        LLM-->>Importer: LLM候補、根拠、ログ参照
+        Importer-->>Host: LLM候補
+        Host-->>Main: 表示用候補データ
+        Main-->>UI: LLM候補を表示
+    end
+    UI->>Main: 抽出結果の採用、修正、棄却を確定
+    Main->>Host: 確定内容を渡す
+    Host->>Extracted: ②抽出データをproject.dbとblobsへ保存
+    Host->>Trace: 原本リソースと抽出リソースの trace_link を登録
+    Host-->>Main: extraction.completed、警告、レビュー結果
+    Main-->>UI: 進捗と表示用結果を返す
+```
+
+### 8.3 ②抽出データから③中間データを生成する
+
+```mermaid
+sequenceDiagram
+    participant UI as Renderer
+    participant Main as Main
+    participant Host as Local Backend
+    participant Extracted as ②抽出データ
+    participant IntermediateData as ③中間データ
+    participant Intermediate as 中間データ処理機能
+    participant DesignEdit as 設計編集機能
+    participant LLM as LLMプロバイダ機能
+    participant Trace as トレーサビリティ機能
+
+    UI->>Main: ②抽出データを指定して③生成ジョブ開始
+    Main->>Host: 対象UIDと生成条件を渡してジョブ開始
+    Host->>Extracted: ②抽出データ、画像、blob参照をproject.dbから取得
+    Host->>Intermediate: ②抽出データから③中間データ生成を依頼
+    Intermediate->>Extracted: 原本ファイル単位の抽出結果を取得
+    Intermediate-->>Host: ③中間データ候補
+    Host-->>Main: 表示用候補データ
+    Main-->>UI: ③中間データ候補を表示
+    opt LLM候補生成を利用する場合
+        Intermediate->>LLM: チャンク生成、用語抽出、表正規化、図表説明候補を依頼
+        LLM-->>Intermediate: LLM候補、根拠、ログ参照
+        Intermediate-->>Host: LLM候補
+        Host-->>Main: 表示用候補データ
+        Main-->>UI: LLM候補を表示
+    end
+    opt 設計編集機能を利用する場合
+        Intermediate->>DesignEdit: 図、表、モデル、シナリオ、IF、状態遷移の編集機能を呼び出し
+        DesignEdit-->>Host: 編集候補
+        Host-->>Main: 表示用候補データ
+        Main-->>UI: 編集候補を表示
+    end
+    UI->>Main: ③中間データの採用、修正、棄却を確定
+    Main->>Host: 確定内容を渡す
+    Host->>IntermediateData: ③中間データをproject.dbとblobsへ保存
+    Host->>Trace: 抽出リソースと中間リソースの trace_link を登録
+    Host-->>Main: intermediate.updated、レビュー結果
+    Main-->>UI: 進捗と表示用結果を返す
+```
+
+### 8.4 ③中間データから④設計モデルを編集する
+
+```mermaid
+sequenceDiagram
+    participant UI as Renderer
+    participant Main as Main
+    participant Host as Local Backend
+    participant IntermediateData as ③中間データ
+    participant DesignModel as ④設計モデル
+    participant DesignEdit as 設計編集機能
+    participant LLM as LLMプロバイダ機能
+    participant Trace as トレーサビリティ機能
+
+    UI->>Main: ③中間データを指定して④設計モデル編集を開始
+    Main->>Host: 対象UIDと表示条件を渡す
+    Host->>IntermediateData: ③中間データ、成果物ID、章構成、根拠リンクを取得
+    UI->>Main: 設計要素、関係、図、表、状態遷移等の編集操作
+    Main->>Host: 編集操作を転送
+    Host->>DesignEdit: 編集内容を検証し候補を生成
+    DesignEdit-->>Host: ④設計モデル候補
+    Host-->>Main: 表示用候補データ
+    Main-->>UI: ④設計モデル候補を表示
+    opt LLM候補生成を利用する場合
+        DesignEdit->>LLM: 要素分類、関係候補、レビュー補助を依頼
+        LLM-->>DesignEdit: LLM候補、根拠、ログ参照
+        DesignEdit-->>Host: LLM候補
+        Host-->>Main: 表示用候補データ
+        Main-->>UI: LLM候補を表示
+    end
+    DesignEdit->>Trace: ②〜④の情報単位ID間の関係候補を確認
+    Trace-->>DesignEdit: 既存関係、影響範囲、未接続ID
+    UI->>Main: ④設計要素、設計関係の採用、修正、棄却を確定
+    Main->>Host: 確定内容を渡す
+    Host->>DesignModel: ④設計リソースと関係をentity_registry、resource_*、trace_linkへ保存
+    Host->>Trace: 中間リソースと設計リソースの trace_link を登録
+    Host-->>Main: design_model.updated、relation.updated
+    Main-->>UI: 更新結果と必要範囲の再取得指示を返す
+```
+
+### 8.5 トレース分析
+
+```mermaid
+sequenceDiagram
+    participant UI as Renderer
+    participant Main as Main
+    participant Trace as トレーサビリティ機能
+    participant Extracted as ②抽出データ
+    participant IntermediateData as ③中間データ
+    participant DesignModel as ④設計モデル
+    participant History as 履歴・差分参照機能
+    participant LLM as LLMプロバイダ機能
+
+    UI->>Main: getTraceSubgraph(rootUid, depth, filters)を要求
+    Main->>Trace: 情報単位UID、関係種別、方向、探索深さを指定
+    Trace->>Extracted: ②抽出データIDと根拠リンクを取得
+    Trace->>IntermediateData: ③中間データIDと章構成を取得
+    Trace->>DesignModel: ④設計モデルIDと設計関係を取得
+    Trace->>History: 指定時点または変更前後の関係差分を確認
+    History-->>Trace: 関係差分、派生履歴ビュー
+    opt LLM候補生成を利用する場合
+        Trace->>LLM: 未接続ID、影響範囲、関係候補の補助を依頼
+        LLM-->>Trace: 候補、根拠、ログ参照
+    end
+    Trace-->>Main: 表示用サブグラフ、表、階層リスト、JSON / CSV / Markdown
+    Main-->>UI: 表示用データだけを返す
+```
+
+### 8.6 レポート作成
+
+```mermaid
+sequenceDiagram
+    participant UI as Renderer
+    participant Main as Main
+    participant Host as Local Backend
+    participant Extracted as ②抽出データ
+    participant IntermediateData as ③中間データ
+    participant DesignModel as ④設計モデル
+    participant Trace as トレーサビリティ機能
+    participant History as 履歴・差分参照機能
+    participant LLM as LLMプロバイダ機能
+    participant Report as レポート出力機能
+
+    UI->>Main: exportReport(reportId, format, filters)を要求
+    Main->>Host: レポート対象、出力範囲、フィルタ条件、出力形式を指定
+    Host->>Extracted: ②抽出データの原本由来情報、章節、段落、図表を取得
+    Host->>IntermediateData: ③中間データの自然言語本文、章構成、表、図、シナリオを取得
+    Host->>DesignModel: ④設計モデルの要素、関係を取得
+    Host->>Trace: 関係クエリ、影響分析結果を取得
+    Host->>History: 必要に応じて指定時点、変更前後、時点間差分を取得
+    Host->>Report: 取得済み情報を渡してレポート生成を依頼
+    opt LLM要約を利用する場合
+        Report->>LLM: 要約、説明文、レビュー補助文の候補生成を依頼
+        LLM-->>Report: 候補、根拠、ログ参照
+    end
+    Report->>Host: Markdown / HTML レポート成果物を保存要求
+    Host-->>Main: レポート作成完了、出力先、警告
+    Main-->>UI: 完了状態を返す
+```
+
+### 8.7 ZIPアーカイブ生成と差分比較用インポート
+
+```mermaid
+sequenceDiagram
+    participant UI as Renderer
+    participant Main as Main
+    participant Host as Local Backend
+    participant Artifact as 成果物管理
+    participant History as 履歴・差分参照機能
+
+    UI->>Main: ZIPアーカイブ生成を要求
+    Main->>Host: ZIP生成ジョブを開始
+    Host->>Artifact: 対象データ階層、project.db、blobs、schema_versionを指定
+    Artifact->>Artifact: manifest.jsonを生成
+    Artifact-->>Host: ZIPアーカイブを作成
+    Host-->>Main: ZIP生成結果
+    Main-->>UI: ZIP生成結果を表示
+
+    UI->>Main: ZIPアーカイブを差分比較用にインポート
+    Main->>Host: ZIPインポートジョブを開始
+    Host->>Artifact: ZIPを一時領域へ展開しmanifestを検査
+    Artifact-->>History: 比較対象として展開結果を渡す
+    History-->>Main: 現在データとの差分
+    Main-->>UI: 差分表示用データを返す
+```
+
+---
+
+## 9. イベント連携
+
+| イベント | 発行元 | 主な購読先 | 用途 |
+| --- | --- | --- | --- |
+| `project.opened` | プロジェクト管理 | Renderer、各機能 | プロジェクトファイル読込完了通知 |
+| `source.imported` | 文書抽出機能 | Local Backend、Renderer | 原本取込完了通知 |
+| `extraction.completed` | 文書抽出機能 | Local Backend、Renderer、トレーサビリティ機能、履歴・差分参照機能 | ②抽出データ生成通知 |
+| `artifact.updated` | Local Backend | Renderer、中間データ処理機能、トレーサビリティ機能、履歴・差分参照機能 | `project.db` / `blobs/` 更新通知、差分参照対象の更新通知 |
+| `intermediate.updated` | 中間データ処理機能 | Local Backend、Renderer、トレーサビリティ機能、履歴・差分参照機能 | ③中間データ更新通知 |
+| `design_model.updated` | 設計編集機能 | Renderer、トレーサビリティ機能、履歴・差分参照機能 | ④設計モデル更新通知 |
+| `relation.updated` | 設計編集機能、トレーサビリティ機能 | Renderer、履歴・差分参照機能 | ②〜④の情報単位ID間の関係更新通知 |
+| `llm.candidate.generated` | LLMプロバイダ機能 | Renderer、候補生成元の機能 | LLM候補生成通知 |
+| `archive.created` | 成果物管理 | Renderer、履歴・差分参照機能 | ZIPアーカイブ生成通知 |
+| `archive.imported` | 成果物管理 | Renderer、履歴・差分参照機能 | ZIPアーカイブの差分比較用インポート通知 |
+| `report.generated` | レポート出力機能 | Renderer、成果物管理 | Markdown / HTML レポート生成通知 |
+
+---
+
+## 10. 拡張時のルール
+
+| ID | ルール |
+| --- | --- |
+| FUNC-020 | 新しい機能は、対応する機能種別、入力、出力、発行イベント、購読イベントを設計書に定義すること |
+| FUNC-021 | 個別機能は、本ツール側基盤機能を経由して成果物、設計モデル、設定、ログへ安全なAPI境界を通じてアクセスすること |
+| FUNC-022 | 設計モデルまたはトレースを更新する機能は、更新対象、根拠リンク、レビュー記録、差分確認の扱いを定義すること |
+| FUNC-023 | LLMを利用する機能は、LLM出力が候補であり、正本を直接更新しないことを明示すること |
+| FUNC-024 | 新しい関係種別を追加する場合は、既存5種で表現できない理由、UI表示、検索・分析での利用目的、レビュー手順を定義すること |
+| FUNC-025 | 機能間の新しい直接連携を追加する場合は、成果物、設計情報、トレース情報を介した疎結合で表現できない理由を設計書に明記すること |
+| FUNC-026 | 新しい派生成果物を追加する場合は、正本、派生成果物、索引、キャッシュ、一時ファイルのいずれかを明示すること |
+| FUNC-027 | 通常保存領域に正本ではない説明ファイルを追加する場合は、manifestとの重複管理にならない理由を明記すること |
+
+---
+
+## 11. 外部ワーカーインタフェース
+
+外部ワーカー（Node.js / Python / Rust / Go 等）は、Local Backend のジョブ管理からサブプロセスとして起動される。通信は stdin / stdout を用いた改行区切りJSON（JSONL形式）で行う。ワーカーは原則として結果を stdout または一時出力で返し、正本更新は Local Backend のストアアクセス管理が行う。大量読込が必要なワーカーに限り、ジョブ管理が許可した入力ファイルまたは読み取り専用DBスナップショットを直接読むことができる。
+
+### 11.1 入力仕様（stdin → ワーカー）
+
+ジョブ管理はジョブ起動時に以下の JSON を1行（改行終端）でワーカーの stdin へ送信する。
+
+```json
+{
+  "job_id":      "string",
+  "project_uid": "string",
+  "worker_name": "string",
+  "command":     "string",
+  "parameters":  {},
+  "auth": {
+    "api_key_ref": "string"
+  }
+}
+```
+
+| フィールド | 内容 |
+| --- | --- |
+| job_id | ジョブ管理が発行する一意ID |
+| project_uid | 対象プロジェクトUID |
+| worker_name | ワーカー識別名（設定で登録済みであること） |
+| command | ワーカー内のサブコマンド名 |
+| parameters | コマンド固有のパラメータ（JSON オブジェクト） |
+| auth.api_key_ref | APIキーの参照キー（実際のAPIキーは含まない。ワーカーが基盤機能に問い合わせて解決する） |
+
+### 11.2 出力仕様（ワーカー → stdout）
+
+ワーカーは以下の3種類の JSON を改行区切りで stdout へ出力する。
+
+**進捗イベント**
+```json
+{ "type": "progress", "job_id": "string", "percent": 0, "message": "string" }
+```
+
+**完了結果**
+```json
+{
+  "type":       "result",
+  "job_id":     "string",
+  "status":     "success | failed | partial",
+  "output":     {},
+  "output_ref": "path/to/output/file"
+}
+```
+
+**エラー**
+```json
+{
+  "type":       "error",
+  "job_id":     "string",
+  "error_code": "string",
+  "message":    "string",
+  "detail":     "string"
+}
+```
+
+| フィールド | 内容 |
+| --- | --- |
+| status | `success`（正常完了）/ `failed`（失敗）/ `partial`（一部完了） |
+| output | 小さな結果データをインラインで返す場合に利用 |
+| output_ref | 大きな出力はファイルパスで返し、基盤機能が読み取る |
+| error_code | 障害分類コード（ワーカーごとに定義） |
+
+### 11.3 制約
+
+| 制約 | 内容 |
+| --- | --- |
+| 機密情報 | ワーカー入力にAPIキーの実値を含めない。`api_key_ref` を基盤機能に問い合わせて解決する |
+| 正本更新 | ワーカーは `project.db` や `blobs/` の正本を直接更新しない。出力を Local Backend（ストアアクセス管理）に渡して更新させる |
+| 入出力形式の明確化 | 各ワーカーは `worker_name`、対応 `command` 一覧、`parameters` スキーマ、`output` スキーマを設計書に定義すること（SRS NFR-032） |
+
+---
+
+## 12. 要求・データ構造との対応
+
+| 正本側の要求・設計 | 本書での対応 |
+| --- | --- |
+| `CORE-001` | 機能管理を、機能単位の登録・契約・設定・権限管理として定義 |
+| `CORE-011` | 起動時フローを、プロジェクトファイルを開く方式に統一 |
+| `CORE-020〜024` | 各生成・更新処理をジョブ管理経由で実行する設計に反映 |
+| `CORE-030〜032` | イベント連携を `project.opened`、`extraction.completed`、`intermediate.updated` 等として定義 |
+| `DATA-001〜009` | ②抽出データ、③中間データを `project.db` / `blobs/` とZIPアーカイブ対象として扱う |
+| `DATA-010〜011` | ④設計モデルを `entity_registry`、`resource_*`、`trace_link` として `project.db` に保存し、関係探索には `trace_link` 由来の関係グラフ索引を利用可能とする |
+| `DATA-020〜024` | DB to Textを②③④共通の派生成果物または一時成果物として扱う |
+| `DATA-030〜033` | ZIP生成時のみmanifestを作成し、差分比較用インポートを履歴・差分参照機能で扱う |
+| `sdd_data_structure.md` の `entity_registry` / `resource_*` | 設計リソースの共通台帳と詳細情報として扱う |
+| `sdd_data_structure.md` の `trace_link` | 台帳登録されたリソース間の根拠・由来・変換関係として扱う |
+| `sdd_data_structure.md` の `llm_run_ref` | LLM候補生成の実行証跡として扱う |
+| `sdd_data_structure.md` の `change_history_view` | DB正本ではなく派生ビューとして履歴・差分参照機能が扱う |
+| `CLI-001〜008` | §4.3 CLIレイヤーとして、基盤機能 API 経由で各機能を呼び出す設計に反映 |
+| `NFR-032` | §11（外部ワーカーインタフェース）として、stdin/stdout JSONL プロトコルを定義 |
