@@ -63,18 +63,25 @@ export function runPythonWorker(
 
     let proc: ChildProcess
 
+    // UTF-8 強制（Windows の CP932 デフォルト回避）
+    const utf8Env = {
+      ...process.env,
+      PYTHONIOENCODING: 'utf-8',
+      PYTHONUTF8: '1',
+    }
+
     if (is.dev) {
       if (!existsSync(workerPath)) {
         reject(new Error(`Python worker script not found: ${workerPath}`))
         return
       }
-      proc = spawn(getPythonBin(), [workerPath], { stdio: ['pipe', 'pipe', 'pipe'] })
+      proc = spawn(getPythonBin(), [workerPath], { stdio: ['pipe', 'pipe', 'pipe'], env: utf8Env })
     } else {
       if (!existsSync(workerPath)) {
         reject(new Error(`Python worker executable not found: ${workerPath}`))
         return
       }
-      proc = spawn(workerPath, [], { stdio: ['pipe', 'pipe', 'pipe'] })
+      proc = spawn(workerPath, [], { stdio: ['pipe', 'pipe', 'pipe'], env: utf8Env })
     }
 
     // リクエストを stdin に送信

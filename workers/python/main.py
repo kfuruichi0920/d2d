@@ -4,8 +4,13 @@ stdin から JSON を1行受け取り、コマンドを実行して
 stdout に JSONL で progress / success / error を出力する。
 """
 
+import io
 import json
 import sys
+
+# Windows の CP932 デフォルトを UTF-8 に強制
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+sys.stdin  = io.TextIOWrapper(sys.stdin.buffer,  encoding='utf-8', errors='replace')
 
 from commands import extract_word, extract_excel, extract_powerpoint, extract_visio, extract_pdf, extract_text
 
