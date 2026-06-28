@@ -14,6 +14,11 @@ export type ViewId =
   | 'llm-prompts'
   | 'jobs'
   | 'settings'
+  | 'reports'
+  | 'git'
+  | 'store-browser'
+  | 'plantuml'
+  | 'licenses'
 
 export interface Tab {
   id: string
@@ -132,4 +137,9 @@ export const VIEW_META: Record<ViewId, { label: string }> = {
   'llm-prompts': { label: 'プロンプト管理' },
   jobs: { label: 'ジョブ' },
   settings: { label: '設定' },
+  reports: { label: 'レポート' },
+  git: { label: 'Git' },
+  'store-browser': { label: 'ストア' },
+  plantuml: { label: 'PlantUML' },
+  licenses: { label: 'ライセンス' },
 }

@@ -14,6 +14,11 @@ const LlmLogPage = lazy(() => import('../../pages/LlmLogPage').then(m => ({ defa
 const LlmPromptsPage = lazy(() => import('../../pages/LlmPromptsPage').then(m => ({ default: m.LlmPromptsPage })))
 const JobsView = lazy(() => import('./views/JobsView').then(m => ({ default: m.JobsView })))
 const SettingsView = lazy(() => import('./views/SettingsView').then(m => ({ default: m.SettingsView })))
+const ReportsPage = lazy(() => import('../../pages/ReportsPage'))
+const GitPage = lazy(() => import('../../pages/GitPage'))
+const StoreBrowserPage = lazy(() => import('../../pages/StoreBrowserPage'))
+const PlantUmlPage = lazy(() => import('../../pages/PlantUmlPage'))
+const LicensesPage = lazy(() => import('../../pages/LicensesPage'))
 
 function ViewContent({ viewId }: { viewId: ViewId }): React.JSX.Element {
   switch (viewId) {
@@ -29,6 +34,11 @@ function ViewContent({ viewId }: { viewId: ViewId }): React.JSX.Element {
     case 'llm-prompts': return <LlmPromptsPage />
     case 'jobs': return <JobsView />
     case 'settings': return <SettingsView />
+    case 'reports': return <ReportsPage />
+    case 'git': return <GitPage />
+    case 'store-browser': return <StoreBrowserPage />
+    case 'plantuml': return <PlantUmlPage />
+    case 'licenses': return <LicensesPage />
   }
 }
 

@@ -59,6 +59,52 @@ function useCommands(): Command[] {
           }
         },
       },
+      {
+        id: 'reports:saveMarkdown',
+        label: 'レポート: Markdown 保存',
+        description: 'exports/reports/ に Markdown レポートを保存',
+        action: async () => {
+          try {
+            const path = await window.api.reports.saveMarkdown()
+            alert(`保存完了: ${path}`)
+          } catch (e) { alert(`エラー: ${e}`) }
+        },
+      },
+      {
+        id: 'git:commit',
+        label: 'Git: 全変更をコミット',
+        description: 'git add . && git commit',
+        action: async () => {
+          const msg = prompt('コミットメッセージ:')
+          if (!msg) return
+          try {
+            const hash = await window.api.git.commit(msg, true)
+            alert(`コミット: ${hash}`)
+          } catch (e) { alert(`エラー: ${e}`) }
+        },
+      },
+      {
+        id: 'licenses:save',
+        label: 'ライセンス一覧を保存',
+        description: '依存ライブラリのライセンス一覧をエクスポート',
+        action: async () => {
+          try {
+            const path = await window.api.system.saveLicenses()
+            if (path) alert(`保存完了: ${path}`)
+          } catch (e) { alert(`エラー: ${e}`) }
+        },
+      },
+      {
+        id: 'settings:export',
+        label: '設定をエクスポート',
+        description: '設定ファイルを JSON でエクスポート',
+        action: async () => {
+          try {
+            const path = await window.api.settings.exportToFile()
+            if (path) alert(`保存完了: ${path}`)
+          } catch (e) { alert(`エラー: ${e}`) }
+        },
+      },
     ]
   }, [openTab])
 }

@@ -4,6 +4,7 @@ import { useWorkbenchStore, type ViewId, VIEW_META } from '../../stores/workbenc
 const EXPLORER_VIEWS: ViewId[] = ['sources', 'extraction', 'intermediate', 'design', 'glossary']
 const TRACE_VIEWS: ViewId[] = ['trace-matrix', 'trace-graph']
 const LLM_VIEWS: ViewId[] = ['llm-candidates', 'llm-logs', 'llm-prompts']
+const EXPORT_VIEWS: ViewId[] = ['reports', 'git', 'store-browser', 'plantuml', 'licenses']
 
 interface SideBarProps {
   width: number
@@ -68,7 +69,7 @@ export function SideBar({ width }: SideBarProps): React.JSX.Element {
         {activeActivity === 'trace' && 'トレース'}
         {activeActivity === 'llm' && 'LLM 支援'}
         {activeActivity === 'jobs' && 'ジョブ'}
-        {activeActivity === 'settings' && '設定'}
+        {activeActivity === 'settings' && '設定 / エクスポート'}
       </div>
 
       <div style={{ flex: 1, overflow: 'auto' }}>
@@ -104,7 +105,13 @@ export function SideBar({ width }: SideBarProps): React.JSX.Element {
         )}
 
         {activeActivity === 'settings' && (
-          <NavItem viewId="settings" label={VIEW_META['settings'].label} />
+          <>
+            <NavItem viewId="settings" label={VIEW_META['settings'].label} />
+            <SectionHeader label="エクスポート" />
+            {EXPORT_VIEWS.map((v) => (
+              <NavItem key={v} viewId={v} label={VIEW_META[v].label} />
+            ))}
+          </>
         )}
       </div>
     </div>

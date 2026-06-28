@@ -10,8 +10,13 @@ const api: D2DApi = {
     close: () => ipcRenderer.invoke('project:close')
   },
   store: {
-    query: (sql, params) => ipcRenderer.invoke('store:query', sql, params),
-    execute: (sql, params) => ipcRenderer.invoke('store:execute', sql, params)
+    query: (sql: string, params?: unknown[]) => ipcRenderer.invoke('store:query', sql, params),
+    execute: (sql: string, params?: unknown[]) => ipcRenderer.invoke('store:execute', sql, params),
+    listTables: () => ipcRenderer.invoke('store:listTables'),
+    previewTable: (tableName: string, limit?: number) => ipcRenderer.invoke('store:previewTable', tableName, limit),
+    listExportFiles: () => ipcRenderer.invoke('store:listExportFiles'),
+    readExportFile: (filePath: string) => ipcRenderer.invoke('store:readExportFile', filePath),
+    openExportDir: () => ipcRenderer.invoke('store:openExportDir'),
   },
   jobs: {
     list: () => ipcRenderer.invoke('jobs:list'),
@@ -28,7 +33,9 @@ const api: D2DApi = {
     setApiKey: (service, account, key) =>
       ipcRenderer.invoke('settings:setApiKey', service, account, key),
     deleteApiKey: (service, account) =>
-      ipcRenderer.invoke('settings:deleteApiKey', service, account)
+      ipcRenderer.invoke('settings:deleteApiKey', service, account),
+    exportToFile: () => ipcRenderer.invoke('settings:exportToFile'),
+    importFromFile: () => ipcRenderer.invoke('settings:importFromFile'),
   },
   import: {
     document: (filePath) => ipcRenderer.invoke('import:document', filePath),
@@ -130,6 +137,34 @@ const api: D2DApi = {
     deleteCandidate: (uid) => ipcRenderer.invoke('llm:deleteCandidate', uid),
     candidateStats: () => ipcRenderer.invoke('llm:candidateStats'),
     maskPreview: (text) => ipcRenderer.invoke('llm:maskPreview', text),
+  },
+  reports: {
+    generateMarkdown: (opts) => ipcRenderer.invoke('reports:generateMarkdown', opts),
+    generateHtml: (opts) => ipcRenderer.invoke('reports:generateHtml', opts),
+    saveMarkdown: (opts) => ipcRenderer.invoke('reports:saveMarkdown', opts),
+    saveHtml: (opts) => ipcRenderer.invoke('reports:saveHtml', opts),
+  },
+  git: {
+    init: () => ipcRenderer.invoke('git:init'),
+    status: () => ipcRenderer.invoke('git:status'),
+    log: (limit) => ipcRenderer.invoke('git:log', limit),
+    commit: (message, addAll) => ipcRenderer.invoke('git:commit', message, addAll),
+    diff: (fromHash, toHash) => ipcRenderer.invoke('git:diff', fromHash, toHash),
+    show: (hash) => ipcRenderer.invoke('git:show', hash),
+    fileLog: (filePath, limit) => ipcRenderer.invoke('git:fileLog', filePath, limit),
+  },
+  plantuml: {
+    stateDiagram: (uid) => ipcRenderer.invoke('plantuml:stateDiagram', uid),
+    classDiagram: () => ipcRenderer.invoke('plantuml:classDiagram'),
+    idMap: () => ipcRenderer.invoke('plantuml:idMap'),
+    krokiUrl: (puml) => ipcRenderer.invoke('plantuml:krokiUrl', puml),
+    save: (content, filename) => ipcRenderer.invoke('plantuml:save', content, filename),
+  },
+  system: {
+    listDependencies: (devIncluded) => ipcRenderer.invoke('system:listDependencies', devIncluded),
+    exportLicensesMarkdown: (devIncluded) => ipcRenderer.invoke('system:exportLicensesMarkdown', devIncluded),
+    exportLicensesJson: (devIncluded) => ipcRenderer.invoke('system:exportLicensesJson', devIncluded),
+    saveLicenses: (devIncluded) => ipcRenderer.invoke('system:saveLicenses', devIncluded),
   },
   events: {
     on: (channel, listener) => {

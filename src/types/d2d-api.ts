@@ -261,6 +261,51 @@ export interface MaskPreviewResult {
   changes: string[]
 }
 
+// ---- Phase 8 型 ----
+
+export interface GitCommit {
+  hash: string
+  date: string
+  message: string
+  author_name: string
+  author_email: string
+}
+
+export interface GitStatusResult {
+  isRepo: boolean
+  branch: string
+  ahead: number
+  behind: number
+  files: Array<{ path: string; index: string; working_dir: string }>
+}
+
+export interface DependencyInfo {
+  name: string
+  version: string
+  license: string | null
+  description: string | null
+  repository: string | null
+}
+
+export interface StoreTablePreview {
+  rows: unknown[]
+  totalCount: number
+}
+
+export interface ExportFileInfo {
+  path: string
+  name: string
+  size: number
+  mtime: string
+}
+
+export interface ReportOptions {
+  includeResources?: boolean
+  includeTraceLinks?: boolean
+  includeGlossary?: boolean
+  entityTypes?: string[]
+}
+
 export interface D2DApi {
   project: {
     open: (filePath: string) => Promise<ProjectInfo>
@@ -270,10 +315,12 @@ export interface D2DApi {
   }
   store: {
     query: (sql: string, params?: unknown[]) => Promise<unknown[]>
-    execute: (
-      sql: string,
-      params?: unknown[]
-    ) => Promise<{ changes: number; lastInsertRowid: number | bigint }>
+    execute: (sql: string, params?: unknown[]) => Promise<{ changes: number; lastInsertRowid: number | bigint }>
+    listTables: () => Promise<string[]>
+    previewTable: (tableName: string, limit?: number) => Promise<StoreTablePreview>
+    listExportFiles: () => Promise<ExportFileInfo[]>
+    readExportFile: (filePath: string) => Promise<string>
+    openExportDir: () => Promise<void>
   }
   jobs: {
     list: () => Promise<JobRecord[]>
@@ -289,6 +336,8 @@ export interface D2DApi {
     getApiKey: (service: string, account: string) => Promise<string | null>
     setApiKey: (service: string, account: string, key: string) => Promise<void>
     deleteApiKey: (service: string, account: string) => Promise<void>
+    exportToFile: () => Promise<string | null>
+    importFromFile: () => Promise<{ app: AppSettings; project: ProjectSettings } | null>
   }
   import: {
     document: (filePath: string) => Promise<ImportedDocument>
@@ -384,6 +433,34 @@ export interface D2DApi {
     deleteCandidate: (uid: string) => Promise<void>
     candidateStats: () => Promise<{ pending: number; accepted: number; rejected: number; modified: number }>
     maskPreview: (text: string) => Promise<MaskPreviewResult>
+  }
+  reports: {
+    generateMarkdown: (opts?: ReportOptions) => Promise<string>
+    generateHtml: (opts?: ReportOptions) => Promise<string>
+    saveMarkdown: (opts?: ReportOptions) => Promise<string>
+    saveHtml: (opts?: ReportOptions) => Promise<string>
+  }
+  git: {
+    init: () => Promise<void>
+    status: () => Promise<GitStatusResult>
+    log: (limit?: number) => Promise<GitCommit[]>
+    commit: (message: string, addAll?: boolean) => Promise<string>
+    diff: (fromHash?: string, toHash?: string) => Promise<string>
+    show: (hash: string) => Promise<string>
+    fileLog: (filePath: string, limit?: number) => Promise<GitCommit[]>
+  }
+  plantuml: {
+    stateDiagram: (uid: string) => Promise<string>
+    classDiagram: () => Promise<string>
+    idMap: () => Promise<string>
+    krokiUrl: (puml: string) => Promise<string>
+    save: (content: string, filename: string) => Promise<string>
+  }
+  system: {
+    listDependencies: (devIncluded?: boolean) => Promise<DependencyInfo[]>
+    exportLicensesMarkdown: (devIncluded?: boolean) => Promise<string>
+    exportLicensesJson: (devIncluded?: boolean) => Promise<string>
+    saveLicenses: (devIncluded?: boolean) => Promise<string | null>
   }
   events: {
     on: (channel: string, listener: (...args: unknown[]) => void) => () => void

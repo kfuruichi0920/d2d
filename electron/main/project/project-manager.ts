@@ -17,7 +17,7 @@ export interface ProjectFile {
 
 let currentProjectRoot: string | null = null
 
-function getProjectRoot(): string {
+export function getProjectRoot(): string {
   if (!currentProjectRoot) throw new Error('No project is open')
   return currentProjectRoot
 }
