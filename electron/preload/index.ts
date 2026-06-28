@@ -56,6 +56,14 @@ const api: D2DApi = {
     listItems: (uid) => ipcRenderer.invoke('intermediate:listItems', uid),
     promoteFromExtracted: (extractedDocumentUid, intermediateDocumentUid) =>
       ipcRenderer.invoke('intermediate:promoteFromExtracted', extractedDocumentUid, intermediateDocumentUid),
+    addItem: (intermediateDocumentUid, itemType, title) =>
+      ipcRenderer.invoke('intermediate:addItem', intermediateDocumentUid, itemType, title),
+    deleteItem: (itemUid) => ipcRenderer.invoke('intermediate:deleteItem', itemUid),
+    mergeItems: (itemUids, keepUid, mergedTitle) =>
+      ipcRenderer.invoke('intermediate:mergeItems', itemUids, keepUid, mergedTitle),
+    promoteToResource: (itemUid, resourceType, title) =>
+      ipcRenderer.invoke('intermediate:promoteToResource', itemUid, resourceType, title),
+    rename: (uid, title) => ipcRenderer.invoke('intermediate:rename', uid, title),
     listChunks: (uid) => ipcRenderer.invoke('intermediate:listChunks', uid),
     createChunk: (intermediateDocumentUid, itemUids, tokenCount) =>
       ipcRenderer.invoke('intermediate:createChunk', intermediateDocumentUid, itemUids, tokenCount),

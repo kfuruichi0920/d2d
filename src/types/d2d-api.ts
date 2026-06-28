@@ -61,6 +61,8 @@ export interface IntermediateDocumentRow {
 
 export interface IntermediateItemRow {
   uid: string
+  code: string
+  title: string
   intermediate_document_uid: string
   item_type: string
   resource_uid: string | null
@@ -357,6 +359,11 @@ export interface D2DApi {
     get: (uid: string) => Promise<IntermediateDocumentRow | null>
     listItems: (uid: string) => Promise<IntermediateItemRow[]>
     promoteFromExtracted: (extractedDocumentUid: string, intermediateDocumentUid: string) => Promise<number>
+    addItem: (intermediateDocumentUid: string, itemType: string, title: string) => Promise<string>
+    deleteItem: (itemUid: string) => Promise<void>
+    mergeItems: (itemUids: string[], keepUid: string, mergedTitle: string) => Promise<void>
+    promoteToResource: (itemUid: string, resourceType: string, title: string) => Promise<string>
+    rename: (uid: string, title: string) => Promise<void>
     listChunks: (uid: string) => Promise<ChunkRow[]>
     createChunk: (intermediateDocumentUid: string, itemUids: string[], tokenCount?: number) => Promise<string>
     deleteChunk: (uid: string) => Promise<void>
