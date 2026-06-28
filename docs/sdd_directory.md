@@ -184,7 +184,9 @@ SQLite バイナリは diff が読みにくいため、`.gitattributes` で `*.d
 
 ## 8. アプリ側ソースコードディレクトリ構成
 
-Electron + Vite + TypeScript 構成での推奨ソース構成。
+Electron + Vite + TypeScript 構成での実際のソース構成。
+
+> **設計方針**: `src/` は当初 `src/features/<機能名>/`（機能別にhooks/components/api層を分離するパターン）を想定していたが、全APIが `window.api.*` の preload ブリッジという統一I/Fに収まるため feature 単位の分離は不要と判断した。より実用的な `src/pages/`（ページ単位）+ `src/components/`（共通UI）構成を採用している。Rust ワーカーは予定していたが機能要件の変化により不採用。
 
 ```
 d2d/                               # リポジトリルート
@@ -192,55 +194,47 @@ d2d/                               # リポジトリルート
 │   ├── main/                      # Electron main process (Node.js)
 │   │   ├── index.ts               # エントリポイント
 │   │   ├── ipc/                   # IPC ハンドラ（基盤機能 API の公開）
-│   │   │   ├── project.ts
-│   │   │   ├── store.ts
-│   │   │   ├── jobs.ts
-│   │   │   └── settings.ts
-│   │   ├── store/                 # SQLite アクセス層（better-sqlite3）
-│   │   │   └── project-db.ts      # 単一 project.db へのアクセス層
+│   │   │   └── handlers/          # 機能別ハンドラ（project / store / intermediate 等）
+│   │   ├── db/                    # DBスキーマ定義・マイグレーション
+│   │   │   └── schema/
+│   │   ├── store/                 # SQLite アクセス層（better-sqlite3 / entity-registry）
 │   │   ├── jobs/                  # ジョブ管理（キュー・進捗・再実行）
 │   │   ├── workers/               # 外部ワーカー起動・JSONL 通信管理
-│   │   │   ├── worker-host.ts     # stdin/stdout JSONL プロトコル
-│   │   │   └── worker-registry.ts # ワーカー定義登録
-│   │   └── settings/              # 設定管理（keytar によるAPIキー保護）
+│   │   ├── settings/              # 設定管理（keytar によるAPIキー保護）
+│   │   ├── import/                # ①原本インポート
+│   │   ├── extract/               # ②抽出データ管理
+│   │   ├── intermediate/          # ③中間データ処理
+│   │   ├── design/                # ④設計モデル管理
+│   │   ├── traceability/          # トレーサビリティ機能
+│   │   ├── llm/                   # LLMプロバイダ機能（Electron.net による HTTP 通信）
+│   │   ├── reports/               # レポート出力機能
+│   │   ├── git/                   # Git操作（simple-git）
+│   │   ├── plantuml/              # PlantUML実行
+│   │   ├── project/               # プロジェクト管理
+│   │   ├── artifacts/             # 成果物管理
+│   │   ├── events/                # イベント通知
+│   │   ├── system/                # システム情報
+│   │   └── utils/                 # ユーティリティ
 │   └── preload/
-│       └── index.ts               # contextBridge 公開
+│       └── index.ts               # contextBridge 公開（window.api.* の全ブリッジ定義）
 │
 ├── src/                           # React / TypeScript (renderer process)
-│   ├── app/
-│   │   ├── layout/                # Workbench Shell・アクティビティバー・ペイン管理
-│   │   ├── commands/              # Command登録・コマンドパレット・ショートカット
-│   │   ├── resources/             # Resource URI・Editor Provider解決
-│   │   ├── workbench/             # Editor Group・Tabs・Panel・Layout永続化
-│   │   └── routes/                # ビュー間ナビゲーション（TanStack Router）
-│   ├── features/                  # 機能別ディレクトリ（個別機能・共通機能単位）
-│   │   ├── extractor/             # 文書抽出機能
-│   │   ├── intermediate/          # 中間データ処理機能
-│   │   ├── design-editor/         # 設計編集機能
-│   │   ├── traceability/          # トレーサビリティ機能
-│   │   ├── history-diff/          # 履歴・差分参照機能
-│   │   ├── llm/                   # LLMプロバイダ機能
-│   │   └── report/                # レポート出力機能
-│   ├── components/                # 共通 UI コンポーネント
-│   │   ├── editor/                # Monaco Editor ラッパー
-│   │   ├── grid/                  # TanStack Table ラッパー
-│   │   ├── graph/                 # Cytoscape.js ラッパー
-│   │   └── diff/                  # Diff ビュー（Monaco diff editor）
-│   └── store/                     # クライアント状態管理（Zustand）
+│   ├── pages/                     # 機能別ページコンポーネント
+│   │   │                          # （SourcePage / ExtractedPage / IntermediatePage 等）
+│   ├── components/
+│   │   ├── workbench/             # Workbench Shell・ペイン管理・アクティビティバー
+│   │   │   └── views/             # 各ビューコンポーネント
+│   │   └── design/                # 設計リソース編集コンポーネント
+│   ├── providers/                 # React Context Provider
+│   ├── stores/                    # クライアント状態管理（Zustand）
+│   └── types/                     # TypeScript 型定義（IPC API 型・DBスキーマ型）
 │
 ├── workers/                       # 外部ワーカー（サブプロセス）
-│   ├── python/                    # Python ワーカー（文書抽出）
-│   │   ├── extractor/
-│   │   │   ├── word.py
-│   │   │   ├── excel.py
-│   │   │   ├── pptx.py
-│   │   │   ├── pdf.py
-│   │   │   └── visio.py
-│   │   ├── main.py                # stdin/stdout JSONL エントリポイント
-│   │   └── requirements.txt
-│   └── rust/                      # Rust ワーカー（高速テキスト処理・差分生成）
-│       ├── src/
-│       └── Cargo.toml
+│   └── python/                    # Python ワーカー（文書抽出・各種コマンド）
+│       ├── commands/              # コマンドハンドラ（word.py / excel.py / pdf.py 等）
+│       ├── main.py                # stdin/stdout JSONL エントリポイント
+│       ├── requirements.txt
+│       └── dist/                  # PyInstaller ビルド出力（d2d-worker.exe 等）
 │
 ├── docs/                          # 設計文書
 ├── package.json

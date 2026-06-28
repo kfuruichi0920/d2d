@@ -28,6 +28,8 @@ Electron 実装上の実行責務は以下の通り分離する。
 
 基盤機能、共通機能、個別機能は Local Backend 側に配置する。Main は Gateway / Shell として、Renderer からの要求を Local Backend へ中継し、ファイル選択など OS 統合が必要な操作だけを担当する。
 
+> **現行実装に関する注記（2026-06）**: 現時点の実装では、業務ロジック（DB操作、文書解析、LLM通信等）が別プロセスの Local Backend を起動せずに `electron/main/` 内に直接実装されている。ただし IPC ハンドラ層（`electron/main/ipc/`）と業務ロジック層（`electron/main/intermediate/` 等）は内部で明確に分離されており、設計上の責務境界は維持している。この構成は「Local Backend = electron/main 内の業務ロジック層」として読み替えることが可能であり、設計目標である Renderer と業務ロジックの疎結合は達成されている。将来的に Local Backend を別プロセス化する場合も、IPC 境界を変えずに移行できる。
+
 API は細かいレコード取得を大量に呼ぶ形にしない。`importDocument(filePath)`、`searchElements(query, paging, sort)`、`getTraceSubgraph(elementId, depth, filters)`、`renderPlantUml(sourceId or textHash)`、`getTableViewport(tableId, range, filters)`、`exportReport(reportId, format)` のように、ユーザー操作単位または表示単位でまとめる。`readLine(filePath, lineNo)`、`getCell(row, col)`、`getNode(nodeId)` / `getEdge(edgeId)` の大量反復呼び出しは禁止する。
 
 ---
@@ -168,7 +170,7 @@ flowchart TD
 | manifest.json | 派生成果物 | ZIPアーカイブ生成時のみ作成する |
 | DB to Text | 派生成果物または一時成果物 | ②③④に共通する差分表示、LLM入力、Git履歴確認用の出力とする |
 | SQLite dump | 派生成果物または一時成果物 | 差分表示、履歴参照、調査用に生成する |
-| 関係グラフ索引 | 索引または派生成果物 | `trace_link` を元に、関係探索、影響分析、可視化用に生成する |
+| 関係グラフ索引 | 索引または派生成果物 | `trace_link` を元に、関係探索、影響分析、可視化用に生成する。**現行実装では専用 GraphDB を使わず、SQLite の再帰 CTE クエリ（`WITH RECURSIVE`）で関係グラフを走査している。GraphDB（Neo4j 等）への移行は将来オプション。** |
 | change_history_view | 派生ビュー | DB正本に永続化せず、Git、DB to Text、SQLite dump等から生成する |
 
 ---
@@ -517,7 +519,7 @@ sequenceDiagram
 
 ## 11. 外部ワーカーインタフェース
 
-外部ワーカー（Node.js / Python / Rust / Go 等）は、Local Backend のジョブ管理からサブプロセスとして起動される。通信は stdin / stdout を用いた改行区切りJSON（JSONL形式）で行う。ワーカーは原則として結果を stdout または一時出力で返し、正本更新は Local Backend のストアアクセス管理が行う。大量読込が必要なワーカーに限り、ジョブ管理が許可した入力ファイルまたは読み取り専用DBスナップショットを直接読むことができる。
+外部ワーカー（Python 等）は、Local Backend のジョブ管理からサブプロセスとして起動される。通信は stdin / stdout を用いた改行区切りJSON（JSONL形式）で行う。ワーカーは原則として結果を stdout または一時出力で返し、正本更新は Local Backend のストアアクセス管理が行う。大量読込が必要なワーカーに限り、ジョブ管理が許可した入力ファイルまたは読み取り専用DBスナップショットを直接読むことができる。
 
 ### 11.1 入力仕様（stdin → ワーカー）
 
@@ -583,7 +585,22 @@ sequenceDiagram
 | output_ref | 大きな出力はファイルパスで返し、基盤機能が読み取る |
 | error_code | 障害分類コード（ワーカーごとに定義） |
 
-### 11.3 制約
+### 11.4 開発時と本番時のワーカー起動
+
+ワーカーの起動方法は、実行環境（開発時 / 本番時）によって異なる。
+
+| 実行環境 | ワーカー実行形式 | Python バイナリ解決 |
+| --- | --- | --- |
+| 開発時（`is.dev = true`） | `workers/python/main.py` をスクリプトとして実行 | `D2D_PYTHON` 環境変数（`.env` から起動時に注入）、またはフォールバックとして PATH 上の `python` / `python3` |
+| 本番時（パッケージ済み） | `resources/workers/python/d2d-worker[.exe]`（PyInstaller ビルド済みバイナリ）を直接起動 | Python ランタイム不要（バイナリに内包済み） |
+
+**D2D_PYTHON 環境変数**: 開発時は複数の Python 環境（Miniconda、pyenv、仮想環境等）が共存するため、プロジェクトルートの `.env` ファイルに `D2D_PYTHON=/path/to/python` を記載することで起動 Python を明示的に指定できる。ワーカー管理が起動前に `.env` を読み込み `process.env.D2D_PYTHON` に注入する。
+
+**Windows 文字コード対応**: Windows では Python stdout のデフォルトエンコーディングが CP932 のため、ワーカー起動時に `PYTHONIOENCODING=utf-8` と `PYTHONUTF8=1` をスポーン環境変数に設定する。Python 側でも `io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')` を使い、確実に UTF-8 で出力する。
+
+---
+
+## 12. 要求・データ構造との対応
 
 | 制約 | 内容 |
 | --- | --- |
@@ -602,7 +619,7 @@ sequenceDiagram
 | `CORE-020〜024` | 各生成・更新処理をジョブ管理経由で実行する設計に反映 |
 | `CORE-030〜032` | イベント連携を `project.opened`、`extraction.completed`、`intermediate.updated` 等として定義 |
 | `DATA-001〜009` | ②抽出データ、③中間データを `project.db` / `blobs/` とZIPアーカイブ対象として扱う |
-| `DATA-010〜011` | ④設計モデルを `entity_registry`、`resource_*`、`trace_link` として `project.db` に保存し、関係探索には `trace_link` 由来の関係グラフ索引を利用可能とする |
+| `DATA-010〜011` | ④設計モデルを `entity_registry`、`resource_*`、`trace_link` として `project.db` に保存し、関係探索には `trace_link` 由来の関係グラフ索引を利用可能とする。現行実装では SQLite の再帰 CTE で走査。GraphDB は将来オプション。 |
 | `DATA-020〜024` | DB to Textを②③④共通の派生成果物または一時成果物として扱う |
 | `DATA-030〜033` | ZIP生成時のみmanifestを作成し、差分比較用インポートを履歴・差分参照機能で扱う |
 | `sdd_data_structure.md` の `entity_registry` / `resource_*` | 設計リソースの共通台帳と詳細情報として扱う |
