@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 
 interface ExtractedDoc {
   uid: string
@@ -35,61 +35,75 @@ const ITEM_TYPE_LABEL: Record<string, string> = {
   code: 'コード', list: 'リスト', figure: '図',
 }
 
+const DOCS_SQL = `
+  SELECT
+    ed.uid, ed.extraction_status, ed.extracted_at,
+    er.code, er.title,
+    sd.file_name, sd.file_type,
+    COUNT(ei.uid) AS item_count
+  FROM extracted_document ed
+  JOIN entity_registry er ON er.uid = ed.uid
+  JOIN source_document sd ON sd.uid = ed.source_document_uid
+  LEFT JOIN extracted_item ei ON ei.extracted_document_uid = ed.uid
+  WHERE er.status != 'deleted'
+  GROUP BY ed.uid
+  ORDER BY er.created_at DESC
+`
+
+const ITEMS_SQL = `
+  SELECT ei.uid, er.code, er.title, ei.item_type
+  FROM extracted_item ei
+  JOIN entity_registry er ON er.uid = ei.uid
+  WHERE ei.extracted_document_uid = ?
+  ORDER BY er.created_at ASC
+`
+
 export function ExtractedDataPage(): React.JSX.Element {
   const [docs, setDocs] = useState<ExtractedDoc[]>([])
-  const [selected, setSelected] = useState<ExtractedDoc | null>(null)
+  const [selectedUid, setSelectedUid] = useState<string | null>(null)
   const [items, setItems] = useState<ExtractedItem[]>([])
+  const [loadingDocs, setLoadingDocs] = useState(false)
   const [loadingItems, setLoadingItems] = useState(false)
   const [itemFilter, setItemFilter] = useState('')
 
+  // selectedUid を ref で保持（loadDocs の依存から外すため）
+  const selectedUidRef = useRef(selectedUid)
+  selectedUidRef.current = selectedUid
+
   const loadDocs = useCallback(async () => {
-    const rows = (await window.api.store.query(`
-      SELECT
-        ed.uid, ed.extraction_status, ed.extracted_at,
-        er.code, er.title,
-        sd.file_name, sd.file_type,
-        COUNT(ei.uid) AS item_count
-      FROM extracted_document ed
-      JOIN entity_registry er ON er.uid = ed.uid
-      JOIN source_document sd ON sd.uid = ed.source_document_uid
-      LEFT JOIN extracted_item ei ON ei.extracted_document_uid = ed.uid
-      WHERE er.status != 'deleted'
-      GROUP BY ed.uid
-      ORDER BY er.created_at DESC
-    `)) as ExtractedDoc[]
-    setDocs(rows)
-    // 選択中ドキュメントの最新状態を反映
-    if (selected) {
-      const updated = rows.find(r => r.uid === selected.uid)
-      if (updated) setSelected(updated)
+    setLoadingDocs(true)
+    try {
+      const rows = (await window.api.store.query(DOCS_SQL)) as ExtractedDoc[]
+      setDocs(rows)
+    } catch (e) {
+      console.error('Failed to load extracted docs', e)
+    } finally {
+      setLoadingDocs(false)
     }
-  }, [selected])
+  }, []) // 依存なし — selectedUid は ref 経由で参照
 
   useEffect(() => {
     loadDocs()
-    // ジョブ更新イベントで再読み込み
     const off = window.api.events.on('d2d:job:updated', loadDocs)
     return off
   }, [loadDocs])
 
+  // selectedUid が変わったらアイテムを読み込む
   useEffect(() => {
-    if (!selected) { setItems([]); return }
+    if (!selectedUid) { setItems([]); return }
     setLoadingItems(true)
-    (window.api.store.query(`
-      SELECT ei.uid, er.code, er.title, ei.item_type
-      FROM extracted_item ei
-      JOIN entity_registry er ON er.uid = ei.uid
-      WHERE ei.extracted_document_uid = ?
-      ORDER BY er.created_at ASC
-    `, [selected.uid]) as Promise<ExtractedItem[]>)
+    setItemFilter('')
+    ;(window.api.store.query(ITEMS_SQL, [selectedUid]) as Promise<ExtractedItem[]>)
       .then(setItems)
       .catch(() => setItems([]))
       .finally(() => setLoadingItems(false))
-  }, [selected])
+  }, [selectedUid])
+
+  const selectedDoc = docs.find(d => d.uid === selectedUid) ?? null
 
   const filteredItems = itemFilter
     ? items.filter(it =>
-        it.title.includes(itemFilter) ||
+        it.title.toLowerCase().includes(itemFilter.toLowerCase()) ||
         it.item_type.includes(itemFilter) ||
         it.code.includes(itemFilter)
       )
@@ -97,42 +111,43 @@ export function ExtractedDataPage(): React.JSX.Element {
 
   return (
     <div style={{ display: 'flex', height: '100%', overflow: 'hidden', fontSize: 13 }}>
-      {/* 左ペイン: 抽出済みドキュメント一覧 */}
-      <div style={{ width: 320, flexShrink: 0, borderRight: '1px solid #e0e0e0', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        <div style={{ padding: '12px 16px', borderBottom: '1px solid #e0e0e0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <span style={{ fontWeight: 600, fontSize: 13 }}>抽出済みドキュメント</span>
+      {/* 左ペイン */}
+      <div style={{ width: 300, flexShrink: 0, borderRight: '1px solid #e0e0e0', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <div style={{ padding: '10px 14px', borderBottom: '1px solid #e0e0e0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+          <span style={{ fontWeight: 600, fontSize: 12, color: '#555' }}>抽出済みドキュメント</span>
           <button
             onClick={loadDocs}
+            disabled={loadingDocs}
             style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: '#2563eb', padding: '2px 6px' }}
           >
-            更新
+            {loadingDocs ? '...' : '更新'}
           </button>
         </div>
 
-        {docs.length === 0 ? (
-          <div style={{ padding: 24, color: '#888', fontSize: 12 }}>
-            抽出済みデータがありません。<br />
-            原本ドキュメントページから抽出を実行してください。
-          </div>
-        ) : (
-          <div style={{ flex: 1, overflow: 'auto' }}>
-            {docs.map(doc => {
+        <div style={{ flex: 1, overflow: 'auto' }}>
+          {docs.length === 0 && !loadingDocs ? (
+            <div style={{ padding: 20, color: '#aaa', fontSize: 12, lineHeight: 1.6 }}>
+              抽出済みデータがありません。<br />
+              原本ドキュメントページから抽出を実行してください。
+            </div>
+          ) : (
+            docs.map(doc => {
               const st = STATUS_LABEL[doc.extraction_status] ?? { label: doc.extraction_status, color: '#555' }
-              const active = selected?.uid === doc.uid
+              const active = doc.uid === selectedUid
               return (
                 <div
                   key={doc.uid}
-                  onClick={() => setSelected(doc)}
+                  onClick={() => setSelectedUid(doc.uid)}
                   style={{
-                    padding: '10px 16px',
+                    padding: '10px 14px',
                     cursor: 'pointer',
                     borderBottom: '1px solid #f0f0f0',
                     background: active ? '#eff6ff' : 'transparent',
                     borderLeft: active ? '3px solid #2563eb' : '3px solid transparent',
                   }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                    <span style={{ fontSize: 10, color: '#888' }}>{doc.code}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
+                    <span style={{ fontSize: 10, color: '#aaa', fontFamily: 'monospace' }}>{doc.code}</span>
                     <span style={{
                       fontSize: 10, padding: '1px 6px', borderRadius: 10,
                       background: STATUS_BG[doc.extraction_status] ?? '#f0f0f0',
@@ -141,58 +156,57 @@ export function ExtractedDataPage(): React.JSX.Element {
                       {st.label}
                     </span>
                   </div>
-                  <div style={{ fontWeight: 500, marginBottom: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <div style={{ fontWeight: 500, marginBottom: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12 }}>
                     {doc.file_name}
                   </div>
-                  <div style={{ fontSize: 11, color: '#888', display: 'flex', gap: 12 }}>
+                  <div style={{ fontSize: 11, color: '#888', display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                     <span>{doc.file_type}</span>
                     <span>{doc.item_count} アイテム</span>
-                    {doc.extracted_at && <span>{new Date(doc.extracted_at).toLocaleString('ja-JP')}</span>}
+                    {doc.extracted_at && (
+                      <span>{new Date(doc.extracted_at).toLocaleString('ja-JP')}</span>
+                    )}
                   </div>
                 </div>
               )
-            })}
-          </div>
-        )}
+            })
+          )}
+        </div>
       </div>
 
-      {/* 右ペイン: 抽出アイテム一覧 */}
+      {/* 右ペイン */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        {!selected ? (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#aaa', fontSize: 13 }}>
-            左のリストからドキュメントを選択してください
+        {!selectedDoc ? (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#bbb', fontSize: 13 }}>
+            左のリストからドキュメントを選択
           </div>
         ) : (
           <>
-            {/* ヘッダー */}
-            <div style={{ padding: '12px 16px', borderBottom: '1px solid #e0e0e0', background: '#fafafa' }}>
-              <div style={{ fontWeight: 600, marginBottom: 4 }}>{selected.file_name}</div>
+            <div style={{ padding: '10px 16px', borderBottom: '1px solid #e0e0e0', background: '#fafafa', flexShrink: 0 }}>
+              <div style={{ fontWeight: 600, marginBottom: 2, fontSize: 13 }}>{selectedDoc.file_name}</div>
               <div style={{ fontSize: 11, color: '#888' }}>
-                {selected.code} · {items.length} アイテム
+                {selectedDoc.code} · {items.length} アイテム
               </div>
             </div>
 
-            {/* 検索 */}
-            <div style={{ padding: '8px 12px', borderBottom: '1px solid #f0f0f0' }}>
+            <div style={{ padding: '8px 12px', borderBottom: '1px solid #f0f0f0', flexShrink: 0 }}>
               <input
                 value={itemFilter}
                 onChange={e => setItemFilter(e.target.value)}
                 placeholder="アイテムを検索..."
                 style={{
-                  width: '100%', boxSizing: 'border-box',
-                  padding: '5px 10px', fontSize: 12,
-                  border: '1px solid #d1d5db', borderRadius: 5,
-                  outline: 'none',
+                  width: '100%', boxSizing: 'border-box', padding: '5px 10px',
+                  fontSize: 12, border: '1px solid #d1d5db', borderRadius: 5, outline: 'none',
                 }}
               />
             </div>
 
-            {/* アイテム一覧 */}
             <div style={{ flex: 1, overflow: 'auto' }}>
               {loadingItems ? (
-                <div style={{ padding: 24, color: '#888', fontSize: 12 }}>読み込み中...</div>
+                <div style={{ padding: 20, color: '#aaa', fontSize: 12 }}>読み込み中...</div>
               ) : filteredItems.length === 0 ? (
-                <div style={{ padding: 24, color: '#aaa', fontSize: 12 }}>アイテムがありません</div>
+                <div style={{ padding: 20, color: '#bbb', fontSize: 12 }}>
+                  {itemFilter ? '検索結果がありません' : 'アイテムがありません'}
+                </div>
               ) : (
                 <ItemTypeGrouped items={filteredItems} />
               )}
@@ -205,13 +219,11 @@ export function ExtractedDataPage(): React.JSX.Element {
 }
 
 function ItemTypeGrouped({ items }: { items: ExtractedItem[] }): React.JSX.Element {
-  // item_type ごとにグループ化
   const groups: Record<string, ExtractedItem[]> = {}
   for (const item of items) {
     if (!groups[item.item_type]) groups[item.item_type] = []
     groups[item.item_type].push(item)
   }
-
   return (
     <div>
       {Object.entries(groups).map(([type, groupItems]) => (
@@ -230,14 +242,12 @@ function ItemGroup({ type, items }: { type: string; items: ExtractedItem[] }): R
       <div
         onClick={() => setOpen(o => !o)}
         style={{
-          padding: '6px 16px', fontWeight: 600, fontSize: 11,
-          color: '#555', background: '#f9fafb',
-          borderBottom: '1px solid #f0f0f0',
-          cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
-          userSelect: 'none',
+          padding: '5px 14px', fontWeight: 600, fontSize: 11, color: '#555',
+          background: '#f9fafb', borderBottom: '1px solid #f0f0f0',
+          cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, userSelect: 'none',
         }}
       >
-        <span style={{ fontSize: 10 }}>{open ? '▼' : '▶'}</span>
+        <span style={{ fontSize: 9 }}>{open ? '▼' : '▶'}</span>
         <span>{label}</span>
         <span style={{ color: '#aaa', fontWeight: 400 }}>({items.length})</span>
       </div>
@@ -245,16 +255,15 @@ function ItemGroup({ type, items }: { type: string; items: ExtractedItem[] }): R
         <div
           key={item.uid}
           style={{
-            padding: '6px 16px 6px 28px',
-            borderBottom: '1px solid #f5f5f5',
+            padding: '5px 14px 5px 26px', borderBottom: '1px solid #f5f5f5',
             display: 'flex', alignItems: 'baseline', gap: 10,
           }}
         >
-          <span style={{ fontSize: 10, color: '#aaa', fontFamily: 'monospace', flexShrink: 0 }}>
+          <span style={{ fontSize: 10, color: '#bbb', fontFamily: 'monospace', flexShrink: 0 }}>
             {item.code}
           </span>
-          <span style={{ color: '#222', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {item.title || <span style={{ color: '#bbb' }}>（タイトルなし）</span>}
+          <span style={{ color: '#222', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12 }}>
+            {item.title || <span style={{ color: '#ccc' }}>（タイトルなし）</span>}
           </span>
         </div>
       ))}
