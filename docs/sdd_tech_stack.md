@@ -10,9 +10,10 @@
 
 | 種別 | 選定 | バージョン | ライセンス | 採用理由 |
 | --- | --- | --- | --- | --- |
-| デスクトップシェル | Electron | 30+ | MIT | Windows/macOS/Linux 対応、Node.js 統合、Web 技術の再利用 |
-| ビルドツール | electron-vite | latest | MIT | Vite ベース高速 HMR、Electron IPC 設定を統合 |
-| パッケージング・配布 | electron-builder | latest | MIT | Windows インストーラ生成、コード署名対応 |
+| デスクトップシェル | Electron | 35+ | MIT | Windows/macOS/Linux 対応、Node.js 統合、Web 技術の再利用 |
+| ビルドツール | electron-vite | 5.x | MIT | Vite ベース高速 HMR、Electron IPC 設定を統合 |
+| パッケージング・配布 | electron-builder | 25.x | MIT | Windows インストーラ生成、コード署名対応 |
+| ネイティブモジュール再ビルド | @electron/rebuild | 4.x | MIT | better-sqlite3 等のネイティブモジュールを Electron の Node.js バージョンに合わせて再コンパイル。`postinstall` スクリプトとして自動実行 |
 
 ---
 
@@ -22,14 +23,16 @@
 | --- | --- | --- | --- | --- |
 | UI フレームワーク | React | 19 | MIT | 大規模 UI の再利用性、エコシステムの豊富さ |
 | 言語 | TypeScript | 5.x | Apache 2.0 | 型安全性、IDE サポート、リファクタリング容易性 |
-| スタイリング | Tailwind CSS | 3.x | MIT | ユーティリティクラスによるデザイントークン管理 |
-| UI コンポーネント | shadcn/ui | latest | MIT | Radix UI ベース、アクセシビリティ対応、コピー＆カスタマイズ形式 |
-| テキスト・コードエディタ | Monaco Editor | 0.46+ | MIT | VSCode 同等エディタ、Markdown / JSON / PlantUML 対応、diff エディタ内蔵 |
+| デザインシステム | @serendie/ui | 3.x | MIT | 三菱電機 Serendie Design System の React コンポーネント群（@ark-ui/react ベース） |
+| デザイントークン | @serendie/design-token | 1.x | MIT | Serendie カラートークン・タイポグラフィ・スペーシングの CSS 変数定義 |
+| アイコン | @serendie/symbols | 1.x | MIT | Serendie Design System 標準アイコン（SRS UI-028） |
+| ヘッドレスコンポーネント | @ark-ui/react | 5.x | MIT | @serendie/ui の基盤ライブラリ（アクセシビリティ対応） |
 | グリッド・表 | TanStack Table | v8 | MIT | 仮想スクロール対応、ヘッドレス設計で自由なスタイリング可 |
 | 仮想スクロール | TanStack Virtual | v3 | MIT | 大量行リストの 60fps 表示（SRS NFR-001） |
-| グラフ描画 | Cytoscape.js | 3.x | MIT | 関係グラフ・影響分析の可視化、各種レイアウトアルゴリズム内蔵 |
-| クライアント状態管理 | Zustand | 4.x | MIT | 軽量、スライス構成しやすい、React 外からも利用可 |
 | ルーティング | TanStack Router | v1 | MIT | 型安全ルーティング、ファイルベースルート対応 |
+| グラフ描画 | SVG 自前実装 | — | — | 関係グラフ・影響分析の可視化。力学レイアウトを SVG + React で自前実装。Cytoscape.js 等の外部ライブラリは**未導入**（将来移行候補） |
+| テキスト・コードエディタ | styled textarea | — | — | 設計要素の本文編集は styled `<textarea>` で代替。Monaco Editor は**未導入**（将来 Monaco への移行を検討） |
+| クライアント状態管理 | Zustand | 5.x | MIT | 軽量、スライス構成しやすい、React 外からも利用可 |
 
 ---
 
@@ -37,17 +40,20 @@
 
 | 種別 | 選定 | バージョン | ライセンス | 採用理由 |
 | --- | --- | --- | --- | --- |
-| SQLite アクセス | better-sqlite3 | 9.x | MIT | 同期 API、高速、Electron main process に最適 |
+| SQLite アクセス | better-sqlite3 | 12.x | MIT | 同期 API、高速、Electron main process に最適。Electron 35 の NODE_MODULE_VERSION に合わせて @electron/rebuild で再ビルド済み |
 | APIキー・機密情報保管 | keytar | 7.x | MIT | OS キーチェーン利用（Windows: DPAPI、macOS: Keychain、Linux: Secret Service）。SRS CORE-045 / NFR-020 対応 |
-| ファイルハッシュ | Node.js crypto（built-in） | - | - | SHA-256 による原本同一性確認（SRS IMP-008） |
+| ファイルハッシュ | Node.js crypto（built-in） | — | — | SHA-256 による原本同一性確認（SRS IMP-008） |
 | ZIP 操作 | adm-zip | 0.5+ | MIT | ZIP 生成・展開（SRS DATA-030〜033） |
 | Git 操作 | simple-git | 3.x | MIT | Git 履歴・diff の読み取り専用参照（SRS GIT-001〜002）。コミットは行わない |
+| UUID 生成 | uuid | 11.x | MIT | UUIDv7 形式の UID 生成（SRS EXT-013） |
 
 ---
 
 ## 5. Python ワーカー（文書抽出）
 
 ワーカーは `sdd_function_architecture.md` §11 の stdin/stdout JSONL プロトコルで Electron main process と通信する。
+
+### 5.1 依存ライブラリ
 
 | 種別 | 選定 | バージョン | ライセンス | 採用理由 |
 | --- | --- | --- | --- | --- |
@@ -57,19 +63,50 @@
 | PowerPoint 抽出 | python-pptx | 0.6+ | MIT | .pptx のスライド・図形・テキストボックス抽出（SRS IMP-003, EXT-010） |
 | PDF 抽出（標準） | pdfplumber | 0.10+ | MIT | テキスト・表・ページ座標抽出（SRS IMP-005, EXT-012） |
 | PDF 抽出（高精度補助） | pymupdf (fitz) | 1.23+ | **AGPL 3.0 / 商用ライセンス** | **(要審査)** 複雑 PDF の高精度抽出が必要な場合のみ採用。AGPL のため商用配布には商用ライセンス購入が必要 |
-| Visio 抽出 | python-vsdx | 0.5+ | MIT | .vsdx の図形・接続・ラベル抽出（SRS IMP-004, EXT-011） |
+| Visio 抽出 | Python 標準ライブラリ（zipfile + xml.etree.ElementTree） | — | PSF License | .vsdx は ZIP + XML 形式のため、外部ライブラリ不要で解析可能。`python-vsdx` パッケージは PyPI 非公開のため不採用 |
 
 > **pymupdf の扱い**: デフォルトでは採用しない。pdfplumber で対応できない場合のみ採用を検討し、商用ライセンスを購入するか pdfminer.six（MIT）への代替を検討する。
+
+### 5.2 Python 環境制御
+
+Windows 環境では複数の Python インタープリタが共存するケースがある（システム Python、仮想環境、Miniconda 等）。以下の仕組みで起動する Python を制御する。
+
+| 制御方法 | 内容 |
+| --- | --- |
+| `D2D_PYTHON` 環境変数 | 開発時に `.env` ファイルへ Python 実行ファイルのフルパスを記載。起動時に `python-worker.ts` が読み込み `process.env.D2D_PYTHON` に注入する |
+| デフォルト | `D2D_PYTHON` 未設定時は PATH 上の `python`（Windows）または `python3`（macOS/Linux）を使用 |
+| 本番（パッケージ済み） | PyInstaller でビルドされた `d2d-worker.exe` を直接起動するため、Python インタープリタ不要 |
+
+### 5.3 文字コード対応（Windows）
+
+Windows の Python stdout は CP932 がデフォルトであり、日本語が文字化けする。以下の両面で UTF-8 を強制する。
+
+| 対応箇所 | 内容 |
+| --- | --- |
+| Python 側 | `sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')` |
+| Node.js 側（spawn 環境変数） | `PYTHONIOENCODING=utf-8`、`PYTHONUTF8=1` |
+
+### 5.4 本番パッケージング
+
+| 項目 | 内容 |
+| --- | --- |
+| ビルドツール | PyInstaller（`d2d-worker.spec` で依存モジュールを単一ディレクトリへ収録） |
+| 出力先（ビルド） | `workers/python/dist/` |
+| 配置先（パッケージ済みアプリ） | `resources/workers/python/`（electron-builder `extraResources` で自動コピー） |
+| 実行ファイル名 | `d2d-worker.exe`（Windows）/ `d2d-worker`（macOS/Linux） |
 
 ---
 
 ## 6. LLM クライアント（main process）
 
-| Provider | 選定 | バージョン | ライセンス | 採用理由 |
-| --- | --- | --- | --- | --- |
-| OpenAI / Azure OpenAI | openai（Node.js SDK） | 4.x | MIT | OpenAI・Azure OpenAI 両対応（SRS LLM-001, LLM-004） |
-| Gemini | @google/generative-ai | 0.x | Apache 2.0 | Gemini API 公式 SDK（SRS LLM-002） |
-| Ollama | HTTP fetch（built-in） | - | - | Ollama は REST API のみで SDK 不要（SRS LLM-003） |
+すべての Provider は Node.js / Electron 組込みの `net.fetch`（または `globalThis.fetch`）を用いた HTTP リクエストで実装する。外部 SDK（openai npm、@google/generative-ai 等）は**未導入**。
+
+| Provider | エンドポイント形式 | 認証 | 対応要求 |
+| --- | --- | --- | --- |
+| OpenAI | `https://api.openai.com/v1/chat/completions` | Bearer token | LLM-001 |
+| Gemini | `https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent` | API Key クエリパラメータ | LLM-002 |
+| Ollama | `http://localhost:11434/api/chat`（ローカル） | 不要 | LLM-003, LLM-043 |
+| Azure OpenAI | `{endpoint}/openai/deployments/{deployment}/chat/completions?api-version={ver}` | api-key ヘッダ | LLM-004 |
 
 ---
 
@@ -77,7 +114,7 @@
 
 | 種別 | 選定 | バージョン | ライセンス | 用途 |
 | --- | --- | --- | --- | --- |
-| ユニット・統合テスト | Vitest | 1.x | MIT | 高速、TypeScript ネイティブ、Node.js API テスト |
+| ユニット・統合テスト | Vitest | 2.x | MIT | 高速、TypeScript ネイティブ、Node.js API テスト |
 | E2E テスト | Playwright | 1.x | Apache 2.0 | Electron 対応、クロスプラットフォーム UI テスト |
 
 ---
@@ -89,23 +126,24 @@ SRS NFR-040〜044 に対応する商用配布可否の確認。
 | ライブラリ | ライセンス | 商用配布 | 対処事項 |
 | --- | --- | --- | --- |
 | Electron | MIT | ○ | |
-| React, shadcn/ui, Zustand | MIT | ○ | |
+| React, Zustand | MIT | ○ | |
 | TypeScript | Apache 2.0 | ○ | |
-| Tailwind CSS | MIT | ○ | |
-| Monaco Editor | MIT | ○ | |
+| @serendie/ui, @serendie/design-token, @serendie/symbols | MIT | ○ | |
+| @ark-ui/react | MIT | ○ | |
+| Monaco Editor | MIT | ○ | 現時点未導入。将来導入時も MIT のため問題なし |
+| Cytoscape.js | MIT | ○ | 現時点未導入。将来導入時も MIT のため問題なし |
 | TanStack Table / Virtual / Router | MIT | ○ | |
-| Cytoscape.js | MIT | ○ | |
 | better-sqlite3 | MIT | ○ | |
+| @electron/rebuild | MIT | ○ | ビルド時のみ使用 |
 | keytar | MIT | ○ | |
 | adm-zip, simple-git | MIT | ○ | |
-| openai SDK | MIT | ○ | |
-| @google/generative-ai | Apache 2.0 | ○ | |
+| uuid | MIT | ○ | |
 | python-docx, openpyxl, python-pptx | MIT | ○ | |
 | pdfplumber | MIT | ○ | |
-| python-vsdx | MIT | ○ | |
+| Visio 抽出（Python 標準ライブラリ） | PSF License | ○ | |
 | Vitest | MIT | ○ | |
 | Playwright | Apache 2.0 | ○ | |
-| **pymupdf (fitz)** | **AGPL 3.0** | **要確認** | 採用する場合は商用ライセンス購入または MIT 代替（pdfminer.six）に切替 |
 | electron-builder | MIT | ○ | ビルド時のみ使用 |
+| **pymupdf (fitz)** | **AGPL 3.0** | **要確認** | 採用する場合は商用ライセンス購入または MIT 代替（pdfminer.six）に切替 |
 
 > **フォント・テンプレート**: アプリに同梱するフォントは OFL（SIL Open Font License）または MIT のものに限定する（SRS NFR-044）。
