@@ -19,6 +19,9 @@ export type ViewId =
   | 'store-browser'
   | 'plantuml'
   | 'licenses'
+  | 'table-editor'
+  | 'state-machine'
+  | 'verification'
 
 export interface Tab {
   id: string
@@ -142,4 +145,7 @@ export const VIEW_META: Record<ViewId, { label: string }> = {
   'store-browser': { label: 'ストア' },
   plantuml: { label: 'PlantUML' },
   licenses: { label: 'ライセンス' },
+  'table-editor': { label: '表グリッド編集' },
+  'state-machine': { label: '状態遷移編集' },
+  verification: { label: '検証管理' },
 }

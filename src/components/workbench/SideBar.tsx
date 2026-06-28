@@ -2,6 +2,7 @@ import React from 'react'
 import { useWorkbenchStore, type ViewId, VIEW_META } from '../../stores/workbenchStore'
 
 const EXPLORER_VIEWS: ViewId[] = ['sources', 'extraction', 'intermediate', 'design', 'glossary']
+const DESIGN_EDITOR_VIEWS: ViewId[] = ['table-editor', 'state-machine', 'verification']
 const TRACE_VIEWS: ViewId[] = ['trace-matrix', 'trace-graph']
 const LLM_VIEWS: ViewId[] = ['llm-candidates', 'llm-logs', 'llm-prompts']
 const EXPORT_VIEWS: ViewId[] = ['reports', 'git', 'store-browser', 'plantuml', 'licenses']
@@ -77,6 +78,10 @@ export function SideBar({ width }: SideBarProps): React.JSX.Element {
           <>
             <SectionHeader label="データ階層" />
             {EXPLORER_VIEWS.map((v) => (
+              <NavItem key={v} viewId={v} label={VIEW_META[v].label} />
+            ))}
+            <SectionHeader label="設計要素エディタ" />
+            {DESIGN_EDITOR_VIEWS.map((v) => (
               <NavItem key={v} viewId={v} label={VIEW_META[v].label} />
             ))}
           </>

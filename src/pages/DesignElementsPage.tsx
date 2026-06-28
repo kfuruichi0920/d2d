@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react'
 import type { ResourceRow, ResourceEntityType } from '../types/d2d-api'
+import { ResourceEditForm } from '../components/design/ResourceEditForm'
 
 const RESOURCE_TYPES: { value: ResourceEntityType; label: string }[] = [
   { value: 'resource_label', label: 'ラベル' },
@@ -23,6 +24,7 @@ export function DesignElementsPage(): React.JSX.Element {
   const [selectedType, setSelectedType] = useState<ResourceEntityType>('resource_text')
   const [resources, setResources] = useState<ResourceRow[]>([])
   const [selected, setSelected] = useState<ResourceRow | null>(null)
+  const [editMode, setEditMode] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -40,7 +42,7 @@ export function DesignElementsPage(): React.JSX.Element {
     }
   }, [])
 
-  useEffect(() => { load(selectedType) }, [selectedType, load])
+  useEffect(() => { load(selectedType); setEditMode(false) }, [selectedType, load])
 
   const handleDelete = async (uid: string) => {
     if (!confirm('このリソースを削除しますか？')) return
@@ -112,10 +114,11 @@ export function DesignElementsPage(): React.JSX.Element {
         )}
       </div>
 
-      {/* 右ペイン: 詳細 */}
-      <div style={{ flex: 1, padding: 24, overflow: 'auto' }}>
+      {/* 右ペイン: 詳細 / 編集 */}
+      <div style={{ flex: 1, padding: 20, overflow: 'auto' }}>
         {selected ? (
           <>
+            {/* ヘッダー */}
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 12 }}>
               <div>
                 <h3 style={{ margin: '0 0 4px', fontSize: 16 }}>{selected.title}</h3>
@@ -123,27 +126,46 @@ export function DesignElementsPage(): React.JSX.Element {
                   {selected.code} · {selected.entity_type} · {selected.status}
                 </div>
               </div>
-              <button
-                onClick={() => handleDelete(selected.uid)}
-                style={{ padding: '4px 10px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 12 }}
-              >
-                削除
-              </button>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button
+                  onClick={() => setEditMode((v) => !v)}
+                  style={{ padding: '4px 10px', background: editMode ? 'var(--srd-color-primary, #2563eb)' : 'var(--srd-color-surface-variant)', color: editMode ? '#fff' : 'var(--srd-color-on-surface)', border: '1px solid var(--srd-color-border)', borderRadius: 4, cursor: 'pointer', fontSize: 12 }}
+                >
+                  {editMode ? '▶ 表示' : '✏ 編集'}
+                </button>
+                <button
+                  onClick={() => handleDelete(selected.uid)}
+                  style={{ padding: '4px 10px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 12 }}
+                >
+                  削除
+                </button>
+              </div>
             </div>
-            <div style={{ background: '#f9fafb', borderRadius: 6, padding: 16, fontSize: 12 }}>
-              <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
-                {JSON.stringify(
-                  Object.fromEntries(
-                    Object.entries(selected).filter(([k]) => !['uid', 'code', 'title', 'status', 'entity_type', 'created_at', 'updated_at'].includes(k))
-                  ),
-                  null,
-                  2
-                )}
-              </pre>
-            </div>
-            <div style={{ marginTop: 16 }}>
-              <TraceLinkSection uid={selected.uid} />
-            </div>
+
+            {/* 編集フォーム / 詳細ビュー */}
+            {editMode ? (
+              <ResourceEditForm
+                resource={selected}
+                onSaved={() => load(selectedType)}
+              />
+            ) : (
+              <>
+                <div style={{ background: '#f9fafb', borderRadius: 6, padding: 16, fontSize: 12 }}>
+                  <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                    {JSON.stringify(
+                      Object.fromEntries(
+                        Object.entries(selected).filter(([k]) => !['uid', 'code', 'title', 'status', 'entity_type', 'created_at', 'updated_at'].includes(k))
+                      ),
+                      null,
+                      2
+                    )}
+                  </pre>
+                </div>
+                <div style={{ marginTop: 16 }}>
+                  <TraceLinkSection uid={selected.uid} />
+                </div>
+              </>
+            )}
           </>
         ) : (
           <div style={{ color: '#aaa' }}>リソースを選択してください</div>

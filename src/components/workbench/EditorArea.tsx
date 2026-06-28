@@ -19,6 +19,9 @@ const GitPage = lazy(() => import('../../pages/GitPage'))
 const StoreBrowserPage = lazy(() => import('../../pages/StoreBrowserPage'))
 const PlantUmlPage = lazy(() => import('../../pages/PlantUmlPage'))
 const LicensesPage = lazy(() => import('../../pages/LicensesPage'))
+const TableEditorPage = lazy(() => import('../../pages/TableEditorPage'))
+const StateMachineEditorPage = lazy(() => import('../../pages/StateMachineEditorPage'))
+const VerificationPage = lazy(() => import('../../pages/VerificationPage'))
 
 function ViewContent({ viewId }: { viewId: ViewId }): React.JSX.Element {
   switch (viewId) {
@@ -39,6 +42,9 @@ function ViewContent({ viewId }: { viewId: ViewId }): React.JSX.Element {
     case 'store-browser': return <StoreBrowserPage />
     case 'plantuml': return <PlantUmlPage />
     case 'licenses': return <LicensesPage />
+    case 'table-editor': return <TableEditorPage />
+    case 'state-machine': return <StateMachineEditorPage />
+    case 'verification': return <VerificationPage />
   }
 }
 
