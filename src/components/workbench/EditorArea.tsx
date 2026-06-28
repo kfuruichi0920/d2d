@@ -22,11 +22,12 @@ const LicensesPage = lazy(() => import('../../pages/LicensesPage'))
 const TableEditorPage = lazy(() => import('../../pages/TableEditorPage'))
 const StateMachineEditorPage = lazy(() => import('../../pages/StateMachineEditorPage'))
 const VerificationPage = lazy(() => import('../../pages/VerificationPage'))
+const ExtractedDataPage = lazy(() => import('../../pages/ExtractedDataPage').then(m => ({ default: m.ExtractedDataPage })))
 
 function ViewContent({ viewId }: { viewId: ViewId }): React.JSX.Element {
   switch (viewId) {
     case 'sources': return <SourceDocumentsPage />
-    case 'extraction': return <div style={{ padding: 24, color: '#888' }}>抽出データビュー（準備中）</div>
+    case 'extraction': return <ExtractedDataPage />
     case 'intermediate': return <IntermediatePage />
     case 'design': return <DesignElementsPage />
     case 'glossary': return <GlossaryPage />
