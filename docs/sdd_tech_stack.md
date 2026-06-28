@@ -30,8 +30,8 @@
 | グリッド・表 | TanStack Table | v8 | MIT | 仮想スクロール対応、ヘッドレス設計で自由なスタイリング可 |
 | 仮想スクロール | TanStack Virtual | v3 | MIT | 大量行リストの 60fps 表示（SRS NFR-001） |
 | ルーティング | TanStack Router | v1 | MIT | 型安全ルーティング、ファイルベースルート対応 |
-| グラフ描画 | SVG 自前実装 | — | — | 関係グラフ・影響分析の可視化。力学レイアウトを SVG + React で自前実装。Cytoscape.js 等の外部ライブラリは**未導入**（将来移行候補） |
-| テキスト・コードエディタ | styled textarea | — | — | 設計要素の本文編集は styled `<textarea>` で代替。Monaco Editor は**未導入**（将来 Monaco への移行を検討） |
+| グラフ描画 | Cytoscape.js | 3.x | MIT | 関係グラフ・影響分析の可視化、各種レイアウトアルゴリズム内蔵 |
+| テキスト・コードエディタ | Monaco Editor | 0.46+ | MIT | VSCode 同等エディタ、Markdown / JSON / PlantUML 対応、diff エディタ内蔵 |
 | クライアント状態管理 | Zustand | 5.x | MIT | 軽量、スライス構成しやすい、React 外からも利用可 |
 
 ---
@@ -130,8 +130,8 @@ SRS NFR-040〜044 に対応する商用配布可否の確認。
 | TypeScript | Apache 2.0 | ○ | |
 | @serendie/ui, @serendie/design-token, @serendie/symbols | MIT | ○ | |
 | @ark-ui/react | MIT | ○ | |
-| Monaco Editor | MIT | ○ | 現時点未導入。将来導入時も MIT のため問題なし |
-| Cytoscape.js | MIT | ○ | 現時点未導入。将来導入時も MIT のため問題なし |
+| Monaco Editor | MIT | ○ | |
+| Cytoscape.js | MIT | ○ | |
 | TanStack Table / Virtual / Router | MIT | ○ | |
 | better-sqlite3 | MIT | ○ | |
 | @electron/rebuild | MIT | ○ | ビルド時のみ使用 |
