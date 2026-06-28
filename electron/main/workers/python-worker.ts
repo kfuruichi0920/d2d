@@ -1,8 +1,19 @@
 import { spawn, ChildProcess } from 'child_process'
 import { join } from 'path'
-import { existsSync } from 'fs'
+import { existsSync, readFileSync } from 'fs'
 import { is } from '@electron-toolkit/utils'
 import { progressJob } from '../jobs/job-manager'
+
+// 開発時に .env の D2D_PYTHON を process.env に注入（一度だけ実行）
+if (is.dev && !process.env.D2D_PYTHON) {
+  const envPath = join(process.cwd(), '.env')
+  if (existsSync(envPath)) {
+    for (const line of readFileSync(envPath, 'utf-8').split('\n')) {
+      const m = line.match(/^\s*D2D_PYTHON\s*=\s*(.+)/)
+      if (m) { process.env.D2D_PYTHON = m[1].trim(); break }
+    }
+  }
+}
 
 export interface WorkerRequest {
   job_id: string
@@ -36,7 +47,8 @@ function getPythonWorkerPath(): string {
 
 function getPythonBin(): string {
   if (is.dev) {
-    // 開発時は PATH の python を使う
+    // D2D_PYTHON 環境変数が設定されていればそれを優先（hermes venv 回避用）
+    if (process.env.D2D_PYTHON) return process.env.D2D_PYTHON
     return process.platform === 'win32' ? 'python' : 'python3'
   }
   return ''
