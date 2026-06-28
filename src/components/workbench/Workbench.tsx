@@ -9,7 +9,11 @@ import { useWorkbenchStore } from '../../stores/workbenchStore'
 const MIN_SIDEBAR_WIDTH = 160
 const MAX_SIDEBAR_WIDTH = 480
 
-export function Workbench(): React.JSX.Element {
+interface WorkbenchProps {
+  onCloseProject?: () => void
+}
+
+export function Workbench({ onCloseProject }: WorkbenchProps): React.JSX.Element {
   const { sideBarOpen, sideBarWidth, setSideBarWidth, panelOpen } = useWorkbenchStore()
   const [dragging, setDragging] = useState(false)
   const startX = useRef(0)
@@ -78,7 +82,7 @@ export function Workbench(): React.JSX.Element {
         </div>
       </div>
 
-      <StatusBar />
+      <StatusBar onCloseProject={onCloseProject} />
       <CommandPalette />
     </div>
   )

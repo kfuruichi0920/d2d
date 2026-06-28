@@ -309,6 +309,8 @@ export interface ReportOptions {
 export interface D2DApi {
   project: {
     open: (filePath: string) => Promise<ProjectInfo>
+    openDialog: () => Promise<ProjectInfo | null>
+    selectDir: () => Promise<string | null>
     create: (opts: CreateProjectOptions) => Promise<string>
     getCurrent: () => Promise<ProjectInfo | null>
     close: () => Promise<void>

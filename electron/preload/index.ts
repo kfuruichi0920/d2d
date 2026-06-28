@@ -5,9 +5,11 @@ import type { D2DApi } from '../main/ipc/types'
 const api: D2DApi = {
   project: {
     open: (filePath) => ipcRenderer.invoke('project:open', filePath),
+    openDialog: () => ipcRenderer.invoke('project:openDialog'),
+    selectDir: () => ipcRenderer.invoke('project:selectDir'),
     create: (opts) => ipcRenderer.invoke('project:create', opts),
     getCurrent: () => ipcRenderer.invoke('project:getCurrent'),
-    close: () => ipcRenderer.invoke('project:close')
+    close: () => ipcRenderer.invoke('project:close'),
   },
   store: {
     query: (sql: string, params?: unknown[]) => ipcRenderer.invoke('store:query', sql, params),
