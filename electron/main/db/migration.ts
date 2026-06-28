@@ -1,7 +1,13 @@
 import type Database from 'better-sqlite3'
-import { getDatabase, loadSchemaSql } from './database'
+import { getDatabase } from './database'
+// SQL ファイルをビルド時にインライン文字列として埋め込む（?raw = Vite raw import）
+import schemaSql_v100 from './schema/v1.0.0.sql?raw'
 
 export const CURRENT_SCHEMA_VERSION = '1.0.0'
+
+const SCHEMA_SQL: Record<string, string> = {
+  '1.0.0': schemaSql_v100,
+}
 
 interface MigrationStep {
   from: string
@@ -13,8 +19,9 @@ interface MigrationStep {
 const MIGRATION_STEPS: MigrationStep[] = []
 
 export function initializeSchema(db: Database.Database): void {
-  const schemaSql = loadSchemaSql(CURRENT_SCHEMA_VERSION)
-  db.exec(schemaSql)
+  const sql = SCHEMA_SQL[CURRENT_SCHEMA_VERSION]
+  if (!sql) throw new Error(`Schema SQL not found for version ${CURRENT_SCHEMA_VERSION}`)
+  db.exec(sql)
 }
 
 export function getSchemaVersion(): string | null {
