@@ -28,7 +28,7 @@ Electron 実装上の実行責務は以下の通り分離する。
 
 基盤機能、共通機能、個別機能は Local Backend 側に配置する。Main は Gateway / Shell として、Renderer からの要求を Local Backend へ中継し、ファイル選択など OS 統合が必要な操作だけを担当する。
 
-> **現行実装に関する注記（2026-06）**: 現時点の実装では、業務ロジック（DB操作、文書解析、LLM通信等）が別プロセスの Local Backend を起動せずに `electron/main/` 内に直接実装されている。ただし IPC ハンドラ層（`electron/main/ipc/`）と業務ロジック層（`electron/main/intermediate/` 等）は内部で明確に分離されており、設計上の責務境界は維持している。この構成は「Local Backend = electron/main 内の業務ロジック層」として読み替えることが可能であり、設計目標である Renderer と業務ロジックの疎結合は達成されている。将来的に Local Backend を別プロセス化する場合も、IPC 境界を変えずに移行できる。
+> **初期実装方針（2026-07確定）**: Local Backend は初回から Electron Main とは別プロセスとして起動する。Electron Main は Renderer IPC、OS統合、Local Backend の起動・停止・接続監視に限定し、DB操作、文書解析、LLM通信、PlantUML実行、MeCab前処理、DB to Text生成などの業務ロジックを直接実装しない。
 
 API は細かいレコード取得を大量に呼ぶ形にしない。`importDocument(filePath)`、`searchElements(query, paging, sort)`、`getTraceSubgraph(elementId, depth, filters)`、`renderPlantUml(sourceId or textHash)`、`getTableViewport(tableId, range, filters)`、`exportReport(reportId, format)` のように、ユーザー操作単位または表示単位でまとめる。`readLine(filePath, lineNo)`、`getCell(row, col)`、`getNode(nodeId)` / `getEdge(edgeId)` の大量反復呼び出しは禁止する。
 

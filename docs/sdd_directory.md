@@ -186,37 +186,44 @@ SQLite バイナリは diff が読みにくいため、`.gitattributes` で `*.d
 
 Electron + Vite + TypeScript 構成での実際のソース構成。
 
-> **設計方針**: `src/` は当初 `src/features/<機能名>/`（機能別にhooks/components/api層を分離するパターン）を想定していたが、全APIが `window.api.*` の preload ブリッジという統一I/Fに収まるため feature 単位の分離は不要と判断した。より実用的な `src/pages/`（ページ単位）+ `src/components/`（共通UI）構成を採用している。Rust ワーカーは予定していたが機能要件の変化により不採用。
+> **設計方針**: `src/` はUIのWorkbench / Resource / Editor構成を中心にし、業務ロジックは別プロセスの `backend/` に配置する。Electron Main は Gateway / Shell として `backend/` の起動・停止・接続監視と Renderer IPC 中継に限定する。Rust ワーカーは予定していたが機能要件の変化により不採用。
 
 ```
 d2d/                               # リポジトリルート
 ├── electron/
-│   ├── main/                      # Electron main process (Node.js)
+│   ├── main/                      # Electron main process (Gateway / Shell)
 │   │   ├── index.ts               # エントリポイント
-│   │   ├── ipc/                   # IPC ハンドラ（基盤機能 API の公開）
-│   │   │   └── handlers/          # 機能別ハンドラ（project / store / intermediate 等）
-│   │   ├── db/                    # DBスキーマ定義・マイグレーション
-│   │   │   └── schema/
-│   │   ├── store/                 # SQLite アクセス層（better-sqlite3 / entity-registry）
-│   │   ├── jobs/                  # ジョブ管理（キュー・進捗・再実行）
-│   │   ├── workers/               # 外部ワーカー起動・JSONL 通信管理
-│   │   ├── settings/              # 設定管理（keytar によるAPIキー保護）
-│   │   ├── import/                # ①原本インポート
-│   │   ├── extract/               # ②抽出データ管理
-│   │   ├── intermediate/          # ③中間データ処理
-│   │   ├── design/                # ④設計モデル管理
-│   │   ├── traceability/          # トレーサビリティ機能
-│   │   ├── llm/                   # LLMプロバイダ機能（Electron.net による HTTP 通信）
-│   │   ├── reports/               # レポート出力機能
-│   │   ├── git/                   # Git操作（simple-git）
-│   │   ├── plantuml/              # PlantUML実行
-│   │   ├── project/               # プロジェクト管理
-│   │   ├── artifacts/             # 成果物管理
-│   │   ├── events/                # イベント通知
-│   │   ├── system/                # システム情報
-│   │   └── utils/                 # ユーティリティ
+│   │   ├── ipc/                   # Renderer IPC受付とBackend API中継
+│   │   │   └── handlers/          # project / resource / job 等の薄い中継ハンドラ
+│   │   ├── backend/               # Local Backendプロセス起動・停止・監視
+│   │   ├── system/                # ファイル選択、OS統合、システム情報
+│   │   └── utils/                 # Gateway用ユーティリティ
 │   └── preload/
 │       └── index.ts               # contextBridge 公開（window.api.* の全ブリッジ定義）
+│
+├── backend/                       # Local Backend（別プロセス / Node.js）
+│   ├── index.ts                   # Backendエントリポイント
+│   ├── api/                       # Main/CLI向け操作単位API
+│   ├── db/                        # DBスキーマ定義・マイグレーション
+│   │   └── schema/
+│   ├── store/                     # SQLite アクセス層（better-sqlite3 / entity-registry）
+│   ├── jobs/                      # ジョブ管理（キュー・進捗・再実行）
+│   ├── workers/                   # 外部ワーカー起動・JSONL 通信管理
+│   ├── settings/                  # 設定管理（keytar によるAPIキー保護）
+│   ├── import/                    # ①原本インポート
+│   ├── extract/                   # ②抽出データ管理
+│   ├── intermediate/              # ③中間データ処理
+│   ├── design/                    # ④設計モデル管理
+│   ├── traceability/              # トレーサビリティ機能
+│   ├── llm/                       # LLMプロバイダ機能（fetch による HTTP 通信）
+│   ├── reports/                   # レポート出力機能
+│   ├── git/                       # Git操作（simple-git）
+│   ├── plantuml/                  # PlantUML実行
+│   ├── search/                    # MeCab前処理、FTS5検索索引
+│   ├── project/                   # プロジェクト管理
+│   ├── artifacts/                 # 成果物管理
+│   ├── events/                    # イベント通知
+│   └── utils/                     # Backend用ユーティリティ
 │
 ├── src/                           # React / TypeScript (renderer process)
 │   ├── pages/                     # 機能別ページコンポーネント
