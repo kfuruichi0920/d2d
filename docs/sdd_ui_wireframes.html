@@ -1,0 +1,808 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>D2D 画面ワイヤーフレーム(作業モード別・ビュー別)</title>
+<style>
+  body{font-family:"Segoe UI","Yu Gothic UI",Meiryo,sans-serif;font-size:12px;color:#333;background:#fafafa;margin:24px auto;max-width:960px;line-height:1.6}
+  h1{font-size:20px;font-weight:600}
+  h2{font-size:15px;font-weight:600;border-bottom:1px solid #ddd;padding-bottom:4px;margin-top:44px}
+  .meta{color:#777;font-size:11px;margin:2px 0 10px}
+  .wf{border:1px solid #bbb;border-radius:8px;overflow:hidden;background:#fff}
+  .bar{padding:4px 10px;border-bottom:1px solid #ddd;background:#f0f0f0;color:#555;font-size:11px}
+  .statusbar{padding:4px 10px;border-top:1px solid #ddd;background:#f0f0f0;color:#777;font-size:11px}
+  .cols{display:flex;min-height:200px}
+  .pane{padding:6px 10px;min-width:0;flex:1}
+  .pane+.pane{border-left:1px solid #ddd}
+  .side{background:#f7f7f7;flex:none}
+  .hd{font-weight:600;color:#444;margin-bottom:4px}
+  .mut{color:#888}
+  .ph{border:1px dashed #aaa;border-radius:4px;padding:10px;color:#888;display:flex;align-items:center;justify-content:center;text-align:center}
+  .btn{display:inline-block;border:1px solid #999;border-radius:4px;padding:1px 8px;background:#fff;color:#444;white-space:nowrap}
+  .btn.pri{border-color:#555;font-weight:600}
+  .tag{display:inline-block;border:1px solid #bbb;border-radius:8px;padding:0 6px;font-size:10px;color:#666;white-space:nowrap}
+  .sel{border:1px solid #555;border-radius:3px;padding:0 3px;color:#111;background:#eee}
+  table.grid{border-collapse:collapse;width:100%;table-layout:fixed}
+  .grid th,.grid td{border:1px solid #ccc;padding:2px 6px;text-align:left;font-size:11px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+  .grid th{background:#f4f4f4;font-weight:600;color:#555}
+  ul.plain{list-style:none;margin:4px 0;padding:0;line-height:1.9;color:#666}
+  ul.plain ul{list-style:none;padding-left:14px}
+  .note{font-size:11px;color:#666;margin:8px 0 0}
+  .note b{color:#444}
+  .idx td,.idx th{white-space:normal}
+  .kbd{border:1px solid #ccc;border-radius:3px;padding:0 4px;font-size:10px;background:#f4f4f4;color:#555}
+  .part{font-size:17px;border-bottom:2px solid #bbb;padding-bottom:6px;margin-top:56px}
+  .abar{flex:none;width:26px;border-right:1px solid #ddd;background:#f0f0f0;display:flex;flex-direction:column;align-items:center;gap:8px;padding:8px 0;color:#999}
+  .abar .on{color:#222}
+  .tabbar{padding:4px 8px;border-bottom:1px solid #ddd;background:#f7f7f7;color:#888;font-size:11px}
+  .tabbar b{color:#444}
+  .inner{display:flex;flex:1;min-height:0}
+  .center{flex:1;display:flex;flex-direction:column;min-width:0}
+  .pipe b{color:#333}
+</style>
+</head>
+<body>
+
+<h1>D2D 画面ワイヤーフレーム</h1>
+<p class="meta">対象: <code>sdd_ui_design.md</code> 5章「作業モード」および13章「画面・ビュー一覧」。第1部は作業モード(M0〜M5)ごとの Workbench 全体画面(Title Bar / Pipeline Navigator / Activity Bar / 3ペイン / Panel / Status Bar)と横断UI・モーダルを、第2部は Editor Area / Side Bar に開かれるビュー単体を示す。V-00〜V-19 の収録位置は下表の通り。</p>
+
+<table class="grid idx">
+  <tr><th style="width:60px">ビューID</th><th>ビュー名</th><th style="width:280px">収録</th></tr>
+  <tr><td>V-00</td><td>プロジェクトダッシュボード</td><td><a href="#m0">第1部 M0</a></td></tr>
+  <tr><td>V-01</td><td>原本ビュー</td><td><a href="#v01">本ファイル</a></td></tr>
+  <tr><td>V-02</td><td>抽出レビュービュー</td><td><a href="#m1">第1部 M1</a></td></tr>
+  <tr><td>V-03</td><td>中間データビュー</td><td><a href="#v03">本ファイル</a></td></tr>
+  <tr><td>V-04</td><td>設計モデルビュー</td><td><a href="#v04">本ファイル</a></td></tr>
+  <tr><td>V-05</td><td>トレースマトリクスビュー</td><td><a href="#m4">第1部 M4</a></td></tr>
+  <tr><td>V-06</td><td>階層リスト間リンクビュー</td><td><a href="#v06">本ファイル</a></td></tr>
+  <tr><td>V-07</td><td>関係グラフビュー</td><td><a href="#v07">本ファイル</a></td></tr>
+  <tr><td>V-08</td><td>Diff ビュー</td><td><a href="#m5">第1部 M5</a></td></tr>
+  <tr><td>V-09</td><td>LLM ログビュー</td><td><a href="#v09">本ファイル</a></td></tr>
+  <tr><td>V-10</td><td>Git 履歴ビュー</td><td><a href="#m5">第1部 M5</a></td></tr>
+  <tr><td>V-11</td><td>ストア閲覧ビュー</td><td><a href="#v11">本ファイル</a></td></tr>
+  <tr><td>V-12</td><td>設定ビュー</td><td><a href="#v12">本ファイル</a></td></tr>
+  <tr><td>V-13</td><td>レポート設定ビュー</td><td><a href="#v13">本ファイル</a></td></tr>
+  <tr><td>V-14</td><td>用語集ビュー</td><td><a href="#v14">本ファイル</a></td></tr>
+  <tr><td>V-15</td><td>成果物統合ビュー</td><td><a href="#m2">第1部 M2</a></td></tr>
+  <tr><td>V-16</td><td>ジョブ詳細ビュー</td><td><a href="#v16">本ファイル</a></td></tr>
+  <tr><td>V-17</td><td>レビューキュー</td><td><a href="#v17">第1部 横断UI</a></td></tr>
+  <tr><td>V-18</td><td>候補セットレビュービュー</td><td><a href="#m3">第1部 M3</a></td></tr>
+  <tr><td>V-19</td><td>チャンク管理ビュー</td><td><a href="#v19">本ファイル</a></td></tr>
+</table>
+
+<h2 class="part">第1部: 作業モード別ワイヤーフレーム(M0〜M5・横断UI・モーダル)</h2>
+<p class="meta">各図は Workbench 全体(Title Bar / Pipeline Navigator / Activity Bar / Primary Side Bar / Editor Area / 判断パネル / Panel / Status Bar)を含む。Activity Bar のアイコンは上から Explorer ◧ / Review ▤ / Search ⌕ / Trace ⇄ / Jobs ▶ / History ↺ / Settings ⚙。</p>
+
+<h2 id="m0">M0 プロジェクトダッシュボード</h2>
+<p class="meta">対応ビュー: V-00 / <code>sdd_ui_design.md</code> 5.1節・6.2節 / プロジェクトを開いた直後の既定画面</p>
+<div class="wf">
+  <div class="bar">Title Bar / Command Center — D2D | Project: 車載ECU設計 | schema 1.0.0 | Command Palette(Ctrl+Shift+P)</div>
+  <div class="bar pipe">Pipeline Navigator: [①原本 12] ─抽出▶ [②抽出 8/12済 未確認34] ─統合▶ [③中間 3成果物 候補5] ─モデル化▶ [④モデル 142要素 候補12]</div>
+  <div class="cols">
+    <div class="abar"><span>◧</span><span>▤</span><span>⌕</span><span>⇄</span><span>▶</span><span>↺</span><span>⚙</span></div>
+    <div class="pane">
+      <div style="border:1px dashed #aaa;border-radius:4px;padding:8px;margin-bottom:8px">
+        <div class="hd">パイプライン進捗(ステージクリックで各モードへ)</div>
+        <div style="display:flex;align-items:center;gap:4px;color:#666">
+          <div style="flex:1;border:1px solid #999;border-radius:4px;padding:4px 6px">①原本<br><span class="mut">12ファイル</span></div><span class="mut">▶</span>
+          <div style="flex:1;border:1px solid #999;border-radius:4px;padding:4px 6px">②抽出<br><span class="mut">8/12済・未確認34</span></div><span class="mut">▶</span>
+          <div style="flex:1;border:1px solid #999;border-radius:4px;padding:4px 6px">③中間<br><span class="mut">3成果物・候補5</span></div><span class="mut">▶</span>
+          <div style="flex:1;border:1px solid #999;border-radius:4px;padding:4px 6px">④モデル<br><span class="mut">142要素・候補12</span></div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px">
+        <div style="border:1px dashed #aaa;border-radius:4px;padding:8px"><div class="hd">点検待ち(→レビューキュー)</div><ul class="plain"><li>②抽出 未確認 34件(基本設計書.docx ほか)</li><li>③統合 LLM章構成候補 5件</li><li>④モデル 関係候補 12件</li></ul></div>
+        <div style="border:1px dashed #aaa;border-radius:4px;padding:8px"><div class="hd">実行中ジョブ(→Jobs Panel)</div><ul class="plain"><li>抽出: IF一覧.xlsx ████░░ 60%</li><li>LLM候補生成: chunk-012 待機中</li></ul></div>
+        <div style="border:1px dashed #aaa;border-radius:4px;padding:8px"><div class="hd">最近の作業(→作業再開)</div><ul class="plain"><li>M1 基本設計書.docx 抽出レビュー(昨日)</li><li>M3 候補セット llm-run-034(2時間前)</li></ul></div>
+        <div style="border:1px dashed #aaa;border-radius:4px;padding:8px"><div class="hd">警告(→Problems)</div><ul class="plain"><li>根拠変更あり 3件(下流④要素)</li><li>要求未満足 7件 / 検証未対応 4件</li></ul></div>
+      </div>
+    </div>
+  </div>
+  <div class="statusbar">Status Bar: M0 ダッシュボード | ジョブ2実行中 | ⚠2 | 外部LLM送信: 無効</div>
+</div>
+<p class="note"><b>要点:</b> 全体進捗と「次にやること」への入口を集約する。4カードはいずれもクリックで該当画面(レビューキュー / Jobs Panel / 前回のエディタ / Problems)へ遷移する導線であり、ここでは編集しない。</p>
+
+<h2 id="m1">M1 取込・抽出(①→②)</h2>
+<p class="meta">対応ビュー: V-01, V-02 / <code>sdd_ui_design.md</code> 8.1節 / 対照レビューエディタ(7.1節)の基本形</p>
+<div class="wf">
+  <div class="bar">Title Bar / Command Center</div>
+  <div class="bar pipe">Pipeline Navigator: [①原本] ─<b>抽出▶(実行中 2/3)</b>─ [<b>②抽出 ◀作業中</b>] ─統合▶ [③中間] ─▶ [④モデル]</div>
+  <div class="cols">
+    <div class="abar"><span>◧</span><span class="on">▤</span><span>⌕</span><span>⇄</span><span>▶</span><span>↺</span><span>⚙</span></div>
+    <div class="pane side" style="width:140px;flex:none">
+      <div class="hd">レビュー一覧 <span class="mut">12/46</span></div>
+      <div class="mut">filter: 状態|種別|⚠</div>
+      <ul class="plain">
+        <li>✓ TEXT-000041 概要</li>
+        <li>✓ TEXT-000042 段落</li>
+        <li><span class="sel">▸ TBL-000007 表3-1</span></li>
+        <li>⚠ FIG-000012 図3-2</li>
+        <li>○ TEXT-000043 段落</li>
+        <li>○ LIST-000009 箇条書き</li>
+      </ul>
+      <div class="mut" style="margin-top:6px">進捗 ████░░░ 26%</div>
+    </div>
+    <div class="center">
+      <div class="tabbar">Tab: <b>基本設計書.docx 抽出レビュー ●34</b> | IF一覧.xlsx</div>
+      <div class="inner">
+        <div class="pane"><div class="hd">原本プレビュー(根拠)</div><div class="mut">p.14 / 3.2節 へ自動スクロール</div><div class="ph" style="height:100px;margin-top:6px">原本紙面<br>選択項目の該当箇所をハイライト</div></div>
+        <div class="pane"><div class="hd">抽出結果(編集可)</div><div class="mut">text / table / figure / formula</div><div class="ph" style="height:100px;margin-top:6px">抽出要素の詳細表示<br>セル警告・分割・マージ<br>修正=「修正して採用」</div></div>
+      </div>
+    </div>
+    <div class="pane side" style="width:110px;flex:none">
+      <div class="hd">判断パネル</div>
+      <div class="mut">状態: 未確認</div>
+      <ul class="plain"><li><span class="btn">✓ 採用</span></li><li><span class="btn">✎ 修正して採用</span></li><li><span class="btn">✗ 棄却</span></li><li><span class="btn">▷ 保留</span></li></ul>
+      <div class="mut" style="margin-top:6px;border-top:1px solid #ddd;padding-top:4px">根拠 / 履歴 / メモ</div>
+    </div>
+  </div>
+  <div class="statusbar">Panel: <b>Jobs(抽出進捗)</b> | Problems(抽出警告) | Output</div>
+  <div class="statusbar">Status Bar: M1 取込・抽出 | 抽出ジョブ 2/3 | ⚠2 | 外部LLM送信: 無効</div>
+</div>
+<p class="note"><b>要点:</b> 「左で選ぶ → 中央で対照確認 → 右で判断」の反復リズム。判断確定で自動的に次の未確認へ移動し(<span class="kbd">J</span>/<span class="kbd">K</span>、<span class="kbd">Ctrl+Enter</span> 等のキーボードトリアージ)、一覧バッジと Pipeline Navigator の件数が即時更新される。</p>
+
+<h2 id="m2">M2 統合(②→③)</h2>
+<p class="meta">対応ビュー: V-15(+V-03) / <code>sdd_ui_design.md</code> 8.2節</p>
+<div class="wf">
+  <div class="bar">Title Bar / Command Center</div>
+  <div class="bar pipe">Pipeline Navigator: [①原本] ─抽出▶ [②抽出] ─<b>統合▶</b>─ [<b>③中間 ◀作業中</b>] ─▶ [④モデル]</div>
+  <div class="cols">
+    <div class="abar"><span class="on">◧</span><span>▤</span><span>⌕</span><span>⇄</span><span>▶</span><span>↺</span><span>⚙</span></div>
+    <div class="pane side" style="width:145px;flex:none">
+      <div class="hd">未割当 ②抽出要素 <span class="mut">18</span></div>
+      <div class="mut">filter: 原本別|種別</div>
+      <ul class="plain">
+        <li>▾ 基本設計書.docx (11)</li>
+        <li style="padding-left:10px">○ TEXT-000051 段落</li>
+        <li style="padding-left:10px">○ TBL-000009 表4-2</li>
+        <li style="padding-left:10px">○ FIG-000015 図4-1</li>
+        <li>▾ IF一覧.xlsx (7)</li>
+        <li style="padding-left:10px">○ TBL-000012 IF表</li>
+      </ul>
+      <div class="mut" style="margin-top:6px">→ 章節へドラッグで割当</div>
+    </div>
+    <div class="center">
+      <div class="tabbar">Tab: <b>統合: 基本設計書(成果物 BD-01 / フェーズ 基本設計)</b> | + 新規成果物</div>
+      <div class="inner">
+        <div class="pane" style="flex:none;width:130px">
+          <div class="hd">③アウトライン</div>
+          <ul class="plain"><li>1. 概要 ✓</li><li>2. システム構成 ✓</li><li>▾ 3. 機能仕様 ●</li><li style="padding-left:10px">3.1 初期化 ✓</li><li style="padding-left:10px"><span class="sel">3.2 通信 ◀</span></li><li>4. IF仕様(空)</li></ul>
+          <div class="ph" style="margin-top:6px;padding:4px">ドロップで章へ割当</div>
+        </div>
+        <div class="pane"><div class="hd">③文書風エディタ(編集可)</div><div class="ph" style="height:110px;margin-top:6px">3.2 通信 の本文・図表<br>各段落に根拠バッジ(→②要素)<br>本文取込 / リンクのみ / 割当解除</div></div>
+      </div>
+    </div>
+    <div class="pane side" style="width:118px;flex:none">
+      <div class="hd">Candidates</div>
+      <div class="mut">LLM章構成提案 1件<br>割当候補 4件</div>
+      <ul class="plain"><li><span class="btn">✓ 採用</span></li><li><span class="btn">✎ 修正して採用</span></li><li><span class="btn">✗ 棄却</span></li></ul>
+      <div class="mut" style="margin-top:6px;border-top:1px solid #ddd;padding-top:4px">Review / Evidence<br>(②根拠・原本位置)</div>
+    </div>
+  </div>
+  <div class="statusbar">Panel: <b>Problems(未割当18・重複割当1)</b> | Jobs | Output</div>
+  <div class="statusbar">Status Bar: M2 統合 | 未割当 18 | 候補 5 | 外部LLM送信: 無効</div>
+</div>
+<p class="note"><b>要点:</b> 割当操作(ドラッグ / <code>compose.assign</code>)は trace_link(derived_from / normalized_from)の作成として記録される。未割当・重複割当は Problems に集約し、「未割当 0 + ③未確認 0」で次モードへの導線を提示する。</p>
+
+<h2 id="m3">M3 モデル化(③→④)</h2>
+<p class="meta">対応ビュー: V-18, V-19(+V-03, V-04, V-09) / <code>sdd_ui_design.md</code> 8.3節・7.4節</p>
+<div class="wf">
+  <div class="bar">Title Bar / Command Center</div>
+  <div class="bar pipe">Pipeline Navigator: [①原本] ─▶ [②抽出] ─▶ [③中間] ─<b>モデル化▶(LLM実行中)</b>─ [<b>④モデル ◀作業中</b>]</div>
+  <div class="cols">
+    <div class="abar"><span>◧</span><span class="on">▤</span><span>⌕</span><span>⇄</span><span>▶</span><span>↺</span><span>⚙</span></div>
+    <div class="pane side" style="width:150px;flex:none">
+      <div class="hd">チャンク一覧</div>
+      <ul class="plain"><li>✓ CHNK-001 1章(要求)</li><li><span class="sel">▸ CHNK-002 3.2節</span></li><li>○ CHNK-003 4章(IF)</li><li><span class="btn">+ 範囲選択から作成</span></li></ul>
+      <div class="hd" style="margin-top:8px">④要素ツリー</div>
+      <ul class="plain"><li>▸ 要求 (38) / 機能 (25)</li><li>▸ 構造 (18) / 状態 (9)</li><li>▸ IF (22) / 検証 (30)</li></ul>
+    </div>
+    <div class="center">
+      <div class="tabbar">Tab: <b>候補セット llm-run-034 ●12</b> | ④モデル編集(要素/関係/PlantUML) | 統合: 基本設計書</div>
+      <div class="inner">
+        <div class="pane"><div class="hd">③中間データ(根拠)</div><div class="mut">チャンク範囲をハイライト</div><div class="ph" style="height:105px;margin-top:6px">3.2 通信 の本文<br>候補行の選択で該当文へ<br>スクロール+強調</div></div>
+        <div class="pane" style="flex:1.2">
+          <div class="hd">候補セット(グリッド)</div>
+          <table class="grid" style="margin-top:4px">
+            <tr><th style="width:34px">種別</th><th>タイトル</th><th style="width:44px">信頼度</th><th style="width:30px">状態</th></tr>
+            <tr><td>要求</td><td class="sel">通信断時の再送</td><td>0.92</td><td>未</td></tr>
+            <tr><td>要求</td><td>応答監視100ms</td><td>0.88</td><td>未</td></tr>
+            <tr><td>関係</td><td>REQ-031 verifies TC-014</td><td>0.85</td><td>未</td></tr>
+            <tr><td>機能</td><td>再送制御</td><td>0.71</td><td>未</td></tr>
+          </table>
+          <div class="mut" style="margin-top:4px">複数選択 → 一括採用/棄却(確認モーダルあり)</div>
+        </div>
+      </div>
+    </div>
+    <div class="pane side" style="width:112px;flex:none">
+      <div class="hd">判断パネル</div>
+      <ul class="plain"><li><span class="btn">✓ 採用</span></li><li><span class="btn">✎ 修正して採用</span></li><li><span class="btn">✗ 棄却</span></li></ul>
+      <div class="mut" style="margin-top:6px;border-top:1px solid #ddd;padding-top:4px">採用→④正本作成<br>+ based_on リンク<br><br>Evidence:<br>チャンク/プロンプト<br>LLMログへ</div>
+    </div>
+  </div>
+  <div class="statusbar">Panel: <b>LLM Logs(token・コスト)</b> | Jobs | Validation Results</div>
+  <div class="statusbar">Status Bar: M3 モデル化 | LLMジョブ 1実行中 | 候補 12 | 外部LLM送信: 許可(マスキング有効)</div>
+</div>
+<p class="note"><b>要点:</b> チャンク作成 → 送信前確認 → 候補生成 → 候補セットレビュー → 採用で④正本+based_on リンク、の一連が1モード内で完結する。候補は採用まで正本に反映されない(MID-034 / LLM-037)。</p>
+
+<h2 id="m4">M4 トレース・分析</h2>
+<p class="meta">対応ビュー: V-05(+V-06, V-07) / <code>sdd_ui_design.md</code> 8.4節</p>
+<div class="wf">
+  <div class="bar">Title Bar / Command Center</div>
+  <div class="bar pipe">Pipeline Navigator: [①原本] ─▶ [②抽出] ─▶ [③中間] ─▶ [④モデル] <span class="mut">(横断分析中)</span></div>
+  <div class="cols">
+    <div class="abar"><span>◧</span><span>▤</span><span>⌕</span><span class="on">⇄</span><span>▶</span><span>↺</span><span>⚙</span></div>
+    <div class="pane side" style="width:145px;flex:none">
+      <div class="hd">トレースクエリ</div>
+      <ul class="plain"><li>起点: 要求(REQ-*)</li><li>関係: satisfies, verifies</li><li>方向: 下流 / 深さ: 3</li><li><span class="btn">実行</span> <span class="btn">保存</span></li></ul>
+      <div class="hd" style="margin-top:8px">保存済みクエリ</div>
+      <ul class="plain"><li>要求→検証カバレッジ</li><li>変更影響(REQ-031)</li><li>根拠なし④要素</li></ul>
+      <div class="hd" style="margin-top:8px">未接続一覧 <span class="mut">11</span></div>
+    </div>
+    <div class="center">
+      <div class="tabbar">Tab: <b>マトリクス</b> | グラフ | 階層リスト(②→③→④) | 出力(JSON/CSV/MD)</div>
+      <div class="pane">
+        <div class="mut">行=要求 / 列=検証(種別・成果物・フェーズ・レビュー状態で絞込)</div>
+        <table class="grid" style="margin-top:4px">
+          <tr><th style="width:70px"></th><th>TC-011</th><th>TC-012</th><th>TC-013</th><th>TC-014</th></tr>
+          <tr><td>REQ-029</td><td>✓ v</td><td></td><td>✓ v</td><td></td></tr>
+          <tr><td>REQ-030</td><td></td><td>✓ v</td><td></td><td></td></tr>
+          <tr><td><b>REQ-031</b></td><td>⚠ 未</td><td></td><td></td><td class="sel">● 候補</td></tr>
+          <tr><td>REQ-032</td><td></td><td>✓ v</td><td>✓ v</td><td></td></tr>
+        </table>
+        <div class="mut" style="margin-top:4px">凡例: ✓=確定 / ●=候補(要レビュー) / ⚠=未接続 ・セルクリックで右に詳細</div>
+      </div>
+    </div>
+    <div class="pane side" style="width:118px;flex:none">
+      <div class="hd">セル詳細</div>
+      <div class="mut">REQ-031 × TC-014<br>relation: verifies<br>信頼度: 0.85<br>状態: 候補</div>
+      <ul class="plain"><li><span class="btn">✓ 確定</span> <span class="btn">✗ 棄却</span></li></ul>
+      <div class="mut" style="margin-top:6px;border-top:1px solid #ddd;padding-top:4px">根拠リンク<br>変更履歴<br>影響範囲へ</div>
+    </div>
+  </div>
+  <div class="statusbar">Panel: <b>Problems(要求未満足7・検証未対応4・根拠なし3)</b> → クリックで該当レビューへ</div>
+  <div class="statusbar">Status Bar: M4 トレース・分析 | クエリ結果 214リンク | ⚠11</div>
+</div>
+<p class="note"><b>要点:</b> マトリクスに確定・候補・未接続を混在表示し、その場で確定・棄却できる(候補を別画面に隔離しない)。グラフ / 階層リストはタブ切替で、同じクエリ結果の別表現として扱う(第2部 V-06, V-07 参照)。</p>
+
+<h2 id="m5">M5 履歴・差分</h2>
+<p class="meta">対応ビュー: V-08, V-10 / <code>sdd_ui_design.md</code> 8.5節</p>
+<div class="wf">
+  <div class="bar">Title Bar / Command Center</div>
+  <div class="bar pipe">Pipeline Navigator: [①原本] ─▶ [②抽出] ─▶ [③中間] ─▶ [④モデル] <span class="mut">(時点比較中・正本は変更しない)</span></div>
+  <div class="cols">
+    <div class="abar"><span>◧</span><span>▤</span><span>⌕</span><span>⇄</span><span>▶</span><span class="on">↺</span><span>⚙</span></div>
+    <div class="pane side" style="width:150px;flex:none">
+      <div class="hd">Git履歴</div>
+      <ul class="plain"><li><span class="sel">a3f21 6/30 レビュー反映</span></li><li>9c04d 6/28 統合完了</li><li>51bb0 6/25 初回抽出</li></ul>
+      <div class="hd" style="margin-top:8px">ZIP比較対象</div>
+      <ul class="plain"><li>baseline_0620.zip</li><li><span class="btn">+ ZIPをインポート</span></li></ul>
+      <div class="hd" style="margin-top:8px">比較単位</div>
+      <ul class="plain"><li>◉ DB to Text</li><li>○ 要素一覧 / ○ 関係一覧</li><li>○ トレースマトリクス</li></ul>
+    </div>
+    <div class="center">
+      <div class="tabbar">Tab: <b>Diff: a3f21 ↔ 現在(要素一覧)</b> | Diff: baseline_0620.zip ↔ 現在</div>
+      <div class="inner">
+        <div class="pane"><div class="hd">a3f21(過去時点)</div><div style="border:1px dashed #aaa;border-radius:4px;padding:6px;margin-top:6px;color:#666;line-height:1.9">REQ-030 応答監視 100ms<br><s>REQ-031 再送 3回まで</s><br>FUNC-012 再送制御<br>&nbsp;</div></div>
+        <div class="pane"><div class="hd">現在(正本)</div><div style="border:1px dashed #aaa;border-radius:4px;padding:6px;margin-top:6px;color:#666;line-height:1.9">REQ-030 応答監視 100ms<br><b>REQ-031 再送 5回まで(変更)</b><br>FUNC-012 再送制御<br><b>+ REQ-035 フェールセーフ(追加)</b></div></div>
+      </div>
+      <div class="tabbar" style="border-top:1px solid #ddd;border-bottom:none">変更 1 / 追加 1 / 削除 0 ・行クリックで該当要素(design://REQ-031)を開く</div>
+    </div>
+  </div>
+  <div class="statusbar">Panel: <b>Output(DB to Text生成ログ)</b> | Jobs</div>
+  <div class="statusbar">Status Bar: M5 履歴・差分 | 比較: a3f21 ↔ HEAD | Git差分あり</div>
+</div>
+<p class="note"><b>要点:</b> 比較対象(Gitコミット / ZIPアーカイブ)と比較単位(DB to Text / 要素 / 関係 / マトリクス)を左で選び、中央の Diff から該当要素へジャンプできる。ZIPインポートは差分比較専用で正本を上書きしない(DATA-032)。</p>
+
+<h2 id="v17">横断UI: レビューキュー(V-17)とジョブ完了通知</h2>
+<p class="meta">対応ビュー: V-17 / <code>sdd_ui_design.md</code> 7.2節・6.4節</p>
+<div style="display:flex;gap:12px;align-items:flex-start">
+  <div class="wf" style="width:250px;flex:none">
+    <div class="bar"><b>Review(レビューキュー)</b> <span class="mut">51</span></div>
+    <div class="bar" style="background:#fff">filter: 状態 | ステージ | ⚠のみ</div>
+    <div class="pane">
+      <ul class="plain">
+        <li><b>▾ ②抽出 未確認 (34)</b></li>
+        <li style="padding-left:10px">▸ 基本設計書.docx (26)</li>
+        <li style="padding-left:10px">▸ IF一覧.xlsx (8)</li>
+        <li><b>▾ ③統合 候補 (5)</b></li>
+        <li style="padding-left:10px">LLM章構成提案 llm-run-031</li>
+        <li style="padding-left:10px">割当候補 ×4</li>
+        <li><b>▾ ④モデル 候補 (12)</b></li>
+        <li style="padding-left:10px"><span class="sel">候補セット llm-run-034 (12)</span></li>
+        <li><b>▾ 要対応 (3)</b></li>
+        <li style="padding-left:10px">⚠ 根拠変更あり REQ-018 ほか</li>
+      </ul>
+    </div>
+    <div class="statusbar">クリック → 該当モードへ切替+該当行フォーカス</div>
+  </div>
+  <div style="flex:1;display:flex;flex-direction:column;gap:10px">
+    <div class="wf">
+      <div class="bar">ジョブ完了通知(画面右下トースト)</div>
+      <div class="pane">
+        <div style="border:1px dashed #aaa;border-radius:4px;padding:8px">✓ 抽出完了: IF一覧.xlsx(要素 42件、警告 2件)<div style="margin-top:6px"><span class="btn pri">レビュー開始 →</span> <span class="btn">後で(キューへ)</span></div></div>
+        <p class="note">「レビュー開始」= 対照レビューエディタを開き先頭の未確認へフォーカス。「後で」= レビューキューと Pipeline Navigator のバッジに加算。</p>
+      </div>
+    </div>
+    <div class="wf">
+      <div class="bar">失敗時</div>
+      <div class="pane">
+        <div style="border:1px dashed #aaa;border-radius:4px;padding:8px">✗ 抽出失敗: 構成図.vsdx(図形解析エラー)<div style="margin-top:6px"><span class="btn">ログを開く</span> <span class="btn">条件付き再実行</span></div></div>
+      </div>
+    </div>
+  </div>
+</div>
+<p class="note"><b>要点:</b> 点検待ちをステージ→文書/成果物→種別の階層で横断集約し、レビュー漏れを構造的に防ぐ。Pipeline Navigator のバッジと同一の集計を使い、<code>review.updated</code> / <code>job.updated</code> イベントで即時更新する。</p>
+
+<h2 id="modal">モーダル: 原本取込ウィザード / LLM送信前確認</h2>
+<p class="meta"><code>sdd_ui_design.md</code> 6.3節 / モーダルは明示判断が必要な場面に限定する</p>
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px">
+  <div class="wf">
+    <div class="bar"><b>原本取込ウィザード</b></div>
+    <div class="pane">
+      <div style="margin-bottom:8px"><span class="sel">1 ファイル選択</span> <span class="tag">2 抽出設定</span> <span class="tag">3 実行確認</span></div>
+      <div class="ph" style="padding:14px">ファイルをドロップ / 選択<br>(Word, Excel, PPT, Visio, PDF, text…)</div>
+      <ul class="plain" style="margin-top:8px">
+        <li>✓ 基本設計書_v3.docx(新規)</li>
+        <li>⚠ IF一覧.xlsx — 同一ハッシュの取込済あり → <span class="btn">版として取込</span> <span class="btn">除外</span></li>
+      </ul>
+      <div style="text-align:right;border-top:1px solid #ddd;padding-top:8px;margin-top:8px"><span class="btn">キャンセル</span> <span class="btn pri">次へ →</span></div>
+    </div>
+  </div>
+  <div class="wf">
+    <div class="bar"><b>LLM送信前確認(外部API)</b></div>
+    <div class="pane">
+      <ul class="plain"><li>対象: CHNK-002(3.2 通信、約1,840 tokens)</li><li>プロンプト: 要求候補抽出 v1.3 / モデル: gpt-4o</li></ul>
+      <div style="border:1px dashed #aaa;border-radius:4px;padding:8px;margin-top:4px;color:#666">送信内容プレビュー(全文スクロール)<br>「…通信断が発生した場合、<b>[MASK:顧客名]</b> 向け装置は再送を行い…」</div>
+      <ul class="plain" style="margin-top:4px"><li>✓ マスキング適用: 2箇所(規則: 固有名詞)</li><li>✓ プロジェクト設定: 外部送信 許可 / 概算コスト $0.02</li></ul>
+      <div style="text-align:right;border-top:1px solid #ddd;padding-top:8px;margin-top:8px"><span class="btn">キャンセル</span> <span class="btn">ローカルLLMで実行</span> <span class="btn pri">送信して候補生成</span></div>
+    </div>
+  </div>
+</div>
+<p class="note"><b>要点:</b> 取込はハッシュ重複の版管理判断(IMP-008)、LLM送信はマスキング適用結果と外部送信可否の確認(LLM-040〜041)を、実行前に必ず人間に提示する。「ローカルLLMで実行」の逃げ道を常に用意する(LLM-043)。</p>
+
+<h2 class="part">第2部: ビュー別ワイヤーフレーム</h2>
+<p class="meta">Editor Area / Side Bar に開かれるビュー単体のワイヤーフレーム。Workbench 全体骨格は第1部および <code>sdd_ui_design.md</code> 3章を参照。</p>
+
+<h2 id="v01">V-01 原本ビュー(Original Viewer)</h2>
+<p class="meta">Resource: <code>original://&lt;source_document_uid&gt;</code> / SRS: UI-010, IMP-008〜009 / 主なモード: M1</p>
+<div class="wf">
+  <div class="bar">Tab: 基本設計書_v3.docx(原本) | Toolbar: <span class="btn">抽出対象ハイライト ON</span> <span class="btn">抽出実行</span> <span class="btn">抽出結果を開く</span></div>
+  <div class="cols">
+    <div class="pane side" style="width:110px">
+      <div class="hd">ページ / シート</div>
+      <ul class="plain">
+        <li class="ph" style="height:40px">p.1</li>
+        <li class="ph" style="height:40px;margin-top:4px">p.2</li>
+        <li class="sel" style="display:block;text-align:center;padding:12px 0;margin-top:4px">p.14 ◀</li>
+        <li class="ph" style="height:40px;margin-top:4px">p.15</li>
+      </ul>
+    </div>
+    <div class="pane">
+      <div class="hd">原本プレビュー(改変不可)</div>
+      <div class="ph" style="height:170px">p.14 紙面プレビュー<br>抽出済要素(章節・段落・表・図)を枠でハイライト<br>クリックで対応する抽出要素(extracted://)へジャンプ</div>
+    </div>
+    <div class="pane side" style="width:180px">
+      <div class="hd">取込情報</div>
+      <ul class="plain">
+        <li>ファイル: 基本設計書_v3.docx</li>
+        <li>種別: Word / 4.2MB</li>
+        <li>ハッシュ: sha256 a91f…</li>
+        <li>版: v3(is_current)</li>
+        <li>取込: 2026-06-28 batch-012</li>
+        <li>抽出状態: <span class="tag">完了(警告2)</span></li>
+      </ul>
+      <div class="hd" style="margin-top:8px">過去版</div>
+      <ul class="plain"><li>v2(2026-06-01)→ <span class="btn">差分</span></li></ul>
+    </div>
+  </div>
+  <div class="statusbar">選択: p.14 / 3.2節 | 抽出要素 12個がこのページを根拠として参照</div>
+</div>
+<p class="note"><b>要点:</b> 原本は閲覧専用。ハイライトは抽出データ(②)との対応表示であり、原本側の編集手段は提供しない。位置(source_location)を介して抽出レビュー・根拠表示(Evidence)から常に到達できる。</p>
+
+<h2 id="v03">V-03 中間データビュー(Intermediate Document Editor)</h2>
+<p class="meta">Resource: <code>intermediate://&lt;intermediate_document_uid&gt;</code> / SRS: UI-012, MID-001〜014, EDIT-002〜015 / 主なモード: M2, M3</p>
+<div class="wf">
+  <div class="bar">Tab: 基本設計書(成果物 BD-01 / 基本設計フェーズ) | Toolbar: <span class="btn">文書風</span> <span class="btn">構造(JSON)</span> <span class="btn">設計観点フィルタ ▾</span> <span class="btn">チャンク範囲表示</span> <span class="btn">レポート出力</span></div>
+  <div class="cols">
+    <div class="pane side" style="width:150px">
+      <div class="hd">アウトライン(structure_json)</div>
+      <ul class="plain">
+        <li>1. 概要 ✓</li>
+        <li>2. システム構成 ✓</li>
+        <li>▾ 3. 機能仕様 ●</li>
+        <li style="padding-left:12px">3.1 初期化 ✓</li>
+        <li style="padding-left:12px"><span class="sel">3.2 通信 ◀</span></li>
+        <li>4. IF仕様</li>
+      </ul>
+      <div class="mut" style="margin-top:6px">ドラッグで並替・階層変更<br>右クリック: マージ / 分割</div>
+    </div>
+    <div class="pane">
+      <div class="hd">文書風エディタ(原本に近い表示・編集可)</div>
+      <div style="border:1px dashed #aaa;border-radius:4px;padding:8px;color:#666">
+        <div style="font-weight:600">3.2 通信</div>
+        <p style="margin:4px 0">通信断が発生した場合、装置は再送を行い… <span class="tag">根拠: TEXT-000051</span></p>
+        <div class="ph" style="height:40px;margin:6px 0">図3-2 通信シーケンス <span class="tag">FIG-000012</span> + 説明文(LLM候補→採用済)</div>
+        <div class="ph" style="height:34px">表3-1 初期化シーケンス <span class="tag">TBL-000007</span>(グリッド編集)</div>
+        <p style="margin:4px 0" class="mut">段落の分割・マージ・移動時は新IDを採番し元IDを履歴保持(MID-005)</p>
+      </div>
+    </div>
+    <div class="pane side" style="width:170px">
+      <div class="hd">Secondary Side Bar</div>
+      <ul class="plain">
+        <li><b>Evidence:</b> ②TEXT-000051(p.14)</li>
+        <li><b>Relations:</b> derived_from ×3</li>
+        <li><b>Candidates:</b> 図表説明候補 1</li>
+        <li><b>Review:</b> 3.2節 未確認 2件</li>
+      </ul>
+    </div>
+  </div>
+  <div class="statusbar">選択: 3.2 通信 / intermediate_item IM-000114 | 未保存変更あり ●</div>
+</div>
+<p class="note"><b>要点:</b> ③中間データの正本編集画面。本文・図表・参照を原本に近い文書として表示し、各情報単位に根拠バッジ(→②)を常時表示する。統合(割当)作業は V-15、モデル化入力の範囲指定は V-19 に分離する。</p>
+
+<h2 id="v04">V-04 設計モデルビュー(Design Model Editor)</h2>
+<p class="meta">Resource: <code>design://&lt;design_element_uid&gt;</code> / SRS: UI-013, MODEL-001〜011, FORM-001〜002 / 主なモード: M3</p>
+<div class="wf">
+  <div class="bar">Tab: REQ-000031 通信再送要求 | Toolbar: <span class="btn">要素</span> <span class="btn">関係</span> <span class="btn">モデル(PlantUML)</span> <span class="btn">+ 関係追加</span> <span class="btn">LLM候補生成</span></div>
+  <div class="cols">
+    <div class="pane side" style="width:150px">
+      <div class="hd">④要素ツリー(entity_type別)</div>
+      <ul class="plain">
+        <li>▾ 要求 (38)</li>
+        <li style="padding-left:12px"><span class="sel">REQ-000031 ◀</span></li>
+        <li style="padding-left:12px">REQ-000032</li>
+        <li>▸ 機能 (25) / 構造 (18)</li>
+        <li>▸ 状態 (9) / IF (22)</li>
+        <li>▸ 検証 (30) / 用語・管理</li>
+      </ul>
+    </div>
+    <div class="pane">
+      <div class="hd">要素詳細(編集可)</div>
+      <table class="grid">
+        <tr><th style="width:70px">code</th><td>REQ-000031</td></tr>
+        <tr><th>タイトル</th><td>通信断時は最大5回再送すること</td></tr>
+        <tr><th>状態</th><td>approved <span class="tag">レビュー履歴 3件</span></td></tr>
+      </table>
+      <div class="hd" style="margin-top:8px">関係一覧(trace_link)</div>
+      <table class="grid">
+        <tr><th>relation</th><th>相手</th><th style="width:50px">信頼度</th><th style="width:44px">状態</th></tr>
+        <tr><td>based_on</td><td>③3.2 通信(IM-000114)</td><td>1.0</td><td>確定</td></tr>
+        <tr><td>satisfies ←</td><td>FUNC-000012 再送制御</td><td>0.9</td><td>確定</td></tr>
+        <tr><td>verifies ←</td><td>TC-000014</td><td>0.85</td><td><span class="tag">候補</span></td></tr>
+      </table>
+    </div>
+    <div class="pane side" style="width:200px">
+      <div class="hd">モデル表現</div>
+      <div class="ph" style="height:70px">PlantUML / SysMLv2<br>テキスト(Monaco)</div>
+      <div class="ph" style="height:60px;margin-top:6px">レンダリングプレビュー</div>
+      <div class="mut" style="margin-top:4px">要素ID対応表をセットで管理(FORM-002)</div>
+    </div>
+  </div>
+  <div class="statusbar">REQ-000031 | 根拠: ③IM-000114 → ②TEXT-000051 → 原本p.14 | 影響下流: 4要素</div>
+</div>
+<p class="note"><b>要点:</b> ④正本の登録・編集画面。関係一覧には確定と候補が状態列で混在表示され、候補行は判断パネル(採用/棄却)を出せる。モデル記法テキストと要素ID対応表は分離管理し、プレビューを並置する。</p>
+
+<h2 id="v06">V-06 階層リスト間リンクビュー(Trace List Editor)</h2>
+<p class="meta">Resource: <code>trace://list-link</code> / SRS: UI-015, TRACE-001〜003 / 主なモード: M4</p>
+<div class="wf">
+  <div class="bar">Tab: 階層リンク(②→③→④) | Toolbar: 起点階層 <span class="btn">② ▾</span> 成果物 <span class="btn">BD-01 ▾</span> <span class="btn">未接続のみ</span> <span class="btn">CSV出力</span></div>
+  <div class="cols">
+    <div class="pane">
+      <div class="hd">②抽出データ</div>
+      <ul class="plain">
+        <li>TEXT-000050 段落</li>
+        <li><span class="sel">TEXT-000051 段落 ◀</span></li>
+        <li>TBL-000007 表3-1</li>
+        <li class="mut">FIG-000015 図4-1 <span class="tag">未割当</span></li>
+      </ul>
+    </div>
+    <div class="pane" style="flex:none;width:36px;display:flex;align-items:center;justify-content:center;color:#999">⇄</div>
+    <div class="pane">
+      <div class="hd">③中間データ</div>
+      <ul class="plain">
+        <li>3.1 初期化(IM-000110)</li>
+        <li><span class="sel">3.2 通信(IM-000114)◀</span></li>
+        <li>3.2 表3-1(IM-000115)</li>
+        <li class="mut">4. IF仕様 <span class="tag">下流なし</span></li>
+      </ul>
+    </div>
+    <div class="pane" style="flex:none;width:36px;display:flex;align-items:center;justify-content:center;color:#999">⇄</div>
+    <div class="pane">
+      <div class="hd">④設計モデル</div>
+      <ul class="plain">
+        <li><span class="sel">REQ-000031 再送要求 ◀</span></li>
+        <li><span class="sel">FUNC-000012 再送制御 ◀</span></li>
+        <li class="mut">STM-000004 通信状態機械</li>
+      </ul>
+    </div>
+  </div>
+  <div class="statusbar">選択連動: TEXT-000051 を選択 → 対応する③④要素をハイライト(derived_from / based_on を辿る)| 未接続 11件</div>
+</div>
+<p class="note"><b>要点:</b> どれか1列の要素を選ぶと、trace_link を上下流双方向に辿って他列の対応要素をハイライトする。対応がない要素は「未割当 / 下流なし」のタグで示し、クリックで該当レビュー(V-15 / V-18)へ遷移できる。</p>
+
+<h2 id="v07">V-07 関係グラフビュー(Trace Graph Editor)</h2>
+<p class="meta">Resource: <code>trace://graph</code> / SRS: UI-016, TRACE-001〜003, TRACE-022〜023 / 主なモード: M4</p>
+<div class="wf">
+  <div class="bar">Tab: 関係グラフ(REQ-000031 起点) | Toolbar: 起点 <span class="btn">REQ-000031</span> 方向 <span class="btn">双方向 ▾</span> 関係 <span class="btn">satisfies, verifies ▾</span> 深さ <span class="btn">3 ▾</span> レイアウト <span class="btn">階層 / force</span></div>
+  <div class="cols">
+    <div class="pane" style="padding:10px">
+      <svg viewBox="0 0 620 190" style="width:100%;height:auto" role="img" aria-label="関係グラフの例">
+        <title>関係グラフのワイヤーフレーム</title>
+        <line x1="150" y1="55" x2="255" y2="95" stroke="#999" stroke-width="1.5"/>
+        <line x1="150" y1="135" x2="255" y2="100" stroke="#999" stroke-width="1.5"/>
+        <line x1="365" y1="95" x2="470" y2="55" stroke="#999" stroke-width="1.5"/>
+        <line x1="365" y1="100" x2="470" y2="140" stroke="#999" stroke-width="1.5" stroke-dasharray="4 3"/>
+        <rect x="30" y="35" width="120" height="36" rx="4" fill="#f2f2f2" stroke="#888"/>
+        <text x="90" y="50" text-anchor="middle" font-size="10" fill="#444">③ IM-000114</text>
+        <text x="90" y="63" text-anchor="middle" font-size="9" fill="#888">3.2 通信(根拠)</text>
+        <rect x="30" y="118" width="120" height="36" rx="4" fill="#f2f2f2" stroke="#888"/>
+        <text x="90" y="133" text-anchor="middle" font-size="10" fill="#444">② TEXT-000051</text>
+        <text x="90" y="146" text-anchor="middle" font-size="9" fill="#888">段落(原本 p.14)</text>
+        <rect x="255" y="78" width="110" height="40" rx="4" fill="#e8e8e8" stroke="#444" stroke-width="1.5"/>
+        <text x="310" y="94" text-anchor="middle" font-size="10" font-weight="bold" fill="#222">REQ-000031</text>
+        <text x="310" y="108" text-anchor="middle" font-size="9" fill="#666">再送要求(起点)</text>
+        <rect x="470" y="35" width="120" height="36" rx="4" fill="#f2f2f2" stroke="#888"/>
+        <text x="530" y="50" text-anchor="middle" font-size="10" fill="#444">FUNC-000012</text>
+        <text x="530" y="63" text-anchor="middle" font-size="9" fill="#888">satisfies</text>
+        <rect x="470" y="122" width="120" height="36" rx="4" fill="#fff" stroke="#888" stroke-dasharray="4 3"/>
+        <text x="530" y="137" text-anchor="middle" font-size="10" fill="#444">TC-000014</text>
+        <text x="530" y="150" text-anchor="middle" font-size="9" fill="#888">verifies(候補 0.85)</text>
+      </svg>
+      <div class="mut">凡例: 実線=確定 / 破線=候補(要レビュー)・エッジ色は relation_type 別 ・ノードダブルクリックで該当 Resource を開く</div>
+    </div>
+    <div class="pane side" style="width:170px">
+      <div class="hd">選択ノード</div>
+      <ul class="plain">
+        <li>REQ-000031</li>
+        <li>上流 2 / 下流 2</li>
+        <li><span class="btn">影響範囲を展開</span></li>
+        <li><span class="btn">マトリクスで表示</span></li>
+      </ul>
+      <div class="hd" style="margin-top:8px">選択エッジ</div>
+      <ul class="plain"><li>verifies(候補)<br><span class="btn">✓確定</span> <span class="btn">✗棄却</span></li></ul>
+    </div>
+  </div>
+  <div class="statusbar">表示: 24ノード / 31エッジ(深さ3)| 大規模時は仮想化+段階展開(NFR-001)</div>
+</div>
+<p class="note"><b>要点:</b> 探索条件(起点・方向・関係種別・深さ)はツールバーで常時変更できる。グラフ上でも候補エッジの確定・棄却ができ、判断は V-05 マトリクスと同じ trace_link 更新として扱う。</p>
+
+<h2 id="v09">V-09 LLM ログビュー(Log Viewer)</h2>
+<p class="meta">Resource: <code>log://llm/&lt;llm_run_uid&gt;</code> / SRS: UI-018, LLM-010〜016, LLM-044 / 主なモード: M3</p>
+<div class="wf">
+  <div class="bar">Tab: LLMログ llm-run-034 | Toolbar: <span class="btn">候補セットを開く</span> <span class="btn">同条件で再実行</span></div>
+  <div class="cols">
+    <div class="pane side" style="width:190px">
+      <div class="hd">実行一覧</div>
+      <ul class="plain">
+        <li><span class="sel">034 7/2 10:21 要求抽出 ◀</span></li>
+        <li>033 7/2 09:58 図表説明</li>
+        <li>032 7/1 17:40 章構成提案</li>
+        <li class="mut">031 7/1 16:02 <span class="tag">失敗</span></li>
+      </ul>
+      <div class="mut" style="margin-top:4px">filter: 用途 | モデル | 状態</div>
+    </div>
+    <div class="pane">
+      <div class="hd">実行詳細</div>
+      <table class="grid">
+        <tr><th style="width:80px">モデル</th><td>gpt-4o(OpenAI)</td><th style="width:70px">処理時間</th><td>12.4s</td></tr>
+        <tr><th>入力</th><td>CHNK-002(1,840 tok)</td><th>出力</th><td>612 tok / $0.02</td></tr>
+        <tr><th>プロンプト</th><td>要求候補抽出 v1.3</td><th>結果</th><td>候補12件 → <span class="tag">candidate://034</span></td></tr>
+      </table>
+      <div class="hd" style="margin-top:8px">送受信内容(blob参照・APIキーは記録しない)</div>
+      <div style="display:flex;gap:6px">
+        <div class="ph" style="flex:1;height:70px">prompt 全文<br>(マスキング適用後)</div>
+        <div class="ph" style="flex:1;height:70px">completion 全文<br>(JSON)</div>
+      </div>
+    </div>
+  </div>
+  <div class="statusbar">再実行条件: 同一チャンク・同一プロンプトv1.3・同一モデル → 一致(LLM-044)| エラーなし</div>
+</div>
+<p class="note"><b>要点:</b> 実行 → 入力チャンク → プロンプト版 → 出力候補 → 採用/棄却履歴が1画面で追跡できる(LLM-012, LLM-023)。プロンプト・応答本文は blobs/llm/ の参照表示であり、APIキー等の機密は表示・保存しない。</p>
+
+<h2 id="v11">V-11 ストア閲覧ビュー(Store Browser)</h2>
+<p class="meta">Resource: <code>store://</code> / SRS: UI-020, DATA-020〜024 / 主なモード: 横断</p>
+<div class="wf">
+  <div class="bar">Tab: ストア閲覧(project.db) | Toolbar: <span class="btn">読取専用</span> <span class="btn">DB to Text出力</span> <span class="btn">SQLite dump</span></div>
+  <div class="cols">
+    <div class="pane side" style="width:170px">
+      <div class="hd">ストア構成</div>
+      <ul class="plain">
+        <li>▾ project.db</li>
+        <li style="padding-left:12px"><span class="sel">entity_registry ◀</span></li>
+        <li style="padding-left:12px">trace_link / chunk</li>
+        <li style="padding-left:12px">resource_text …</li>
+        <li>▸ blobs/(originals, figures, llm)</li>
+        <li>▸ exports/(db_to_text, dump)</li>
+      </ul>
+    </div>
+    <div class="pane">
+      <div class="hd">entity_registry(フィルタ: entity_type / status / 検索)</div>
+      <table class="grid">
+        <tr><th style="width:90px">code</th><th>title</th><th style="width:96px">entity_type</th><th style="width:60px">status</th></tr>
+        <tr><td>TEXT-000051</td><td>通信断が発生した場合…</td><td>resource_text</td><td>approved</td></tr>
+        <tr><td>TBL-000007</td><td>表3-1 初期化シーケンス</td><td>resource_table</td><td>approved</td></tr>
+        <tr><td>REQ-000031</td><td>通信再送要求</td><td>resource_text</td><td>approved</td></tr>
+        <tr><td>CHNK-000002</td><td>3.2節チャンク</td><td>chunk</td><td>draft</td></tr>
+      </table>
+      <div class="mut" style="margin-top:4px">行ダブルクリック → 対応する Resource(extracted:// 等)を開く ・仮想スクロール(NFR-001)</div>
+    </div>
+  </div>
+  <div class="statusbar">project.db 38テーブル / 4,213行 | 閲覧は読取専用・編集は各 Editor から</div>
+</div>
+<p class="note"><b>要点:</b> DB・JSON/JSONL・blob を正本のまま覗くデバッグ/確認用ビュー。ここからの直接編集は許可せず、行から該当 Editor へジャンプさせることで正本編集経路を一本化する。</p>
+
+<h2 id="v12">V-12 設定ビュー(Settings Editor)</h2>
+<p class="meta">Resource: <code>settings://workspace</code> / SRS: CORE-040〜046, LLM-001〜005, LLM-040〜043 / 主なモード: 横断</p>
+<div class="wf">
+  <div class="bar">Tab: 設定 | <span class="mut">検索: 設定項目を検索…</span> | <span class="btn">エクスポート</span> <span class="btn">インポート</span></div>
+  <div class="cols">
+    <div class="pane side" style="width:150px">
+      <ul class="plain">
+        <li>アプリ(User)</li>
+        <li style="padding-left:10px">テーマ / ショートカット</li>
+        <li>▾ プロジェクト</li>
+        <li style="padding-left:10px">成果物・フェーズ定義</li>
+        <li style="padding-left:10px"><span class="sel">LLM / 外部送信 ◀</span></li>
+        <li style="padding-left:10px">パス / プロキシ</li>
+      </ul>
+    </div>
+    <div class="pane">
+      <div class="hd">LLM / 外部送信(プロジェクト: 車載ECU設計)</div>
+      <table class="grid">
+        <tr><th style="width:150px">外部API送信</th><td>◉ 許可 ○ 禁止(ローカルのみ)<span class="tag">LLM-042</span></td></tr>
+        <tr><th>ローカルLLM優先</th><td>☑ Ollama を優先(LLM-043)</td></tr>
+        <tr><th>マスキング規則</th><td>固有名詞, 顧客名 <span class="btn">編集</span>(LLM-041)</td></tr>
+        <tr><th>Provider</th><td>OpenAI ◉ / Azure ○ / Gemini ○ / Ollama ◉</td></tr>
+        <tr><th>APIキー</th><td>●●●●●●●●(OSキーストア保存・平文保存しない)<span class="tag">CORE-045</span></td></tr>
+        <tr><th>model / endpoint</th><td>gpt-4o / https://api.openai.com…</td></tr>
+      </table>
+      <div class="mut" style="margin-top:4px">表示モード light/dark/system ・カラーテーマ konjo/asagi/sumire/tsutsuji/kurikawa は「アプリ &gt; テーマ」</div>
+    </div>
+  </div>
+  <div class="statusbar">変更は即時保存 | 外部送信設定の変更は Status Bar 表示と LLM送信前確認に反映</div>
+</div>
+<p class="note"><b>要点:</b> User設定とProject設定を左のスコープで分ける。外部送信可否・マスキングは Status Bar の常時表示および LLM 送信前確認モーダルと同じ設定源を参照する。</p>
+
+<h2 id="v13">V-13 レポート設定ビュー(Report Editor)</h2>
+<p class="meta">Resource: <code>report://config</code> / SRS: EXP-001〜006 / 主なモード: 横断</p>
+<div class="wf">
+  <div class="bar">Tab: レポート設定 | Toolbar: <span class="btn pri">生成(ジョブ実行)</span> <span class="btn">プレビュー更新</span></div>
+  <div class="cols">
+    <div class="pane side" style="width:190px">
+      <div class="hd">レポート定義</div>
+      <ul class="plain">
+        <li><span class="sel">基本設計書(文書風)◀</span></li>
+        <li>要求一覧(表形式)</li>
+        <li>トレースマトリクス</li>
+        <li><span class="btn">+ 新規定義</span></li>
+      </ul>
+      <div class="hd" style="margin-top:8px">出力履歴</div>
+      <ul class="plain"><li>7/1 BD-01_r3.html</li><li>6/28 BD-01_r2.md</li></ul>
+    </div>
+    <div class="pane">
+      <div class="hd">出力条件</div>
+      <table class="grid">
+        <tr><th style="width:110px">対象</th><td>◉ ③中間データ ○ ②抽出 ○ ④モデル</td></tr>
+        <tr><th>成果物 / 章</th><td>BD-01 / 3章のみ ▾</td></tr>
+        <tr><th>フィルタ</th><td>レビュー状態: approved のみ ・設計観点: 本文+図表</td></tr>
+        <tr><th>表示/非表示</th><td>☑ 根拠ID ☐ レビューコメント ☑ 図表番号</td></tr>
+        <tr><th>形式</th><td>◉ Markdown ○ HTML</td></tr>
+      </table>
+    </div>
+    <div class="pane" style="width:180px;flex:none">
+      <div class="hd">プレビュー</div>
+      <div class="ph" style="height:130px">文書風レポート<br>プレビュー<br>(report://&lt;job&gt;)</div>
+    </div>
+  </div>
+  <div class="statusbar">生成はジョブ実行(CORE-020)| 完了通知 → Report Preview Editor を開く</div>
+</div>
+<p class="note"><b>要点:</b> 「何を(対象階層・範囲)」「どう絞るか(フィルタ)」「どう出すか(形式・表示項目)」を1画面に集約。生成はジョブであり、完了後に別タブの Report Preview Editor へ遷移する。</p>
+
+<h2 id="v14">V-14 用語集ビュー(Glossary Editor)</h2>
+<p class="meta">Resource: <code>glossary://</code> / SRS: EDIT-050〜054, LLM-036 / 主なモード: 横断</p>
+<div class="wf">
+  <div class="bar">Tab: 用語集 | Toolbar: <span class="btn">+ 用語追加</span> <span class="btn">文書から用語候補抽出(LLM)</span> <span class="btn">揺れ検出</span></div>
+  <div class="cols">
+    <div class="pane side" style="width:170px">
+      <div class="hd">用語一覧(状態別)</div>
+      <ul class="plain">
+        <li><span class="sel">再送 GLS-000012 ◀</span></li>
+        <li>フェールセーフ ✓</li>
+        <li>ECU ✓(略語)</li>
+        <li class="mut">リトライ <span class="tag">候補</span></li>
+        <li class="mut">再送信 <span class="tag">揺れ?</span></li>
+      </ul>
+    </div>
+    <div class="pane">
+      <div class="hd">用語詳細</div>
+      <table class="grid">
+        <tr><th style="width:90px">用語</th><td>再送</td></tr>
+        <tr><th>定義</th><td>通信断検出後に同一データを再度送信すること</td></tr>
+        <tr><th>同義語/揺れ</th><td>リトライ(候補), 再送信(揺れ)→ <span class="btn">統合</span> <span class="btn">棄却</span></td></tr>
+        <tr><th>禁止語</th><td>☐(禁止語の場合は推奨語を指定)</td></tr>
+        <tr><th>状態</th><td>approved(候補は entity_registry.status で管理)</td></tr>
+      </table>
+      <div class="hd" style="margin-top:8px">使用箇所(trace_link)</div>
+      <ul class="plain"><li>③3.2 通信(4箇所)/ ④REQ-000031 ・クリックで該当箇所へ・エディタ内ハイライトに利用(EDIT-054)</li></ul>
+    </div>
+  </div>
+  <div class="statusbar">用語 86件(候補 7・揺れ検出 3)| LLM候補は採用まで正本に反映しない</div>
+</div>
+<p class="note"><b>要点:</b> LLM 用語候補・揺れ検出結果も「候補→採用/棄却」の共通レビューパターンで扱う。用語と文書・設計要素のリンクは trace_link で管理し、使用箇所からエディタへ相互ジャンプできる。</p>
+
+<h2 id="v16">V-16 ジョブ詳細ビュー(Job Log Viewer)</h2>
+<p class="meta">Resource: <code>log://job/&lt;job_id&gt;</code> / SRS: CORE-020〜024, NFR-011 / 主なモード: 横断</p>
+<div class="wf">
+  <div class="bar">Tab: ジョブ詳細 job-0187(抽出: 構成図.vsdx) | Toolbar: <span class="btn pri">条件付き再実行</span> <span class="btn">中断</span> <span class="btn">ログ保存</span></div>
+  <div class="cols">
+    <div class="pane">
+      <div class="hd">実行情報</div>
+      <table class="grid">
+        <tr><th style="width:70px">種別</th><td>extract(Visio)</td><th style="width:60px">状態</th><td><span class="tag">失敗</span></td></tr>
+        <tr><th>開始/終了</th><td>7/2 10:02 → 10:03</td><th>実行者</th><td>user / worker v1.2</td></tr>
+      </table>
+      <div class="hd" style="margin-top:8px">ステップ進捗</div>
+      <ul class="plain">
+        <li>✓ 原本読込(4.1MB)</li>
+        <li>✓ ページ解析(3/3)</li>
+        <li>✗ 図形解析 — ShapeParseError: コネクタ終端が未解決(shape id=214)</li>
+        <li>─ リソース生成(未実行)・途中状態は保持(NFR-011)</li>
+      </ul>
+    </div>
+    <div class="pane side" style="width:210px">
+      <div class="hd">再実行条件</div>
+      <ul class="plain">
+        <li>☑ 失敗ステップから再開</li>
+        <li>☐ 全ステップ再実行</li>
+        <li>☑ 未解決コネクタをスキップし警告化</li>
+      </ul>
+      <div class="hd" style="margin-top:8px">関連</div>
+      <ul class="plain"><li>原本: 構成図.vsdx<br>バッチ: batch-014<br>ワーカーログ(stderr)</li></ul>
+    </div>
+  </div>
+  <div class="statusbar">失敗 1 / 警告 0 | 成功時は完了通知から抽出レビューへ(6.4節)</div>
+</div>
+<p class="note"><b>要点:</b> 失敗理由・途中状態・再実行条件を1画面で確認して再実行できる(CORE-024)。ステップ単位の進捗を持ち、成功時はレビュー導線、失敗時は本ビューへ通知から直行する。</p>
+
+<h2 id="v19">V-19 チャンク管理ビュー(Chunk Manager)</h2>
+<p class="meta">Resource: <code>chunk://&lt;intermediate_document_uid&gt;</code> / SRS: MID-030〜034 / 主なモード: M3</p>
+<div class="wf">
+  <div class="bar">Tab: チャンク管理(基本設計書 BD-01) | Toolbar: <span class="btn">+ 範囲選択から作成</span> <span class="btn pri">LLM候補生成(送信前確認へ)</span> <span class="btn">削除</span></div>
+  <div class="cols">
+    <div class="pane side" style="width:190px">
+      <div class="hd">チャンク一覧</div>
+      <table class="grid">
+        <tr><th>code</th><th style="width:44px">tok</th><th style="width:44px">用途</th></tr>
+        <tr><td>CHNK-001 1章</td><td>920</td><td>要求</td></tr>
+        <tr><td class="sel">CHNK-002 3.2節◀</td><td>1840</td><td>要求</td></tr>
+        <tr><td>CHNK-003 4章</td><td>2100</td><td>IF</td></tr>
+      </table>
+      <div class="mut" style="margin-top:4px">チャンクは一時的なLLM入力単位。③の章構成・親子関係は持たない(MID-033)</div>
+    </div>
+    <div class="pane">
+      <div class="hd">CHNK-002 の構成(chunk_item・順序付き)</div>
+      <ul class="plain">
+        <li>1. IM-000114 3.2 見出し+本文 <span class="btn">↑</span><span class="btn">↓</span><span class="btn">除外</span></li>
+        <li>2. IM-000115 表3-1(表→テキスト化)</li>
+        <li>3. IM-000116 図3-2 説明文</li>
+      </ul>
+      <div class="hd" style="margin-top:6px">③文書上の範囲プレビュー</div>
+      <div class="ph" style="height:64px">3.2節をハイライトした③文書ミニマップ<br>ドラッグで範囲修正(MID-031)</div>
+    </div>
+    <div class="pane side" style="width:180px">
+      <div class="hd">生成履歴</div>
+      <ul class="plain">
+        <li>llm-run-034 候補12件<br><span class="tag">未判断 12</span> → <span class="btn">候補セットを開く</span></li>
+        <li class="mut">llm-run-029 候補8件(棄却済)</li>
+      </ul>
+      <div class="mut" style="margin-top:6px">プロンプト用途: 要求候補抽出 v1.3 ▾</div>
+    </div>
+  </div>
+  <div class="statusbar">CHNK-002 / 1,840 tokens | 候補はチャンク単位で生成・確定情報として直接反映しない(MID-034)</div>
+</div>
+<p class="note"><b>要点:</b> チャンクの作成・範囲修正・構成順序の編集と、チャンクを起点とした候補生成(送信前確認モーダル経由)・生成履歴の参照を1画面に集約。候補の点検自体は V-18 候補セットレビューで行う。</p>
+
+</body>
+</html>
