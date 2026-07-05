@@ -30,7 +30,7 @@ Electron 実装上の実行責務は以下の通り分離する。
 
 > **初期実装方針（2026-07確定）**: Local Backend は初回から Electron Main とは別プロセスとして起動する。Electron Main は Renderer IPC、OS統合、Local Backend の起動・停止・接続監視に限定し、DB操作、文書解析、LLM通信、PlantUML実行、MeCab前処理、DB to Text生成などの業務ロジックを直接実装しない。
 
-API は細かいレコード取得を大量に呼ぶ形にしない。`importDocument(filePath)`、`searchElements(query, paging, sort)`、`getTraceSubgraph(elementId, depth, filters)`、`renderPlantUml(sourceId or textHash)`、`getTableViewport(tableId, range, filters)`、`exportReport(reportId, format)` のように、ユーザー操作単位または表示単位でまとめる。`readLine(filePath, lineNo)`、`getCell(row, col)`、`getNode(nodeId)` / `getEdge(edgeId)` の大量反復呼び出しは禁止する。
+API は細かいレコード取得を大量に呼ぶ形にしない。`importDocument(filePath)`、`searchElements(query, paging, sort)`、`getTraceSubgraph(elementId, depth, filters)`、`generateDesignCandidates(chunkId, promptTemplateId, modelSettings)`、`reviewCandidateSet(llmRunId, decisions)`、`renderPlantUml(sourceId or textHash)`、`getTableViewport(tableId, range, filters)`、`exportReport(reportId, format)` のように、ユーザー操作単位または表示単位でまとめる。`readLine(filePath, lineNo)`、`getCell(row, col)`、`getNode(nodeId)` / `getEdge(edgeId)` の大量反復呼び出しは禁止する。
 
 ### 2.1 設計モデル化の工程と機能責務
 
@@ -78,7 +78,7 @@ API は細かいレコード取得を大量に呼ぶ形にしない。`importDoc
 | --- | --- | --- | --- | --- |
 | トレーサビリティ機能 | 台帳登録された設計リソース間の根拠関係、設計意味関係、実装・検証関係、関係クエリ、影響分析を行う | `entity_registry`、`resource_*`、`trace_link`、`relation_rule_master`、`llm_run_ref` | 関係クエリ結果、表、階層リスト、表示用サブグラフ、JSON / CSV / Markdown | 必要に応じてLLM実行ログ管理 |
 | 履歴・差分参照機能 | Git履歴、DB to Text、SQLite dump、ZIP差分から変更前後を参照する | Git履歴、DB to Text、SQLite dump、ZIPアーカイブ、②③④成果物 | Diffビュー、差分結果、履歴参照ビュー | ― |
-| LLMプロバイダ機能 | LLMによる候補生成、要約、分類、関係候補生成を提供する | 入力チャンク、プロンプト、プロジェクト設定 | 候補情報、LLM実行参照、プロンプトログ、応答ログ | LLM実行ログ管理 |
+| LLMプロバイダ機能 | LLMによる候補生成、要約、分類、関係候補生成、正規化テキスト生成を提供する | 入力チャンク、プロンプト、プロジェクト設定 | 候補情報、LLM実行参照、プロンプトログ、応答ログ、構造化JSON検証結果 | LLM実行ログ管理 |
 | レポート出力機能 | ②③④から文書風レポート、一覧、関係情報を生成する | ②③④データ、トレース情報、フィルタ条件 | Markdown / HTML レポート | 必要に応じてLLM実行ログ管理 |
 
 ### 4.2 個別機能
@@ -90,8 +90,8 @@ API は細かいレコード取得を大量に呼ぶ形にしない。`importDoc
 | 個別機能 | 主責務 | 主な入力 | 主な出力 | 連携する共通機能 |
 | --- | --- | --- | --- | --- |
 | 文書抽出機能 | ①原本ファイル単位の②抽出データを生成する | ①原本データ、抽出設定 | ②抽出データ、抽出ログ、画像リソース | LLMプロバイダ、トレーサビリティ、履歴・差分参照 |
-| 中間データ処理機能 | ②抽出データを成果物単位に統合し③中間データを生成する | ②抽出データ、既存③中間データ、成果物定義 | ③中間データ、チャンク、用語候補、正規化表、図表説明候補 | 設計編集、LLMプロバイダ、トレーサビリティ、履歴・差分参照 |
-| 設計編集機能 | ③中間データおよび④設計モデルの編集、検索、レビュー補助、モデル表現編集を行う | ③中間データ、④設計モデル、用語、レビュー記録 | 更新済み③中間データ、④設計要素・設計関係、PlantUML / SysMLv2テキスト、要素ID対応表 | LLMプロバイダ、トレーサビリティ、履歴・差分参照 |
+| 中間データ処理機能 | ②抽出データを成果物単位に統合し③中間データを生成する | ②抽出データ、既存③中間データ、成果物定義 | ③中間データ、チャンク、用語候補、正規化表、正規化テキスト候補、図表説明候補、④設計モデル候補 | 設計編集、LLMプロバイダ、トレーサビリティ、履歴・差分参照 |
+| 設計編集機能 | ③中間データおよび④設計モデルの編集、検索、レビュー補助、モデル表現編集を行う | ③中間データ、④設計モデル、用語、レビュー記録、候補セット | 更新済み③中間データ、④設計要素・設計関係、PlantUML / SysMLv2テキスト、要素ID対応表、候補レビュー結果 | LLMプロバイダ、トレーサビリティ、履歴・差分参照 |
 
 ### 4.3 CLIレイヤー
 
@@ -329,9 +329,9 @@ sequenceDiagram
 
 Word文書の抽出では、文書抽出機能はOpenXML由来の構造を原本忠実な②抽出データ候補として返す。少なくとも、見出し階層、段落、箇条書き階層、表、図・画像、キャプション、脚注、コメント、変更履歴、ブックマーク、文書内参照、外部リンク、テキストボックス内テキスト、ページ相当位置を候補に含める。画像等の大容量データはblob参照として返し、Local Backend が `project.db` と `blobs/` へ保存する。プレビュー用MarkdownやHTMLはレビュー表示用の派生成果物であり、正本は `extracted_document.structure_json`、対応する `resource_*`、`source_location`、`blob_resource` とする。
 
-Word抽出PoCで有効だったアウトライン、Markdownプレビュー、文書構造データ、コメント・変更履歴リスト、クリックジャンプ、短時間ハイライトは、RendererのExtraction Review Editorで再現する。ただし、PoCのFlask APIやセッションディレクトリ構造はD2Dの実装境界では採用せず、外部ワーカーJSONL、ジョブ管理、成果物管理、Resource/Command/Eventモデルへ写像する。
+Word抽出レビューは、アウトライン、Markdownプレビュー、文書構造データ、コメント・変更履歴リスト、クリックジャンプ、短時間ハイライトをRendererのExtraction Review Editorで提供する。抽出処理は外部ワーカーJSONL、ジョブ管理、成果物管理、Resource/Command/Eventモデルに従って実装する。
 
-PowerPoint文書の抽出では、文書抽出機能はスライド単位の構造、スライド寸法、要素座標、描画属性、画像、表、スピーカーノートを原本忠実な②抽出データ候補として返す。PoCで有効だったSVGプレビュー、透明なHTML選択レイヤー、空間フローに基づくMarkdown生成、要素の除外・役割補正・グループ化・スライド検証状態は、D2DではExtraction Review Editorの候補編集として扱い、採用・修正・棄却後に Local Backend が `project.db` と `blobs/` へ保存する。PoCのブラウザ完結ダウンロード、JSZip中心の保存、`document.md` / `document.json` / `media/` ZIP構造は実装境界としては採用せず、外部ワーカーJSONL、成果物管理、`extracted_document.structure_json`、`resource_*`、`source_location`、`blob_resource`、派生成果物へ写像する。
+PowerPoint文書の抽出では、文書抽出機能はスライド単位の構造、スライド寸法、要素座標、描画属性、画像、表、スピーカーノートを原本忠実な②抽出データ候補として返す。SVGまたは画像プレビュー、透明な選択レイヤー、空間フローに基づくMarkdown生成、要素の除外・役割補正・グループ化・スライド検証状態は、Extraction Review Editorの候補編集として扱い、採用・修正・棄却後に Local Backend が `project.db` と `blobs/` へ保存する。保存は、外部ワーカーJSONL、成果物管理、`extracted_document.structure_json`、`resource_*`、`source_location`、`blob_resource`、派生成果物の責務分離に従う。
 
 ### 8.3 ②抽出データから③中間データを生成する
 
@@ -536,6 +536,48 @@ sequenceDiagram
 
 ---
 
+### 10.1 仕様書・設計書要素候補生成の設計方針
+
+自然言語で記述された③中間データから、正規化テキスト、設計要素候補、関係候補を生成し、保存前に人間が表形式で調整し、関係グラフで影響範囲を確認できるようにする。本機能は①原本→②抽出データのファイル抽出器ではなく、③中間データ→④設計モデルの候補生成・レビュー機能として扱う。
+
+| 設計対象 | 実装上の扱い | 方針 |
+| --- | --- | --- |
+| テキストの曖昧性排除・校正・正規化 | ③中間データの選択範囲またはチャンクから正規化テキスト候補を生成する | 正本本文を直接上書きせず、候補セットとしてレビューする |
+| 要素候補と関係候補のJSON出力 | `llm_run_ref` の結果、候補セット、`entity_registry` / `resource_*` / `trace_link` への採用候補に分ける | JSON Schema検証と許容関係検査を必須にする |
+| 保存前のインライン編集 | Candidate Set Review Editorで要素候補・関係候補を表形式で追加、修正、削除する | 採用時のみ同一トランザクションで正本反映する |
+| 要素名変更時の関係From/To追従 | 候補セット内の一時IDを軸に参照を維持し、表示名変更時に関係候補を追従表示する | 確定後は `uid` 参照に変換する |
+| 正本保存 | ストアアクセス管理が `entity_registry`、`resource_*`、`trace_link` を更新する | 専用の単純な要素・関係テーブルは作らず、D2D共通台帳とトレース関係へ統合する |
+| 関係グラフ可視化 | Trace Graph Editor の関係グラフ、ホップ強調、フィルタへ接続する | 実装ライブラリは技術選定に従い、UI仕様はWorkbench型UXに統合する |
+| API境界 | Renderer -> Main -> Local Backend の操作単位APIへ接続する | MainにDB/LLM処理を置かない |
+| LLM接続 | Local BackendのLLMプロバイダ機能がfetchでProvider差分を吸収する | 外部SDKに依存しない |
+
+### 10.2 設計モデル候補生成の内部責務
+
+設計モデル候補生成は、LLMプロバイダ機能だけに閉じず、中間データ処理機能、設計編集機能、トレーサビリティ機能の境界で実装する。
+
+| 責務 | 主担当 | 内容 |
+| --- | --- | --- |
+| 入力チャンク構築 | 中間データ処理機能 | ③中間データの章節、段落、図表説明、参照、既存用語を選択範囲として束ね、LLM入力用テキストを再生成する |
+| プロンプト選択・送信前確認 | UI Workbench / LLMプロバイダ機能 | 用途別テンプレート、モデル、外部送信可否、マスキング結果を確認してジョブ化する |
+| LLM実行・ログ保存 | LLMプロバイダ機能 / LLM実行ログ管理 | 正規化テキスト、要素候補、関係候補を構造化JSONとして取得し、prompt/resultを `llm_run_ref` と `blobs/llm/` に保存する |
+| JSON検証 | LLMプロバイダ機能 | JSONパース、必須項目、候補一時ID、関係From/To参照、relation_type候補を検査する |
+| 候補セット表示 | UI Workbench | 正規化テキスト、要素候補、関係候補、警告、LLMログを `candidate://<llm_run_uid>` として開く |
+| 候補編集 | 設計編集機能 | 保存前に候補の追加、修正、削除、種別変更、要素名変更時の関係参照追従を行う |
+| 採用前検査 | トレーサビリティ機能 / ストアアクセス管理 | `relation_rule_master`、重複、未解決参照、根拠リンク、レビュー状態を検査する |
+| 正本反映 | ストアアクセス管理 | 採用された候補だけを `entity_registry`、対応 `resource_*`、`trace_link` に同一トランザクションで保存する |
+
+### 10.3 実装時に落とさない観点
+
+| 観点 | 実装時の注意 |
+| --- | --- |
+| 候補と正本の分離 | LLM出力や保存前編集結果は、採用操作まで④設計モデルの確定情報にしない |
+| 一時IDと確定UID | 候補セット内では一時IDで要素・関係を参照し、採用時にUUIDv7の `uid` へ変換する |
+| 正規化テキスト | 正規化テキストは③本文の上書きではなく候補であり、採用時も根拠範囲と差分を残す |
+| 関係候補 | relation_type候補は、D2Dの11種類の `trace_link.relation_type` と属性へ写像する |
+| 検証 | JSONパース失敗、スキーマ不一致、候補From/To未解決、許容外関係、重複候補、根拠なし候補を採用前に止める |
+| 影響確認 | 採用前後にTrace Graph Editorで起点要素、方向、深さ、関係種別を指定し、ホップ強調で影響範囲を確認できるようにする |
+| ログ | 入力チャンク、プロンプト、モデル、応答、検証エラー、レビュー判断は `llm_run_ref` と `review_info_json` から辿れるようにする |
+
 ## 11. 外部ワーカーインタフェース
 
 外部ワーカー（Python 等）は、Local Backend のジョブ管理からサブプロセスとして起動される。通信は stdin / stdout を用いた改行区切りJSON（JSONL形式）で行う。ワーカーは原則として結果を stdout または一時出力で返し、正本更新は Local Backend のストアアクセス管理が行う。大量読込が必要なワーカーに限り、ジョブ管理が許可した入力ファイルまたは読み取り専用DBスナップショットを直接読むことができる。
@@ -621,9 +663,9 @@ Word抽出ワーカーは `command = "extract.word"` を受け取り、入力 `.
 
 #### 11.3.1 Word抽出ワーカーの内部責務
 
-Word抽出ワーカーは、PoCの `word_extractor/` 構成を参考にしつつ、D2Dの4階層データ管理とhuman-in-the-loopに合わせて、次の責務へ分割する。
+Word抽出ワーカーは、D2Dの4階層データ管理とhuman-in-the-loopに合わせて、次の責務へ分割する。
 
-| 責務 | PoCでの対応 | D2Dでの設計責務 |
+| 責務 | 処理単位 | 設計責務 |
 | --- | --- | --- |
 | コアパーサ | `extractor.py` / `WordExtractor` | `.docx` をZIP + OpenXMLとして読み、見出し、段落、リスト、表、図、脚注、コメント、変更履歴、参照、テキストボックス、ページ相当位置を原本忠実に抽出する。設計意味の判断や正本更新は行わない |
 | 文書構造データ生成 | `json_generator.py` | 抽出結果を `metadata`、`statistics`、`elements`、`footnotes`、`comments`、`revisions`、`references`、`review_hints` を含む文書構造データへ整形する。このデータは `extracted_document.structure_json` の内容契約になる |
@@ -679,9 +721,9 @@ PowerPoint抽出ワーカーは `command = "extract.powerpoint"` を受け取り
 
 #### 11.4.1 PowerPoint抽出ワーカーの内部責務
 
-PowerPoint抽出ワーカーは、PoC の `parser.js` / `app.js` の責務をD2Dの4階層データ管理とhuman-in-the-loopに合わせて、次の責務へ分割する。
+PowerPoint抽出ワーカーは、D2Dの4階層データ管理とhuman-in-the-loopに合わせて、次の責務へ分割する。
 
-| 責務 | PoCでの対応 | D2Dでの設計責務 |
+| 責務 | 処理単位 | 設計責務 |
 | --- | --- | --- |
 | OpenXMLパーサ | `PPTXParser.load`、`parseSlide` | `.pptx` をZIP + OpenXMLとして読み、presentation、theme、slide、rels、notesSlide、mediaを解析する。設計意味の判断や正本更新は行わない |
 | 座標・描画属性正規化 | `getGroupTransform`、`parseTransform`、`resolveColor` | グループ内ローカル座標をスライド絶対座標へ変換し、EMU座標、回転、反転、線、塗り、テーマカラー、透明度、矢印等を保持する |
@@ -689,7 +731,7 @@ PowerPoint抽出ワーカーは、PoC の `parser.js` / `app.js` の責務をD2D
 | Markdown生成 | `getSlideMarkdownText`、`renderElementMarkdown` | タイトル、本文、表、画像、スピーカーノートを空間読み順で並べ、レビュー用MarkdownとLLM入力用Markdownを生成する。Markdownは派生成果物であり、正本は文書構造データとリソースである |
 | プレビュー生成 | `renderSlideCanvas`、`svgToPngBlob` | SVGまたは画像プレビューと、スライド全体overview PNGを生成できる参照情報を返す。Rendererでは透明な選択レイヤーを重ね、選択・除外・役割補正を候補編集として扱う |
 | メディア抽出 | `loadPictureBlobs`、ZIP export | PPTX内画像を重複回避して抽出し、Local Backend が `blob_resource` と `blobs/figures/` または `blobs/extracted/` へ分類保存できる参照情報を返す |
-| 検証 | PoCの手動確認・Verified状態 | スライド順、スライド寸法、座標変換、テーマカラー、画像参照、ノート、空間読み順、除外/グループ化反映、overview PNG生成を自動または半自動で確認する |
+| 検証 | 抽出結果・レビュー状態の検証 | スライド順、スライド寸法、座標変換、テーマカラー、画像参照、ノート、空間読み順、除外/グループ化反映、overview PNG生成を自動または半自動で確認する |
 
 #### 11.4.2 PowerPoint文書構造データの内容契約
 
@@ -716,11 +758,11 @@ PowerPoint抽出の `extracted_document.structure_json` は、少なくとも次
 | 座標系 | EMU座標、スライド表示px、overview PNG pxを混同しない。保存するrectはスライド基準のEMUを正とする |
 | グループ座標 | `grpSp` の `off` / `ext` / `chOff` / `chExt` を使い、子要素を絶対座標へ再帰変換する |
 | テーマカラー | `schemeClr` はテーマXMLで解決し、解決不能時は警告を残す |
-| 読み順 | Y座標を主、X座標を副として並べる。同一行判定はPoCの約10pt相当を初期値にできるが、設定化し再生成可能にする |
+| 読み順 | Y座標を主、X座標を副として並べる。同一行判定の閾値は設定化し、再生成可能にする |
 | 除外・役割補正 | 装飾図形の除外、タイトル指定、グループ化は候補編集であり、採用前に②正本へ反映しない |
 | スピーカーノート | ノート本文はヘッダー、フッター、スライド番号と区別し、編集結果も原本由来情報とは別にレビュー補正として保持する |
 | 画像・overview | PPTX内の原画像とスライド全体overview PNGを分ける。overview PNGはLLM Visionやレビュー補助向けの派生成果物である |
-| ZIP出力 | PoCの `document.md` / `document.json` / `media/` ZIPは再生成可能な派生成果物として扱い、D2Dの正本配置やmanifest方針を上書きしない |
+| ZIP出力 | Markdown、構造JSON、media等のZIP相当出力は再生成可能な派生成果物として扱い、D2Dの正本配置やmanifest方針を上書きしない |
 
 ### 11.5 PDF抽出ワーカーの出力契約
 
@@ -737,13 +779,13 @@ PDF抽出ワーカーは `command = "extract.pdf"` を受け取り、入力 `.pd
 | LLM補助 | 選択bboxのクロップ画像、OCR結果候補、表構造化候補、テキスト・数式補正候補、LLM実行ログ参照 | `llm_run_ref`、`blobs/llm/`、派生成果物 |
 | 派生出力 | レビュー用Markdown、LLM入力用Markdown、表SQLiteイメージ、ZIP出力相当の一時成果物 | `blobs/exports/` または `exports/` |
 
-PDF PoC の FastAPI エンドポイント、セッションディレクトリ、ブラウザ向けダウンロードAPIはD2Dの実装境界としては採用しない。D2Dでは、PDF解析は外部ワーカーJSONL、長時間処理はジョブ管理、保存は成果物管理、LLM実行はLLMプロバイダ機能と `llm_run_ref` に写像する。ワーカーは `project.db` を直接更新せず、候補出力だけを返す。
+PDF解析は外部ワーカーJSONL、長時間処理はジョブ管理、保存は成果物管理、LLM実行はLLMプロバイダ機能と `llm_run_ref` に接続する。ワーカーは `project.db` を直接更新せず、候補出力だけを返す。
 
 #### 11.5.1 PDF抽出ワーカーの内部責務
 
-PDF抽出ワーカーは、PoC の `pdf_processor.py` / `exporter.py` / LLM中継処理を参考にしつつ、D2Dの4階層データ管理とhuman-in-the-loopに合わせて、次の責務へ分割する。
+PDF抽出ワーカーは、D2Dの4階層データ管理とhuman-in-the-loopに合わせて、次の責務へ分割する。
 
-| 責務 | PoCでの対応 | D2Dでの設計責務 |
+| 責務 | 処理単位 | 設計責務 |
 | --- | --- | --- |
 | ページレンダリング | PyMuPDFによるページPNG生成 | 各ページをレビュー用ページ画像として生成し、ページ寸法、DPI、画像blob参照を返す。ページ画像はレビュー補助であり、正本はPDF原本と構造データである |
 | ブロック自動検出 | pdfplumberの表検出、PyMuPDFのテキスト・画像検出 | text / table / figure / formula / label 候補をbbox付きで抽出し、表・図(画像)・テキストの重複を除外する。設計意味の判断や正本更新は行わない |
