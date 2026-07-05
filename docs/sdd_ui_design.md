@@ -323,7 +323,7 @@ flowchart LR
 | モード | 上流(根拠) | 下流(結果・候補) | 判断の反映先 |
 | --- | --- | --- | --- |
 | M1 抽出レビュー | 原本プレビュー(ページ/シート/スライド位置) | 抽出要素(テキスト・表・図・数式) | `extracted_*` の状態更新、修正は②正本へ(EXT-021〜024) |
-| M2 統合レビュー | ②抽出要素(原本位置つき) | ③統合文書の該当章節・本文・図表 | `intermediate_*` と `trace_link`(`derived_from`/`normalized_from`) |
+| M2 統合レビュー | ②抽出要素(原本位置つき) | ③統合文書の該当章節・本文・図表 | `intermediate_*` と `trace_link`(`based_on` + `basis_kind=extracted/normalized`) |
 | M3 候補レビュー | ③中間データ(チャンク範囲・本文) | LLM 候補(④要素候補・関係候補・説明文候補) | 採用時のみ④正本 + `trace_link`(`based_on`)へ反映(LLM-037〜039) |
 | M4 トレース点検 | 関係の from 要素と根拠 | 関係の to 要素、`relation_type`、信頼度 | `trace_link` の確定・修正・削除 |
 

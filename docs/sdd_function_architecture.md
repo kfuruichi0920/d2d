@@ -76,7 +76,7 @@ API は細かいレコード取得を大量に呼ぶ形にしない。`importDoc
 
 | 共通機能 | 主責務 | 主な入力 | 主な出力 | 追加で利用する基盤機能 |
 | --- | --- | --- | --- | --- |
-| トレーサビリティ機能 | 台帳登録された設計リソース間の根拠・由来・変換関係、関係クエリ、影響分析を行う | `entity_registry`、`resource_*`、`trace_link`、`llm_run_ref` | 関係クエリ結果、表、階層リスト、表示用サブグラフ、JSON / CSV / Markdown | 必要に応じてLLM実行ログ管理 |
+| トレーサビリティ機能 | 台帳登録された設計リソース間の根拠関係、設計意味関係、実装・検証関係、関係クエリ、影響分析を行う | `entity_registry`、`resource_*`、`trace_link`、`relation_rule_master`、`llm_run_ref` | 関係クエリ結果、表、階層リスト、表示用サブグラフ、JSON / CSV / Markdown | 必要に応じてLLM実行ログ管理 |
 | 履歴・差分参照機能 | Git履歴、DB to Text、SQLite dump、ZIP差分から変更前後を参照する | Git履歴、DB to Text、SQLite dump、ZIPアーカイブ、②③④成果物 | Diffビュー、差分結果、履歴参照ビュー | ― |
 | LLMプロバイダ機能 | LLMによる候補生成、要約、分類、関係候補生成を提供する | 入力チャンク、プロンプト、プロジェクト設定 | 候補情報、LLM実行参照、プロンプトログ、応答ログ | LLM実行ログ管理 |
 | レポート出力機能 | ②③④から文書風レポート、一覧、関係情報を生成する | ②③④データ、トレース情報、フィルタ条件 | Markdown / HTML レポート | 必要に応じてLLM実行ログ管理 |
@@ -171,7 +171,7 @@ flowchart TD
 | ③中間データから④設計モデル | 設計編集機能または中間データ処理機能が、③中間データの設計内容を根拠として、設計意味候補への昇格、同一対象の統合・正規化、関係付与を行い、人間レビュー後に④正本へ反映する |
 | ②〜④のID付与 | ②抽出データ、③中間データ、④設計モデルの情報単位にはIDを付与し、トレース分析とDB to Text出力の対象にする |
 | 設計意味関係 | ④設計モデル上の意味関係も、台帳登録された `resource_*` 間の `trace_link` として扱う |
-| 根拠・由来・変換関係 | 原本、②抽出データ、③中間データ、④設計モデル間の根拠・由来・変換関係は、`entity_registry` に登録された設計リソース間の `trace_link` として扱う。`extracted_item` と `intermediate_item` は文書構成JSON内要素とリソースの対応管理であり、トレース端点にはしない |
+| 根拠関係 | 原本、②抽出データ、③中間データ、④設計モデル間の根拠・由来・変換関係は、`based_on` に集約し、`basis_kind`、`evidence_span`、`transform_note` で性質を表す。`extracted_item` と `intermediate_item` は文書構成JSON内要素とリソースの対応管理であり、トレース端点にはしない |
 
 ### 5.2 正本と派生成果物
 
@@ -636,7 +636,7 @@ sequenceDiagram
 | `DATA-020〜024` | DB to Textを②③④共通の派生成果物または一時成果物として扱う |
 | `DATA-030〜033` | ZIP生成時のみmanifestを作成し、差分比較用インポートを履歴・差分参照機能で扱う |
 | `sdd_data_structure.md` の `entity_registry` / `resource_*` | 設計リソースの共通台帳と詳細情報として扱う |
-| `sdd_data_structure.md` の `trace_link` | 台帳登録されたリソース間の根拠・由来・変換関係として扱う |
+| `sdd_data_structure.md` の `trace_link` | 台帳登録されたリソース間の根拠関係、設計意味関係、実装・検証関係として扱う。relation_type は11種類に限定し、差分は属性で表現する |
 | `sdd_data_structure.md` の `llm_run_ref` | LLM候補生成の実行証跡として扱う |
 | `sdd_data_structure.md` の `change_history_view` | DB正本ではなく派生ビューとして履歴・差分参照機能が扱う |
 | `CLI-001〜008` | §4.3 CLIレイヤーとして、基盤機能 API 経由で各機能を呼び出す設計に反映 |

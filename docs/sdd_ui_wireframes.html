@@ -183,7 +183,7 @@
   <div class="statusbar">Panel: <b>Problems(未割当18・重複割当1)</b> | Jobs | Output</div>
   <div class="statusbar">Status Bar: M2 統合 | 未割当 18 | 候補 5 | 外部LLM送信: 無効</div>
 </div>
-<p class="note"><b>要点:</b> 割当操作(ドラッグ / <code>compose.assign</code>)は trace_link(derived_from / normalized_from)の作成として記録される。未割当・重複割当は Problems に集約し、「未割当 0 + ③未確認 0」で次モードへの導線を提示する。</p>
+<p class="note"><b>要点:</b> 割当操作(ドラッグ / <code>compose.assign</code>)は trace_link(based_on + basis_kind)の作成として記録される。未割当・重複割当は Problems に集約し、「未割当 0 + ③未確認 0」で次モードへの導線を提示する。</p>
 
 <h2 id="m3">M3 モデル化(③→④)</h2>
 <p class="meta">対応ビュー: V-18, V-19(+V-03, V-04, V-09) / <code>sdd_ui_design.md</code> 8.3節・7.4節</p>
@@ -432,7 +432,7 @@
       <div class="hd">Secondary Side Bar</div>
       <ul class="plain">
         <li><b>Evidence:</b> ②TEXT-000051(p.14)</li>
-        <li><b>Relations:</b> derived_from ×3</li>
+        <li><b>Relations:</b> based_on ×3</li>
         <li><b>Candidates:</b> 図表説明候補 1</li>
         <li><b>Review:</b> 3.2節 未確認 2件</li>
       </ul>
@@ -518,7 +518,7 @@
       </ul>
     </div>
   </div>
-  <div class="statusbar">選択連動: TEXT-000051 を選択 → 対応する③④要素をハイライト(derived_from / based_on を辿る)| 未接続 11件</div>
+  <div class="statusbar">選択連動: TEXT-000051 を選択 → 対応する③④要素をハイライト(based_on を辿る)| 未接続 11件</div>
 </div>
 <p class="note"><b>要点:</b> どれか1列の要素を選ぶと、trace_link を上下流双方向に辿って他列の対応要素をハイライトする。対応がない要素は「未割当 / 下流なし」のタグで示し、クリックで該当レビュー(V-15 / V-18)へ遷移できる。</p>
 
