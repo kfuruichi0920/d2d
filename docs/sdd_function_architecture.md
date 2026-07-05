@@ -668,7 +668,7 @@ PowerPoint抽出ワーカーは `command = "extract.powerpoint"` を受け取り
 | 区分 | 内容 | 保存先 |
 | --- | --- | --- |
 | 文書メタデータ | ファイル名、スライド数、スライド寸法、抽出器名、抽出器バージョン、原本ハッシュ | `resource_metadata` または `extracted_document.structure_json.metadata` |
-| スライド構造 | slide_no、title、status、notes、slide_size、要素一覧、スライド内統計 | `extracted_document.structure_json.slides`、`extracted_item` |
+| スライド構造 | slide_no、title、review_status、notes、slide_size、要素一覧、スライド内統計 | `extracted_document.structure_json.slides`、`extracted_item` |
 | 抽出要素 | text / shape / connector / image / table / group 等の種別、本文、rect、rotation、flip、style、読み順、警告 | `structure_json.elements`、対応する `resource_*`、`source_location` |
 | 表データ | スライド内表の二次元配列、セル文字列、セル結合、表bbox、ヘッダー候補 | `resource_table.cells_json`、必要に応じて `blobs/tables/` |
 | 図・画像 | PPTX内画像アセット、スライド全体overview画像、グループ化図形のレンダリング補助 | `resource_figure`、`blob_resource`、`blobs/figures/` または `blobs/extracted/` |
