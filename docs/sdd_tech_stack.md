@@ -63,11 +63,13 @@
 | Word 抽出 | Python標準ライブラリ（zipfile + xml.etree.ElementTree） + python-docx補助 | 3.11+ / 1.x | PSF License / MIT | .docx のOpenXMLを直接解析し、見出し、段落、階層リスト、結合表、図、キャプション、脚注、コメント、変更履歴、参照、テキストボックスを抽出する。python-docxは補助用途に限定し、取得できないOpenXML構造は標準ライブラリで直接読む |
 | Excel 抽出 | openpyxl | 3.x | MIT | .xlsx のセル・シート・結合セル抽出（SRS IMP-002, EXT-009） |
 | PowerPoint 抽出 | python-pptx | 0.6+ | MIT | .pptx のスライド・図形・テキストボックス抽出（SRS IMP-003, EXT-010） |
-| PDF 抽出（標準） | pdfplumber | 0.10+ | MIT | テキスト・表・ページ座標抽出（SRS IMP-005, EXT-012） |
-| PDF 抽出（高精度補助） | pymupdf (fitz) | 1.23+ | **AGPL 3.0 / 商用ライセンス** | **(要審査)** 複雑 PDF の高精度抽出が必要な場合のみ採用。AGPL のため商用配布には商用ライセンス購入が必要 |
+| PDF 抽出（標準） | pdfplumber | 0.10+ | MIT | 表bbox、表二次元配列、テキスト、ページ座標抽出（SRS IMP-005, EXT-012, EXT-027〜029） |
+| PDF 抽出（高精度補助） | pymupdf (fitz) | 1.23+ | **AGPL 3.0 / 商用ライセンス** | **(要審査)** ページ画像レンダリング、bboxクロップ、画像検出、OCR/LLM補正用切り出しに有効。AGPL のため商用配布には商用ライセンス購入が必要 |
 | Visio 抽出 | Python 標準ライブラリ（zipfile + xml.etree.ElementTree） | — | PSF License | .vsdx は ZIP + XML 形式のため、外部ライブラリ不要で解析可能。`python-vsdx` パッケージは PyPI 非公開のため不採用 |
 
 > **pymupdf の扱い**: デフォルトでは採用しない。pdfplumber で対応できない場合のみ採用を検討し、商用ライセンスを購入するか pdfminer.six（MIT）への代替を検討する。
+
+> **PDF PoCからの採用判断**: `ref/pdf-extractor-260620` の考え方のうち、ページ画像+bbox編集、表二次元配列、座標順Markdown、OCR/LLM補正候補、表プレビューは採用する。ただし、PoCのFastAPI常駐API、任意ZIPダウンロード中心の保存、APIキーのクライアント保存、セッションディレクトリ構造はそのまま採用せず、D2Dの外部ワーカーJSONL、ジョブ管理、成果物管理、設定管理、`llm_run_ref` に置き換える。
 
 ### 5.2 Python 環境制御
 
