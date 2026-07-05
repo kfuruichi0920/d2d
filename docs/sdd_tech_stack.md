@@ -62,12 +62,14 @@
 | Python ランタイム | Python | 3.11+ | PSF License | 安定版、型ヒント充実 |
 | Word 抽出 | Python標準ライブラリ（zipfile + xml.etree.ElementTree） + python-docx補助 | 3.11+ / 1.x | PSF License / MIT | .docx のOpenXMLを直接解析し、見出し、段落、階層リスト、結合表、図、キャプション、脚注、コメント、変更履歴、参照、テキストボックスを抽出する。python-docxは補助用途に限定し、取得できないOpenXML構造は標準ライブラリで直接読む |
 | Excel 抽出 | openpyxl | 3.x | MIT | .xlsx のセル・シート・結合セル抽出（SRS IMP-002, EXT-009） |
-| PowerPoint 抽出 | python-pptx | 0.6+ | MIT | .pptx のスライド・図形・テキストボックス抽出（SRS IMP-003, EXT-010） |
+| PowerPoint 抽出 | python-pptx + Python標準ライブラリ（zipfile + xml.etree.ElementTree） | 0.6+ / 3.11+ | MIT / PSF License | .pptx のスライド、図形、テキストボックス、表、画像、ノート、OpenXML座標・関係情報を抽出する。python-pptxで取得しにくいtheme、rels、grpSp座標、notesSlide、media参照はOpenXMLを直接読む |
 | PDF 抽出（標準） | pdfplumber | 0.10+ | MIT | 表bbox、表二次元配列、テキスト、ページ座標抽出（SRS IMP-005, EXT-012, EXT-027〜029） |
 | PDF 抽出（高精度補助） | pymupdf (fitz) | 1.23+ | **AGPL 3.0 / 商用ライセンス** | **(要審査)** ページ画像レンダリング、bboxクロップ、画像検出、OCR/LLM補正用切り出しに有効。AGPL のため商用配布には商用ライセンス購入が必要 |
 | Visio 抽出 | Python 標準ライブラリ（zipfile + xml.etree.ElementTree） | — | PSF License | .vsdx は ZIP + XML 形式のため、外部ライブラリ不要で解析可能。`python-vsdx` パッケージは PyPI 非公開のため不採用 |
 
 > **pymupdf の扱い**: デフォルトでは採用しない。pdfplumber で対応できない場合のみ採用を検討し、商用ライセンスを購入するか pdfminer.six（MIT）への代替を検討する。
+
+> **PowerPoint PoCからの採用判断**: `ref/ppt-extractor-260620b` の考え方のうち、スライド一覧、SVG/画像プレビュー、透明な選択レイヤー、要素の除外・役割補正・グループ化、スピーカーノート編集、空間読み順Markdown、スライドoverview PNG、構造JSONは採用する。ただし、PoCのクライアントサイド完結、JSZipによるブラウザ内解析、ブラウザダウンロード中心のZIP保存はそのまま採用せず、D2Dの外部ワーカーJSONL、ジョブ管理、成果物管理、`extracted_document.structure_json`、`blob_resource`、派生成果物へ置き換える。JSZipは標準採用しない。
 
 > **PDF PoCからの採用判断**: `ref/pdf-extractor-260620` の考え方のうち、ページ画像+bbox編集、表二次元配列、座標順Markdown、OCR/LLM補正候補、表プレビューは採用する。ただし、PoCのFastAPI常駐API、任意ZIPダウンロード中心の保存、APIキーのクライアント保存、セッションディレクトリ構造はそのまま採用せず、D2Dの外部ワーカーJSONL、ジョブ管理、成果物管理、設定管理、`llm_run_ref` に置き換える。
 
@@ -143,7 +145,7 @@ SRS NFR-040〜044 に対応する商用配布可否の確認。
 | adm-zip, simple-git | MIT | ○ | |
 | uuid | MIT | ○ | |
 | Python標準ライブラリによるWord OpenXML抽出 | PSF License | ○ | .docx はZIP + XMLとして解析する |
-| python-docx, openpyxl, python-pptx | MIT | ○ | python-docxはWord抽出の補助用途 |
+| python-docx, openpyxl, python-pptx | MIT | ○ | python-docxはWord抽出の補助用途。PowerPoint抽出ではpython-pptxを補助に使い、OpenXML直接解析と併用する |
 | marked | MIT | ○ | Markdownプレビューに利用 |
 | pdfplumber | MIT | ○ | |
 | Visio 抽出（Python 標準ライブラリ） | PSF License | ○ | |
