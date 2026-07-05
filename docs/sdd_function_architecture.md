@@ -699,7 +699,7 @@ PowerPoint抽出の `extracted_document.structure_json` は、少なくとも次
 | --- | --- | --- |
 | `metadata` | ファイル名、スライド数、slide_size、抽出器名、抽出器バージョン、原本ハッシュ、ライブラリ構成 | 原本同一性、表示、監査、ライセンス確認 |
 | `statistics` | スライド数、テキスト数、図形数、画像数、表数、コネクタ数、警告数 | レビュー進捗、抽出品質確認 |
-| `slides` | slide_id、slide_no、title、status、notes、element_ids、overview_blob_uid、warnings | スライド一覧、レビュー状態、スライド単位プレビュー |
+| `slides` | slide_id、slide_no、title、review_status、notes、element_ids、overview_blob_uid、warnings | スライド一覧、レビュー状態、スライド単位プレビュー |
 | `elements` | 読み順に並んだ text / shape / connector / image / table / group 等 | 抽出レビュー、③中間データ生成、DB to Text |
 | `tables` | table_id、slide_no、rect、cells、header候補、警告 | 表エディタ、`resource_table` 生成、表プレビュー |
 | `figures` | figure_id、slide_no、rect、blob_uid、caption候補、group_id、alt_text候補 | `resource_figure` 生成、根拠確認 |
