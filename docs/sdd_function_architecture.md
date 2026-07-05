@@ -659,7 +659,69 @@ SRSでいう「文書構造データ」は、実装上は `extracted_document.st
 | ページ相当位置 | `lastRenderedPageBreak` や page break を原本位置の補助として扱い、Wordのページ概念がレンダリング依存であることを前提にする |
 | Markdown | レビュー表示用とLLM入力用クリーンMarkdownを分け、アンカーやページ表示の有無を切り替え可能にする |
 
-### 11.4 開発時と本番時のワーカー起動
+### 11.4 PDF抽出ワーカーの出力契約
+
+PDF抽出ワーカーは `command = "extract.pdf"` を受け取り、入力 `.pdf` と抽出設定から、次の情報を含む `result.output` または `output_ref` を返す。
+
+| 区分 | 内容 | 保存先 |
+| --- | --- | --- |
+| 文書メタデータ | ファイル名、ページ数、ページ寸法、抽出器名、抽出器バージョン、原本ハッシュ | `resource_metadata` または `extracted_document.structure_json.metadata` |
+| ページ構造 | ページ番号、幅、高さ、ページ画像参照、ページ内ブロック一覧 | `extracted_document.structure_json.pages`、`source_location`、`blob_resource` |
+| 抽出ブロック | text / table / figure / formula / label 等の種別、本文、bbox、読み順、警告、信頼度 | `structure_json.elements`、`extracted_item`、対応する `resource_*` |
+| 表データ | 表bbox、二次元配列、ヘッダー候補、セル文字列、表名候補 | `resource_table.cells_json`、必要に応じて `blobs/tables/` |
+| 図・画像 | 画像bbox、切り出し画像、OCR候補、キャプション候補 | `resource_figure`、`blob_resource`、`blobs/figures/` |
+| レビュー補助 | ページ画像、領域枠、座標順プレビュー、Markdownプレビュー、JSONプレビュー、表プレビュー、警告 | 表示用データまたは `structure_json.review_hints` |
+| LLM補助 | 選択bboxのクロップ画像、OCR結果候補、表構造化候補、テキスト・数式補正候補、LLM実行ログ参照 | `llm_run_ref`、`blobs/llm/`、派生成果物 |
+| 派生出力 | レビュー用Markdown、LLM入力用Markdown、表SQLiteイメージ、ZIP出力相当の一時成果物 | `blobs/exports/` または `exports/` |
+
+PDF PoC の FastAPI エンドポイント、セッションディレクトリ、ブラウザ向けダウンロードAPIはD2Dの実装境界としては採用しない。D2Dでは、PDF解析は外部ワーカーJSONL、長時間処理はジョブ管理、保存は成果物管理、LLM実行はLLMプロバイダ機能と `llm_run_ref` に写像する。ワーカーは `project.db` を直接更新せず、候補出力だけを返す。
+
+#### 11.4.1 PDF抽出ワーカーの内部責務
+
+PDF抽出ワーカーは、PoC の `pdf_processor.py` / `exporter.py` / LLM中継処理を参考にしつつ、D2Dの4階層データ管理とhuman-in-the-loopに合わせて、次の責務へ分割する。
+
+| 責務 | PoCでの対応 | D2Dでの設計責務 |
+| --- | --- | --- |
+| ページレンダリング | PyMuPDFによるページPNG生成 | 各ページをレビュー用ページ画像として生成し、ページ寸法、DPI、画像blob参照を返す。ページ画像はレビュー補助であり、正本はPDF原本と構造データである |
+| ブロック自動検出 | pdfplumberの表検出、PyMuPDFのテキスト・画像検出 | text / table / figure / formula / label 候補をbbox付きで抽出し、表・図(画像)・テキストの重複を除外する。設計意味の判断や正本更新は行わない |
+| 座標・読み順正規化 | Y座標・X座標順のソート | PDF座標系、ページ番号、bbox、読み順、同一行判定を `source_location` と `structure_json` に残し、UI編集後も再計算できるようにする |
+| 表構造生成 | 表の二次元配列、SQLite生成 | 表bboxとセル配列を `resource_table.cells_json` へ接続できる形で返す。SQLiteファイルは正本ではなく表プレビューまたは派生成果物として扱う |
+| 画像クロップ | bboxからの高解像度PNG切り出し | 選択領域のOCR、表OCR、図リソース化に使うクロップ画像をジョブ作業領域へ出力し、Local Backend が `blob_resource` へ分類保存できる参照を返す |
+| LLM補正 | refine / ocr / table_ocr | テキスト補正、数式LaTeX化、画像OCR、表二次元配列化は候補として返し、採用・修正・棄却後に②抽出データへ反映する。APIキー実値はワーカー入力に含めない |
+| 派生出力生成 | Markdown、JSON、SQLite、ZIP生成 | レビュー用Markdown、LLM入力用Markdown、表プレビュー、ZIP相当出力を再生成可能な派生成果物として生成する。正本は `structure_json`、`resource_*`、`source_location`、`blob_resource` である |
+| 検証 | 手動確認中心 | ページ寸法、bbox範囲、重複除外、座標順、表配列、クロップ画像、Markdown再生成、LLM候補のJSONパース失敗を実装時チェックに含める |
+
+#### 11.4.2 PDF文書構造データの内容契約
+
+PDF抽出の `extracted_document.structure_json` は、少なくとも次のトップレベル項目を持つ。
+
+| 項目 | 内容 | 利用先 |
+| --- | --- | --- |
+| `metadata` | ページ数、抽出器名、抽出器バージョン、原本ハッシュ、ライブラリ構成 | 原本同一性、表示、監査、ライセンス確認 |
+| `pages` | page_no、width、height、rotation、rendered_image_blob_uid、blocks | ページプレビュー、bbox編集、原本位置表示 |
+| `elements` | 読み順に並んだ text / table / figure / formula / label 等 | 抽出レビュー、③中間データ生成、DB to Text |
+| `tables` | table_id、page_no、bbox、cells、header候補、警告 | 表エディタ、`resource_table` 生成、表プレビュー |
+| `figures` | figure_id、page_no、bbox、cropped_blob_uid、OCR候補、caption候補 | `resource_figure` 生成、根拠確認 |
+| `llm_candidates` | refine / ocr / table_ocr の候補参照、対象bbox、`llm_run_ref` | 候補レビュー、LLMログ確認 |
+| `review_hints` | ページサムネイル、領域枠、警告、座標順序、ジャンプ用アンカー | RendererのExtraction Review Editor |
+
+`pages[].blocks[]` と `elements[]` は、UIでの領域編集、表編集、LLM補正候補の採用により更新候補が作られる。採用前は候補として扱い、Local Backend がレビュー操作後に `extracted_item` と対応する `resource_text`、`resource_table`、`resource_figure`、`resource_formula`、`resource_label` 等へ反映する。
+
+#### 11.4.3 PDF抽出で実装時に落とさない観点
+
+| 観点 | 実装時の注意 |
+| --- | --- |
+| 座標系 | PDF points、ページ画像px、ズーム倍率を混同しない。保存するbboxは原本PDF座標系を正とし、UI表示では倍率変換する |
+| bbox編集 | 移動、8方向リサイズ、新規作成、削除、種別変更は候補編集として扱い、ページ範囲外に出ないようにクランプする |
+| 重複除外 | 表bboxと画像bbox、テキスト中心点の重なりを用いて重複抽出を抑える。ただし除外理由は警告または診断情報として残す |
+| 読み順 | Y座標を主、X座標を副として並べる。近接するY座標は同一行扱いにできるが、閾値は設定化し、再生成可能にする |
+| 表 | 表抽出結果はMarkdownやSQLiteだけに閉じず、二次元配列とbboxを文書構造データに残す。ヘッダー名のサニタイズは派生SQLite用であり、正本セル文字列を置換しない |
+| 画像・数式 | クロップ画像とOCR/LaTeX候補は候補であり、採用前に②正本へ反映しない |
+| LLM | refine / ocr / table_ocr は用途別プロンプトとログを分ける。外部送信可否、送信範囲、APIキー参照、失敗時の扱いをジョブとLLMログに残す |
+| Markdown | ページ単位プレビュー、全文レビュー用Markdown、LLM入力用Markdownを分ける。Markdown、SQLite、ZIPは派生成果物であり正本ではない |
+| ライセンス | PyMuPDF はAGPLまたは商用ライセンスが必要なため、標準採用可否を技術選定で確認し、代替経路を残す |
+
+### 11.5 開発時と本番時のワーカー起動
 
 ワーカーの起動方法は、実行環境（開発時 / 本番時）によって異なる。
 

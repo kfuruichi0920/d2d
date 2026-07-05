@@ -219,6 +219,27 @@ Word抽出は、OpenXML由来の構造を②抽出データ候補として保持
 
 Word抽出で得たコメントや変更履歴は、D2D上のレビュー状態そのものに自動変換しない。原本文書に含まれていた校閲情報として保持し、抽出結果レビューで参考表示する。D2Dの採用・修正・棄却は `entity_registry.status` と `review_info_json` に別途記録する。
 
+### 2.8 PDF抽出データの保持方針
+
+PDF抽出は、ページ画像、座標、ブロック種別、表構造、画像切り出し結果を②抽出データ候補として保持する。PoCで確認したビジュアル編集とLLM補正の能力を再現するため、`extracted_document.structure_json` は次の粒度を表現できることを前提にする。
+
+| 領域 | 必須情報 | 主な対応先 |
+| --- | --- | --- |
+| 文書メタデータ | ページ数、各ページ寸法、抽出器名、抽出器バージョン、原本ハッシュ、レンダリング条件 | `extracted_document.structure_json.metadata`、`resource_metadata` |
+| ページ | page_no、width、height、rotation、ページ画像blob、サムネイル、ページ内ブロック一覧 | `structure_json.pages`、`blob_resource`、`source_location` |
+| ブロック | text、table、figure、formula、label等の種別、bbox、本文、読み順、警告、信頼度 | `structure_json.elements`、`extracted_item`、対応する `resource_*` |
+| 表 | 表bbox、二次元セル配列、ヘッダー候補、セル文字列、表名候補、抽出警告 | `resource_table.cells_json`、`blobs/tables/`、`structure_json.tables` |
+| 図・画像 | 画像bbox、クロップ画像blob、OCR候補、キャプション候補、画像ハッシュ | `resource_figure`、`resource_label`、`blob_resource` |
+| 数式 | 数式bbox、抽出文字列、LaTeX候補、画像クロップ参照 | `resource_formula`、`blob_resource` |
+| 位置 | ページ番号、bbox、座標系、読み順、必要に応じた行グループ | `source_location.bbox_json`、`structure_json.elements[]` |
+| LLM候補 | refine、ocr、table_ocr の対象bbox、候補値、失敗理由、`llm_run_ref` | `llm_run_ref`、`entity_registry.review_info_json`、`blobs/llm/` |
+| 表示補助 | ページ画像、領域枠、ページ単位Markdown、全文Markdown、JSONプレビュー、表プレビュー、警告 | `structure_json.review_hints` または派生表示データ |
+
+`structure_json` はPDF原本のページ構造と座標付き抽出結果を保持する正本であり、レビュー用Markdown、LLM入力用Markdown、SQLite表プレビュー、ZIPダウンロード相当ファイルは派生成果物として扱う。PoCの `extracted_tables.db` は表データ確認に有効だが、D2Dでは `resource_table.cells_json` と `structure_json.tables` を正本とし、SQLiteファイルは `blobs/exports/` または `exports/` の派生成果物に分類する。
+
+PDFのページ画像、OCR中間物、クロップ画像は、初期状態では `blobs/extracted/` に抽出ジョブ単位の中間物として置く。人間レビューで図リソースまたは数式リソースとして採用された画像は、`blobs/figures/` へ正規配置し、`resource_figure` または `resource_formula` から参照する。表の大容量データを外部化する場合は `blobs/tables/` を使う。
+
+PDFのbbox編集、LLM OCR、表OCR、テキスト補正は、D2D上のレビュー操作である。ワーカーやLLM出力は候補として保持し、採用・修正・棄却を経てから `extracted_item` と対応する `resource_*` へ反映する。LLM候補は `llm_run_ref` と関連付け、外部送信範囲、対象bbox、プロンプト用途、応答、失敗理由を追跡できるようにする。
 ## 3. テーブル一覧
 
 | テーブル名 | 役割 | 主な情報 | 主キー | 主な外部キー | 備考 |
