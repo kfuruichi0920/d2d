@@ -32,7 +32,6 @@
 | ルーティング | TanStack Router | v1 | MIT | 型安全ルーティング、ファイルベースルート対応 |
 | グラフ描画 | SVG 自前実装 | — | — | 関係グラフ・影響分析の可視化。力学レイアウトを SVG + React で自前実装。Cytoscape.js 等の外部ライブラリは**未導入**（将来移行候補） |
 | テキスト・コードエディタ | Monaco Editor | 0.5x | MIT | 設計要素本文、Markdown、PlantUML / SysMLv2、JSON / JSONL、SQL、ログの閲覧・編集に利用する。styled textarea は暫定代替として採用しない |
-| Markdownレンダリング | marked | 14.x+ | MIT | 抽出結果、レポート、LLM入力用クリーンMarkdownのプレビューに利用する。HTML混在Markdownはサニタイズ方針を別途実装する |
 | クライアント状態管理 | Zustand | 5.x | MIT | 軽量、スライス構成しやすい、React 外からも利用可 |
 
 ---
@@ -60,7 +59,7 @@
 | 種別 | 選定 | バージョン | ライセンス | 採用理由 |
 | --- | --- | --- | --- | --- |
 | Python ランタイム | Python | 3.11+ | PSF License | 安定版、型ヒント充実 |
-| Word 抽出 | Python標準ライブラリ（zipfile + xml.etree.ElementTree） + python-docx補助 | 3.11+ / 1.x | PSF License / MIT | .docx のOpenXMLを直接解析し、見出し、段落、階層リスト、結合表、図、キャプション、脚注、コメント、変更履歴、参照、テキストボックスを抽出する。python-docxは補助用途に限定し、取得できないOpenXML構造は標準ライブラリで直接読む |
+| Word 抽出 | python-docx | 1.x | MIT | .docx の段落・表・図・スタイル抽出（SRS IMP-001, EXT-001〜009） |
 | Excel 抽出 | openpyxl | 3.x | MIT | .xlsx のセル・シート・結合セル抽出（SRS IMP-002, EXT-009） |
 | PowerPoint 抽出 | python-pptx | 0.6+ | MIT | .pptx のスライド・図形・テキストボックス抽出（SRS IMP-003, EXT-010） |
 | PDF 抽出（標準） | pdfplumber | 0.10+ | MIT | テキスト・表・ページ座標抽出（SRS IMP-005, EXT-012） |
@@ -140,9 +139,7 @@ SRS NFR-040〜044 に対応する商用配布可否の確認。
 | keytar | MIT | ○ | |
 | adm-zip, simple-git | MIT | ○ | |
 | uuid | MIT | ○ | |
-| Python標準ライブラリによるWord OpenXML抽出 | PSF License | ○ | .docx はZIP + XMLとして解析する |
-| python-docx, openpyxl, python-pptx | MIT | ○ | python-docxはWord抽出の補助用途 |
-| marked | MIT | ○ | Markdownプレビューに利用 |
+| python-docx, openpyxl, python-pptx | MIT | ○ | |
 | pdfplumber | MIT | ○ | |
 | Visio 抽出（Python 標準ライブラリ） | PSF License | ○ | |
 | Vitest | MIT | ○ | |

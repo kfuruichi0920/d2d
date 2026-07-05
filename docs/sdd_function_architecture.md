@@ -327,10 +327,6 @@ sequenceDiagram
     Main-->>UI: 進捗と表示用結果を返す
 ```
 
-Word文書の抽出では、文書抽出機能はOpenXML由来の構造を原本忠実な②抽出データ候補として返す。少なくとも、見出し階層、段落、箇条書き階層、表、図・画像、キャプション、脚注、コメント、変更履歴、ブックマーク、文書内参照、外部リンク、テキストボックス内テキスト、ページ相当位置を候補に含める。画像等の大容量データはblob参照として返し、Local Backend が `project.db` と `blobs/` へ保存する。プレビュー用MarkdownやHTMLはレビュー表示用の派生成果物であり、正本は `extracted_document.structure_json`、対応する `resource_*`、`source_location`、`blob_resource` とする。
-
-Word抽出PoCで有効だったアウトライン、Markdownプレビュー、文書構造データ、コメント・変更履歴リスト、クリックジャンプ、短時間ハイライトは、RendererのExtraction Review Editorで再現する。ただし、PoCのFlask APIやセッションディレクトリ構造はD2Dの実装境界では採用せず、外部ワーカーJSONL、ジョブ管理、成果物管理、Resource/Command/Eventモデルへ写像する。
-
 ### 8.3 ②抽出データから③中間データを生成する
 
 ```mermaid
@@ -601,63 +597,6 @@ sequenceDiagram
 | output | 小さな結果データをインラインで返す場合に利用 |
 | output_ref | 大きな出力はファイルパスで返し、基盤機能が読み取る |
 | error_code | 障害分類コード（ワーカーごとに定義） |
-
-### 11.3 Word抽出ワーカーの出力契約
-
-Word抽出ワーカーは `command = "extract.word"` を受け取り、入力 `.docx` と抽出設定から、次の情報を含む `result.output` または `output_ref` を返す。
-
-| 区分 | 内容 | 保存先 |
-| --- | --- | --- |
-| 文書メタデータ | title、creator、created、modified、last_modified_by 等 | `resource_metadata` または `extracted_document.structure_json.metadata` |
-| 文書構造 | 見出し、段落、リスト、表、図、脚注、コメント、変更履歴、参照、ブックマーク、テキストボックス | `extracted_document.structure_json`、`extracted_item`、対応する `resource_*` |
-| 原本位置 | ページ相当番号、章節パス、段落ID、表セル位置、アンカーID | `source_location` |
-| 大容量データ | 抽出画像、レンダリング補助ファイル、プレビュー補助ファイル | `blob_resource` と `blobs/` |
-| レビュー補助 | アウトライン、コメント一覧、変更履歴一覧、警告、統計 | 表示用データまたは `structure_json.review_hints` |
-| LLM入力補助 | クリーンMarkdown、アンカー除去後テキスト、画像参照付きMarkdown | 派生成果物または `blobs/exports/` |
-
-ワーカーは `project.db` を直接更新しない。抽出結果は候補であり、採用・修正・棄却後に Local Backend が正本へ反映する。ワーカー内で一時ディレクトリを使う場合も、出力ファイルはジョブ管理が許可した作業領域配下に限定し、最終配置は成果物管理が行う。
-
-#### 11.3.1 Word抽出ワーカーの内部責務
-
-Word抽出ワーカーは、PoCの `word_extractor/` 構成を参考にしつつ、D2Dの4階層データ管理とhuman-in-the-loopに合わせて、次の責務へ分割する。
-
-| 責務 | PoCでの対応 | D2Dでの設計責務 |
-| --- | --- | --- |
-| コアパーサ | `extractor.py` / `WordExtractor` | `.docx` をZIP + OpenXMLとして読み、見出し、段落、リスト、表、図、脚注、コメント、変更履歴、参照、テキストボックス、ページ相当位置を原本忠実に抽出する。設計意味の判断や正本更新は行わない |
-| 文書構造データ生成 | `json_generator.py` | 抽出結果を `metadata`、`statistics`、`elements`、`footnotes`、`comments`、`revisions`、`references`、`review_hints` を含む文書構造データへ整形する。このデータは `extracted_document.structure_json` の内容契約になる |
-| Markdown生成 | `markdown_generator.py` | レビュー表示用MarkdownとLLM入力用クリーンMarkdownを生成する。結合表はHTML table、単純表はMarkdown table、コメント・脚注・変更履歴は参照可能な形で出力する。Markdownは派生成果物であり、正本は文書構造データとリソースである |
-| メディア抽出 | `extractor.py` の画像抽出 | 画像、図、レンダリング補助ファイルをジョブ作業領域に出力し、Local Backendが `blob_resource` と `blobs/figures/` または `blobs/extracted/` へ分類保存できる参照情報を返す |
-| 検証 | `generate_test_docx.py` / `verify_extraction.py` | Officeなしで生成できる検証用 `.docx` と、結合表、リスト番号、コメント、変更履歴、相互参照、画像キャプション、テキストボックスの抽出を確認する自動テストを提供する |
-
-#### 11.3.2 文書構造データの内容契約
-
-SRSでいう「文書構造データ」は、実装上は `extracted_document.structure_json` に保存されるJSONである。Word抽出では、少なくとも次のトップレベル項目を持つ。
-
-| 項目 | 内容 | 利用先 |
-| --- | --- | --- |
-| `metadata` | Wordコアプロパティ、抽出器名、抽出器バージョン、原本ハッシュ | 原本同一性、表示、監査 |
-| `statistics` | 要素数、見出し数、段落数、リスト数、表数、図数、脚注数、コメント数、変更履歴数 | レビュー進捗、抽出品質確認 |
-| `elements` | 読み順に並んだ heading / paragraph / list_item / table / figure / formula / shape_text 等 | 抽出レビュー、③中間データ生成、DB to Text |
-| `footnotes` | 脚注ID、本文、参照元要素 | Markdown生成、根拠確認 |
-| `comments` | コメントID、author、date、本文、参照元要素 | 抽出レビューのコメント一覧、原本校閲情報確認 |
-| `revisions` | 変更履歴ID、種別、author、date、対象run、本文 | 抽出レビューの変更履歴一覧、原本校閲情報確認 |
-| `references` | 外部リンク、ブックマーク、REF/PAGEREF、未解決参照候補 | `resource_reference` 生成、参照解決 |
-| `review_hints` | アウトライン、警告、ジャンプ用アンカー、ページ表示補助 | RendererのExtraction Review Editor |
-
-`elements` 内の各要素は、抽出後に `extracted_item` と対応する `resource_text`、`resource_list`、`resource_table`、`resource_figure`、`resource_formula`、`resource_reference` 等へ接続できる粒度でID、種別、本文、子要素、原本位置、警告、メディア参照を持つ。これにより、UIでのプレビュー同期と、③中間データ生成時のトレース作成を同じデータから実行できる。
-
-#### 11.3.3 Word抽出で実装時に落とさない観点
-
-| 観点 | 実装時の注意 |
-| --- | --- |
-| 表 | `rowspan`、`colspan`、`is_merged`、`merged_to` を保持し、Markdown化で失われる結合セル情報を文書構造データには残す |
-| リスト | Wordの `numbering.xml` を解釈し、階層番号や箇条書き記号を静的テキストとして再現できるようにする |
-| 図とキャプション | 画像blobとキャプション候補を結び、キャプション段落の重複出力を避ける |
-| コメント・変更履歴 | Word原本に含まれる校閲情報として保持し、D2Dレビュー状態とは分ける |
-| 参照 | 外部URL、ブックマーク、REF/PAGEREFを区別し、未解決参照候補を残す |
-| テキストボックス | `txbxContent` 配下を再帰的に抽出し、通常本文と区別可能な要素種別にする |
-| ページ相当位置 | `lastRenderedPageBreak` や page break を原本位置の補助として扱い、Wordのページ概念がレンダリング依存であることを前提にする |
-| Markdown | レビュー表示用とLLM入力用クリーンMarkdownを分け、アンカーやページ表示の有無を切り替え可能にする |
 
 ### 11.4 開発時と本番時のワーカー起動
 
