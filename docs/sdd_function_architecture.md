@@ -30,7 +30,7 @@ Electron 実装上の実行責務は以下の通り分離する。
 
 > **初期実装方針（2026-07確定）**: Local Backend は初回から Electron Main とは別プロセスとして起動する。Electron Main は Renderer IPC、OS統合、Local Backend の起動・停止・接続監視に限定し、DB操作、文書解析、LLM通信、PlantUML実行、MeCab前処理、DB to Text生成などの業務ロジックを直接実装しない。
 
-API は細かいレコード取得を大量に呼ぶ形にしない。`importDocument(filePath)`、`searchElements(query, paging, sort)`、`getTraceSubgraph(elementId, depth, filters)`、`renderPlantUml(sourceId or textHash)`、`getTableViewport(tableId, range, filters)`、`exportReport(reportId, format)` のように、ユーザー操作単位または表示単位でまとめる。`readLine(filePath, lineNo)`、`getCell(row, col)`、`getNode(nodeId)` / `getEdge(edgeId)` の大量反復呼び出しは禁止する。
+API は細かいレコード取得を大量に呼ぶ形にしない。`importDocument(filePath)`、`searchElements(query, paging, sort)`、`getTraceSubgraph(elementId, depth, filters)`、`generateDesignCandidates(chunkId, promptTemplateId, modelSettings)`、`reviewCandidateSet(llmRunId, decisions)`、`renderPlantUml(sourceId or textHash)`、`getTableViewport(tableId, range, filters)`、`exportReport(reportId, format)` のように、ユーザー操作単位または表示単位でまとめる。`readLine(filePath, lineNo)`、`getCell(row, col)`、`getNode(nodeId)` / `getEdge(edgeId)` の大量反復呼び出しは禁止する。
 
 ### 2.1 設計モデル化の工程と機能責務
 
@@ -78,7 +78,7 @@ API は細かいレコード取得を大量に呼ぶ形にしない。`importDoc
 | --- | --- | --- | --- | --- |
 | トレーサビリティ機能 | 台帳登録された設計リソース間の根拠関係、設計意味関係、実装・検証関係、関係クエリ、影響分析を行う | `entity_registry`、`resource_*`、`trace_link`、`relation_rule_master`、`llm_run_ref` | 関係クエリ結果、表、階層リスト、表示用サブグラフ、JSON / CSV / Markdown | 必要に応じてLLM実行ログ管理 |
 | 履歴・差分参照機能 | Git履歴、DB to Text、SQLite dump、ZIP差分から変更前後を参照する | Git履歴、DB to Text、SQLite dump、ZIPアーカイブ、②③④成果物 | Diffビュー、差分結果、履歴参照ビュー | ― |
-| LLMプロバイダ機能 | LLMによる候補生成、要約、分類、関係候補生成を提供する | 入力チャンク、プロンプト、プロジェクト設定 | 候補情報、LLM実行参照、プロンプトログ、応答ログ | LLM実行ログ管理 |
+| LLMプロバイダ機能 | LLMによる候補生成、要約、分類、関係候補生成、正規化テキスト生成を提供する | 入力チャンク、プロンプト、プロジェクト設定 | 候補情報、LLM実行参照、プロンプトログ、応答ログ、構造化JSON検証結果 | LLM実行ログ管理 |
 | レポート出力機能 | ②③④から文書風レポート、一覧、関係情報を生成する | ②③④データ、トレース情報、フィルタ条件 | Markdown / HTML レポート | 必要に応じてLLM実行ログ管理 |
 
 ### 4.2 個別機能
@@ -90,8 +90,8 @@ API は細かいレコード取得を大量に呼ぶ形にしない。`importDoc
 | 個別機能 | 主責務 | 主な入力 | 主な出力 | 連携する共通機能 |
 | --- | --- | --- | --- | --- |
 | 文書抽出機能 | ①原本ファイル単位の②抽出データを生成する | ①原本データ、抽出設定 | ②抽出データ、抽出ログ、画像リソース | LLMプロバイダ、トレーサビリティ、履歴・差分参照 |
-| 中間データ処理機能 | ②抽出データを成果物単位に統合し③中間データを生成する | ②抽出データ、既存③中間データ、成果物定義 | ③中間データ、チャンク、用語候補、正規化表、図表説明候補 | 設計編集、LLMプロバイダ、トレーサビリティ、履歴・差分参照 |
-| 設計編集機能 | ③中間データおよび④設計モデルの編集、検索、レビュー補助、モデル表現編集を行う | ③中間データ、④設計モデル、用語、レビュー記録 | 更新済み③中間データ、④設計要素・設計関係、PlantUML / SysMLv2テキスト、要素ID対応表 | LLMプロバイダ、トレーサビリティ、履歴・差分参照 |
+| 中間データ処理機能 | ②抽出データを成果物単位に統合し③中間データを生成する | ②抽出データ、既存③中間データ、成果物定義 | ③中間データ、チャンク、用語候補、正規化表、正規化テキスト候補、図表説明候補、④設計モデル候補 | 設計編集、LLMプロバイダ、トレーサビリティ、履歴・差分参照 |
+| 設計編集機能 | ③中間データおよび④設計モデルの編集、検索、レビュー補助、モデル表現編集を行う | ③中間データ、④設計モデル、用語、レビュー記録、候補セット | 更新済み③中間データ、④設計要素・設計関係、PlantUML / SysMLv2テキスト、要素ID対応表、候補レビュー結果 | LLMプロバイダ、トレーサビリティ、履歴・差分参照 |
 
 ### 4.3 CLIレイヤー
 
@@ -535,6 +535,48 @@ sequenceDiagram
 | FUNC-027 | 通常保存領域に正本ではない説明ファイルを追加する場合は、manifestとの重複管理にならない理由を明記すること |
 
 ---
+
+### 10.1 仕様書・設計書要素抽出PoCの取り込み方針
+
+`ref/support_srs_260607` のPoCは、自然言語の仕様書・設計書テキストから、正規化テキスト、設計要素候補、関係候補を生成し、保存前にテーブルで調整し、関係グラフで確認する機能を実証したものである。D2Dでは、このPoCを①原本→②抽出データのファイル抽出器ではなく、③中間データ→④設計モデルの候補生成・レビュー機能として取り込む。
+
+| PoCの考え方 | D2Dでの写像 | 採用判断 |
+| --- | --- | --- |
+| テキスト入力からの曖昧性排除・校正・正規化 | ③中間データの選択範囲またはチャンクから正規化テキスト候補を生成する | 採用。ただし正本本文を直接上書きせず、候補セットとしてレビューする |
+| 要素候補と関係候補のJSON出力 | `llm_run_ref` の結果、候補セット、`entity_registry` / `resource_*` / `trace_link` への採用候補に分ける | 採用。JSON Schema検証と許容関係検査を必須にする |
+| 保存前のインライン編集 | Candidate Set Review Editorで要素候補・関係候補を表形式で追加、修正、削除する | 採用。採用時のみ同一トランザクションで正本反映する |
+| 要素名変更時の関係From/To追従 | 候補セット内の一時IDを軸に参照を維持し、表示名変更時に関係候補を追従表示する | 採用。確定後は `uid` 参照に変換する |
+| SQLiteへの一括保存 | ストアアクセス管理が `entity_registry`、`resource_*`、`trace_link` を更新する | 置換。PoCの `entities` / `relations` テーブルは採用しない |
+| Vis.js Networkでの可視化 | Trace Graph Editor の関係グラフ、ホップ強調、フィルタへ写像する | 概念採用。実装ライブラリは技術選定に従う |
+| Express API / Electron IPC移植案 | Renderer -> Main -> Local Backend の操作単位APIへ写像する | 置換。MainにDB/LLM処理を置かない |
+| Gemini SDK直接利用 | Local BackendのLLMプロバイダ機能がfetchでProvider差分を吸収する | 置換。外部SDKは標準採用しない |
+
+### 10.2 設計モデル候補生成の内部責務
+
+設計モデル候補生成は、LLMプロバイダ機能だけに閉じず、中間データ処理機能、設計編集機能、トレーサビリティ機能の境界で実装する。
+
+| 責務 | 主担当 | 内容 |
+| --- | --- | --- |
+| 入力チャンク構築 | 中間データ処理機能 | ③中間データの章節、段落、図表説明、参照、既存用語を選択範囲として束ね、LLM入力用テキストを再生成する |
+| プロンプト選択・送信前確認 | UI Workbench / LLMプロバイダ機能 | 用途別テンプレート、モデル、外部送信可否、マスキング結果を確認してジョブ化する |
+| LLM実行・ログ保存 | LLMプロバイダ機能 / LLM実行ログ管理 | 正規化テキスト、要素候補、関係候補を構造化JSONとして取得し、prompt/resultを `llm_run_ref` と `blobs/llm/` に保存する |
+| JSON検証 | LLMプロバイダ機能 | JSONパース、必須項目、候補一時ID、関係From/To参照、relation_type候補を検査する |
+| 候補セット表示 | UI Workbench | 正規化テキスト、要素候補、関係候補、警告、LLMログを `candidate://<llm_run_uid>` として開く |
+| 候補編集 | 設計編集機能 | 保存前に候補の追加、修正、削除、種別変更、要素名変更時の関係参照追従を行う |
+| 採用前検査 | トレーサビリティ機能 / ストアアクセス管理 | `relation_rule_master`、重複、未解決参照、根拠リンク、レビュー状態を検査する |
+| 正本反映 | ストアアクセス管理 | 採用された候補だけを `entity_registry`、対応 `resource_*`、`trace_link` に同一トランザクションで保存する |
+
+### 10.3 実装時に落とさない観点
+
+| 観点 | 実装時の注意 |
+| --- | --- |
+| 候補と正本の分離 | LLM出力や保存前編集結果は、採用操作まで④設計モデルの確定情報にしない |
+| 一時IDと確定UID | 候補セット内では一時IDで要素・関係を参照し、採用時にUUIDv7の `uid` へ変換する |
+| 正規化テキスト | 正規化テキストは③本文の上書きではなく候補であり、採用時も根拠範囲と差分を残す |
+| 関係候補 | relation_typeのPoC分類はそのまま保存せず、D2Dの11種類の `trace_link.relation_type` と属性へ写像する |
+| 検証 | JSONパース失敗、スキーマ不一致、候補From/To未解決、許容外関係、重複候補、根拠なし候補を採用前に止める |
+| 影響確認 | 採用前後にTrace Graph Editorで起点要素、方向、深さ、関係種別を指定し、ホップ強調で影響範囲を確認できるようにする |
+| ログ | 入力チャンク、プロンプト、モデル、応答、検証エラー、採用判断は `llm_run_ref` と `review_info_json` から辿れるようにする |
 
 ## 11. 外部ワーカーインタフェース
 
