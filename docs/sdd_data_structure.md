@@ -219,7 +219,28 @@ Word抽出は、OpenXML由来の構造を②抽出データ候補として保持
 
 Word抽出で得たコメントや変更履歴は、D2D上のレビュー状態そのものに自動変換しない。原本文書に含まれていた校閲情報として保持し、抽出結果レビューで参考表示する。D2Dの採用・修正・棄却は `entity_registry.status` と `review_info_json` に別途記録する。
 
-### 2.8 PDF抽出データの保持方針
+### 2.8 PowerPoint抽出データの保持方針
+
+PowerPoint抽出は、スライド順、スライド寸法、スライド内要素、座標、描画属性、画像、表、スピーカーノートを②抽出データ候補として保持する。PoCで確認したIDE風レビューと空間読み順Markdown生成を再現するため、`extracted_document.structure_json` は次の粒度を表現できることを前提にする。
+
+| 領域 | 必須情報 | 主な対応先 |
+| --- | --- | --- |
+| 文書メタデータ | ファイル名、スライド数、slide_size(EMU幅/高さ)、抽出器名、抽出器バージョン、原本ハッシュ | `extracted_document.structure_json.metadata`、`resource_metadata` |
+| スライド | slide_no、title、review_status、notes、slide_size、element_ids、overview_blob_uid、警告、要素数サマリー | `structure_json.slides`、`extracted_item`、`source_location` |
+| 構造要素 | text、shape、connector、image、table、group、note 等の種別、本文、読み順、警告 | `structure_json.elements`、`extracted_item`、対応する `resource_*` |
+| 座標・表示属性 | EMU座標のrect、rotation、flip、shape_type、line、fill、theme_color、arrow、z_order | `source_location.bbox_json`、`structure_json.elements[]`、`resource_figure` |
+| 表 | スライド内表の二次元セル配列、セル本文、結合情報、表bbox、ヘッダー候補 | `resource_table.cells_json`、`structure_json.tables`、必要に応じて `blobs/tables/` |
+| 図・画像 | PPTX内画像blob、スライド全体overview PNG、グループ化図形、キャプション候補、alt text候補 | `resource_figure`、`resource_label`、`blob_resource` |
+| ノート | スピーカーノート本文、原本由来テキスト、レビュー補正テキスト | `resource_text`、`resource_metadata`、`structure_json.slides[].notes` |
+| 表示補助 | スライド一覧、選択枠、除外状態、タイトル等の役割補正、グループ化状態、空間読み順、警告 | `structure_json.review_hints` または派生表示データ |
+
+`structure_json` はPowerPoint原本のスライド構造と座標付き抽出結果を保持する正本であり、レビュー用Markdown、LLM入力用Markdown、`document.json`、`media/`、ZIPダウンロード相当ファイルは派生成果物として扱う。PoCの `document.md` / `document.json` / `media/slideX_overview.png` はLLM入力とレビュー補助に有効だが、D2Dでは `structure_json`、`resource_*`、`source_location`、`blob_resource` を正本とし、ZIP相当出力は `blobs/exports/` または `exports/` の派生成果物に分類する。
+
+PowerPointの原画像は、人間レビューで図リソースとして採用された場合に `blobs/figures/` へ正規配置する。スライド全体overview PNGやSVGレンダリング補助、抽出器の生JSONは再生成可能なレビュー補助として `blobs/extracted/` に置き、レポートやLLM入力用に明示出力する場合のみ `blobs/exports/` または `exports/` に置く。
+
+PowerPointの要素除外、タイトル等の役割補正、図形グループ化、スピーカーノート編集、スライド検証状態は、D2D上のレビュー操作である。採用前は候補として保持し、採用・修正・棄却を経てから `extracted_item` と対応する `resource_*` へ反映する。グループ化した図形は元要素IDを保持し、図リソース候補として `groups` と `resource_figure` の両方へ接続できるようにする。
+
+### 2.9 PDF抽出データの保持方針
 
 PDF抽出は、ページ画像、座標、ブロック種別、表構造、画像切り出し結果を②抽出データ候補として保持する。PoCで確認したビジュアル編集とLLM補正の能力を再現するため、`extracted_document.structure_json` は次の粒度を表現できることを前提にする。
 

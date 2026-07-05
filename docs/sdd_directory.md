@@ -238,7 +238,7 @@ d2d/                               # リポジトリルート
 │
 ├── workers/                       # 外部ワーカー（サブプロセス）
 │   └── python/                    # Python ワーカー（文書抽出・各種コマンド）
-│       ├── commands/              # コマンドハンドラ（word.py / excel.py / pdf.py 等）
+│       ├── commands/              # コマンドハンドラ（word.py / excel.py / powerpoint.py / pdf.py 等）
 │       ├── main.py                # stdin/stdout JSONL エントリポイント
 │       ├── requirements.txt
 │       └── dist/                  # PyInstaller ビルド出力（d2d-worker.exe 等）
