@@ -55,11 +55,15 @@ project-root/
 | ディレクトリ | 内容 | DB側の参照元 |
 | --- | --- | --- |
 | `blobs/originals/` | 取り込んだ原本ファイル | `source_document.blob_uid` |
-| `blobs/extracted/` | PDFページ画像、Office抽出結果、OCR中間物 | `blob_resource` |
-| `blobs/figures/` | 図、画像、レンダリング結果 | `blob_resource`、`resource_figure` |
+| `blobs/extracted/` | 抽出処理単位の中間物、レビュー補助ファイル、OCR中間物、ページ画像、抽出器の生出力 | `blob_resource` |
+| `blobs/figures/` | 図リソースとして独立参照される画像、図、レンダリング結果 | `blob_resource`、`resource_figure` |
 | `blobs/tables/` | CSV、JSON化した表データ | `resource_table.cells_json` または `blob_resource` |
 | `blobs/llm/` | prompt、completion、評価ログ | `llm_run_ref.prompt_blob_uid`、`llm_run_ref.result_blob_uid` |
 | `blobs/exports/` | DB to Text、dump、検索用派生成果物 | export処理の生成物 |
+
+`blobs/extracted/` は抽出ジョブの作業結果を保持する領域であり、原本ファイル単位・抽出実行単位に紐づく。たとえばPDFページ画像、Wordプレビュー補助HTML、抽出器の生JSON、OCR前後の中間物など、レビューや再処理のためには有用だが図リソースそのものではないファイルを置く。
+
+`blobs/figures/` は、文書中の図、画像、画面図、構成図のように `resource_figure` から独立参照され、③中間データや④設計モデルの根拠として再利用されるファイルを置く。同じ画像ファイルが抽出ジョブの生出力として `blobs/extracted/` に一時的に存在する場合でも、レビュー採用後に図リソースとして扱うものは `blobs/figures/` へ正規配置し、`blob_resource` の参照先をその正規配置にする。
 
 ### 2.3 主要テーブル一覧
 
@@ -195,6 +199,25 @@ resource_text.text_body = 利用者は...
 同一関係の重複防止は、`relation_rule_master`、`relation_type`、文脈属性（例: `context_uid`、`condition`）を含めてアプリ側で検査する。`conflicts_with` は文脈や条件が異なれば同じ2要素間に複数存在できるため、DBでは `from_uid, to_uid, relation_type` の単純UNIQUE制約を置かない。
 
 表示用コードは prefix + 6桁ゼロ埋めとする。欠番は許容し、作成済みコードの再採番は禁止する。同時編集による採番競合は初期設計では扱わず、人と運用でカバーする。
+
+### 2.7 Word抽出データの保持方針
+
+Word抽出は、OpenXML由来の構造を②抽出データ候補として保持する。PoCで確認した高度な抽出能力を再現するため、`extracted_document.structure_json` は次の粒度を表現できることを前提にする。
+
+| 領域 | 必須情報 | 主な対応先 |
+| --- | --- | --- |
+| 文書メタデータ | title、creator、created、modified、last_modified_by、抽出器名、抽出器バージョン | `extracted_document.structure_json.metadata`、`resource_metadata` |
+| 構造要素 | heading、paragraph、list_item、table、figure、formula、shape_text、footnote、comment、revision、reference | `structure_json.elements`、`extracted_item`、対応する `resource_*` |
+| 表 | row/column、header行、セル本文、rowspan、colspan、merged_to、is_merged | `resource_table.cells_json`、`structure_json.elements[]` |
+| 図・画像 | 画像blob参照、画像ハッシュ、キャプション、図番号、本文中の位置 | `resource_figure`、`resource_label`、`blob_resource` |
+| コメント・変更履歴 | author、date、対象範囲、挿入/削除種別、本文、Word上のID | `resource_text`、`resource_metadata`、`entity_registry.review_info_json` |
+| 参照 | ブックマーク、文書内参照、外部URL、未解決参照候補 | `resource_reference` |
+| 位置 | ページ相当番号、段落ID、章節パス、表セル位置、アンカーID、必要に応じたbbox | `source_location` |
+| 表示補助 | アウトライン、プレビュー用アンカー、ページ番号表示フラグ、警告、統計 | `structure_json.review_hints` または派生表示データ |
+
+`structure_json` は原本構造と読み順を保持する正本であり、レビュー用Markdown、HTMLプレビュー、アンカー付き表示、クリーンMarkdown、ZIPダウンロード用ファイルは派生成果物として扱う。LLM入力用のクリーンMarkdownは、ページ番号、プレビュー用アンカー、UI用span等を除去して生成できること。ただし、除去前の原本位置・根拠情報は `source_location` と `structure_json` に保持する。
+
+Word抽出で得たコメントや変更履歴は、D2D上のレビュー状態そのものに自動変換しない。原本文書に含まれていた校閲情報として保持し、抽出結果レビューで参考表示する。D2Dの採用・修正・棄却は `entity_registry.status` と `review_info_json` に別途記録する。
 
 ## 3. テーブル一覧
 
