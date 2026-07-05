@@ -14,6 +14,15 @@
 
 詳細テーブルには `project_id` を持たせない。プロジェクト所属は `entity_registry.project_uid` で一元管理する。詳細テーブルに重複して持たせると、台帳と詳細テーブルの不整合を生むためである。
 
+本データ構造は、設計モデル化の工程における「文書層」「記述資源層」「設計意味層」「設計関係層」を、以下のように `project.db` と `blobs/` に対応させる。
+
+| 設計知識層 | 保存上の主な表現 | 管理方針 |
+| --- | --- | --- |
+| 文書層 | `source_document`、`source_location`、`extracted_document.structure_json`、`blob_resource` | 原本構造、位置、順序、階層、出典を保持し、設計意味は確定しない |
+| 記述資源層 | `extracted_item`、`intermediate_item`、`resource_text`、`resource_list`、`resource_table`、`resource_figure`、`resource_formula`、`resource_code`、`resource_model` 等 | ②抽出データから③中間データを生成する過程で、設計記述要素の抽出と記述型への分類結果を管理し、1つの記述資源が複数の意味候補へ昇格し得ることを許容する |
+| 設計意味層 | `resource_scenario`、`resource_interface`、`resource_state_transition`、`resource_data_structure`、`resource_glossary`、`resource_metadata`、その他 `resource_*` | ③中間データから④設計モデルを生成する過程で、設計意味候補への昇格、同一対象の統合・正規化結果を `entity_registry.status` とレビュー情報で管理する |
+| 設計関係層 | `trace_link`、`llm_run_ref`、`entity_registry.review_info_json` | ③中間データから④設計モデルを生成する過程で付与した根拠、導出、分解、実現、割当、依存、入出力、検証、矛盾等の関係を、ノード統合・正規化とは独立して管理する。検査は双方向トレーサビリティ分析により実現する |
+
 ## 2. 全体DB構成案
 
 ### 2.1 DBファイル構成
@@ -178,6 +187,8 @@ resource_text.text_body = 利用者は...
 ### 2.6 トレーサビリティの関係
 
 `trace_link` は `from_uid` と `to_uid` の両方で `entity_registry.uid` を参照する。ただし、`extracted_item` と `intermediate_item` は文書構成JSON内の個別要素と設計リソースの対応管理であり、トレース端点にはしない。トレース対象は、`item_type` が示す `resource_*` 詳細テーブルの `resource_uid` とする。text、table、figure、model、scenario、interface、state_transition、data_structure、reference、metadata、glossary、LLM実行参照など、台帳に登録された設計リソースや用語を同じ形式でリンクする。用語と文書・設計要素との対応も、別の `trace_subject` は作らず `trace_link` で管理する。
+
+`trace_link` は関係付与の正本であり、同一対象の統合・正規化によるノード整理とは独立してレビュー、再生成できるようにする。文書構成上の章節配下は `structure_json` に保持し、設計上の分解、包含、実現、割当、依存、検証、根拠、矛盾等は `trace_link.relation_type` で表現する。関係の未接続、不整合、根拠不足、循環等の検査は、`trace_link` を用いた双方向トレーサビリティ分析で実現する。
 
 UNIQUE(from_uid, to_uid, relation_type) を定義し、同じ関係の重複登録を防ぐ。
 
@@ -1197,7 +1208,20 @@ CREATE TABLE trace_link (
         'based_on',
         'satisfies',
         'verifies',
+        'decomposes',
+        'contains',
+        'owns',
+        'realizes',
+        'implements',
+        'allocated_to',
         'depends_on',
+        'uses',
+        'calls',
+        'inputs',
+        'outputs',
+        'constrains',
+        'impacts',
+        'conflicts_with',
         'refines',
         'relates_to'
     )),
