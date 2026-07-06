@@ -138,7 +138,7 @@ flowchart TD
 | 抽出データ | `extracted_document`、`extracted_item` |
 | 中間データ | `intermediate_document`、`intermediate_item`、`chunk`、`chunk_item` |
 | 設計リソース（16種） | `resource_label`、`resource_text`、`resource_list`、`resource_figure`、`resource_table`、`resource_formula`、`resource_code`、`resource_model`、`resource_scenario`、`resource_interface`、`resource_state_transition`、`resource_data_structure`、`resource_reference`、`resource_metadata`、`resource_glossary`、`resource_glossary_synonym` |
-| トレース・LLM | `trace_link`、`llm_run_ref` |
+| トレース・LLM | `trace_link`、`llm_run_ref`、`prompt_template` |
 
 ---
 
@@ -166,7 +166,7 @@ flowchart TD
 | --- | --- | --- |
 | `project.d2d` | 対象 | プロジェクト定義 |
 | `project.db` | 対象 | 正本データ（バイナリ diff は `exports/db_to_text/` で補完） |
-| `blobs/originals/` | 対象 | 原本の同一性追跡 |
+| `blobs/originals/` | 対象（既定） | 原本の同一性追跡。ただし機密文書を含むプロジェクトでは、リモート共有時の原本拡散を避けるため、プロジェクトごとの運用判断で `.gitignore` により管理外にできる |
 | `blobs/figures/` | 対象 | 図・画像の変更履歴 |
 | `blobs/tables/` | 対象 | 表データの変更履歴 |
 | `exports/db_to_text/` | 対象 | Git diff による変更差分の可読化（主要差分確認媒体） |
@@ -203,13 +203,14 @@ d2d/                               # リポジトリルート
 │
 ├── backend/                       # Local Backend（別プロセス / Node.js）
 │   ├── index.ts                   # Backendエントリポイント
-│   ├── api/                       # Main/CLI向け操作単位API
+│   ├── api/                       # Main向け操作単位API
 │   ├── db/                        # DBスキーマ定義・マイグレーション
 │   │   └── schema/
+│   ├── schemas/                   # JSON Schema定義（ワーカーI/O・LLM構造化出力・候補セット検証）
 │   ├── store/                     # SQLite アクセス層（better-sqlite3 / entity-registry）
 │   ├── jobs/                      # ジョブ管理（キュー・進捗・再実行）
 │   ├── workers/                   # 外部ワーカー起動・JSONL 通信管理
-│   ├── settings/                  # 設定管理（keytar によるAPIキー保護）
+│   ├── settings/                  # 設定管理（Electron safeStorage によるAPIキー保護）
 │   ├── import/                    # ①原本インポート
 │   ├── extract/                   # ②抽出データ管理
 │   ├── intermediate/              # ③中間データ処理
