@@ -27,6 +27,7 @@ archives/
 coverage/
 playwright-report/
 test-results/
+.pytest_cache/
 
 # OS
 .DS_Store
