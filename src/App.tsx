@@ -22,14 +22,24 @@ export function App(): React.JSX.Element {
     let cancelled = false
 
     async function load(): Promise<void> {
-      const [pingResult, v] = await Promise.all([window.api.invoke<PingResult>('app.ping'), window.api.getVersions()])
-      if (cancelled) return
-      setVersions(v)
-      if (pingResult.ok) {
-        setPing(pingResult.result)
-        setError(null)
-      } else {
-        setError(`${pingResult.error.error_code}: ${pingResult.error.message}`)
+      try {
+        const [pingResult, v] = await Promise.all([
+          window.api.invoke<PingResult>('app.ping'),
+          window.api.getVersions()
+        ])
+        if (cancelled) return
+        setVersions(v)
+        if (pingResult.ok) {
+          setPing(pingResult.result)
+          setError(null)
+        } else {
+          setPing(null)
+          setError(`${pingResult.error.error_code}: ${pingResult.error.message}`)
+        }
+      } catch (e) {
+        if (cancelled) return
+        setPing(null)
+        setError(e instanceof Error ? e.message : String(e))
       }
     }
 
