@@ -1,0 +1,346 @@
+# D2D 実装タスク分割書
+
+## 1. 目的と前提
+
+本書は、`docs/srs.md` および `docs/sdd_*.md` に定義された全機能を、実装順序と依存関係を考慮してタスク分割したものである。
+
+- 対象文書: `srs.md`（要求）、`sdd_function_architecture.md`（機能構成）、`sdd_data_structure.md`（データ構造）、`sdd_directory.md`（ディレクトリ）、`sdd_tech_stack.md`（技術スタック）、`sdd_ui_design.md`（UI/UX）
+- 現状: 実装コードなし（docs のみ）。ゼロからの構築。
+- 方針: ①原本→②抽出→③中間→④設計モデルのデータフロー順を縦軸に、基盤（プラットフォーム・UI Workbench・LLM）を横断軸として先行構築する。
+- 各タスク末尾の `[...]` は対応する SRS ID / SDD 節。§10 の網羅表で全 SRS ID のカバレッジを確認する。
+
+## 2. フェーズ構成と依存関係
+
+```mermaid
+flowchart TD
+    P0[P0 プロジェクト骨格] --> P1[P1 データ基盤]
+    P1 --> P2[P2 プラットフォーム基盤機能]
+    P0 --> P3[P3 UI Workbench基盤]
+    P2 --> P3
+    P2 --> P4[P4 原本取込 ①]
+    P3 --> P4
+    P2 --> P6[P6 LLM基盤]
+    P4 --> P5[P5 文書抽出 ①→②]
+    P6 -.LLM補助.-> P5
+    P5 --> P7[P7 中間データ ②→③]
+    P6 --> P7
+    P7 --> P8[P8 設計モデル ③→④]
+    P6 --> P8
+    P8 --> P9[P9 トレーサビリティ分析]
+    P7 --> P10[P10 編集機能拡充]
+    P8 --> P10
+    P1 --> P12[P12 DB to Text / ZIP / Git / 差分]
+    P2 --> P12
+    P7 --> P11[P11 検索]
+    P8 --> P13[P13 レポート出力]
+    P9 --> P13
+    P10 --> P14[P14 非機能仕上げ・配布]
+    P12 --> P14
+    P13 --> P14
+```
+
+- **クリティカルパス**: P0 → P1 → P2 → P3 → P4 → P5(Word) → P7 → P8 → P9
+- **並行開発可能**: P6（LLM基盤）は P2 完了後、P5〜P8 と並行可。P12（ZIP/Git/DB to Text）は P1・P2 完了後いつでも可。P5 の形式別抽出（Excel/PPT/PDF/Visio）は Word 完了後に並行可。
+
+---
+
+## 3. P0: プロジェクト骨格
+
+| ID | タスク | 内容 | 依存 | 対応 |
+| --- | --- | --- | --- | --- |
+| P0-1 | Electron + electron-vite + React + TS 雛形 | `electron/main`・`electron/preload`・`src/`・`backend/` の 4 領域構成、electron-vite ビルド設定 | なし | [APP-001, APP-002, sdd_directory §8] |
+| P0-2 | Electron セキュリティ設定 | `contextIsolation: true`、`nodeIntegration: false`、`sandbox: true`、preload contextBridge（`window.api.*`）、CSP、外部リンク制限 | P0-1 | [sdd_function_architecture §2.2] |
+| P0-3 | Local Backend 別プロセス起動基盤 | Backend エントリポイント、Main からの起動・停止・接続監視、Renderer→Main IPC→Backend の中継経路、基盤APIエラー契約（error_code / retryable） | P0-1 | [sdd_function_architecture §2, §2.3] |
+| P0-4 | テスト・開発基盤 | Vitest（unit/統合）、Playwright（E2E）、pytest（ワーカー）、lint/format、CI 骨格 | P0-1 | [NFR-030, sdd_tech_stack §7] |
+| P0-5 | 依存ライブラリ・ライセンス管理の仕組み | 依存一覧・ライセンス一覧の自動出力、GPL/AGPL 混入チェック | P0-1 | [NFR-040〜043] |
+
+## 4. P1: データ基盤
+
+| ID | タスク | 内容 | 依存 | 対応 |
+| --- | --- | --- | --- | --- |
+| P1-1 | SQLite スキーマ定義・マイグレーション | 全テーブル DDL（project、project_artifact_setting/relation、project_dev_phase_setting、entity_registry、batch_operation_info、blob_resource、source_document、source_location、extracted_document/item、intermediate_document/item、chunk、chunk_item、resource_* 16種、trace_link、relation_rule_master、llm_run_ref、prompt_template）、schema_version 管理、マイグレーション機構 | P0-3 | [sdd_data_structure §3〜4, DATA-010, NFR-031] |
+| P1-2 | ストアアクセス層 | better-sqlite3 ラッパー、トランザクション境界、entity_registry 共通台帳アクセス、UUIDv7 `uid` 採番、表示用 `code` 採番（prefix+6桁、再採番禁止）、500ms 超処理の worker_threads 分離方針 | P1-1 | [EXT-013, sdd_data_structure §2.5, sdd_function_architecture §2.4] |
+| P1-3 | プロジェクトルート・ファイルレイアウト管理 | `project.d2d` 生成/読込（相対パスのみ）、`blobs/`（originals/extracted/figures/tables/llm/exports）、`exports/`、`logs/`、`archives/` の生成、`.gitignore`/`.gitattributes` 生成 | P1-1 | [DATA-005, DATA-006, sdd_directory §2, §4, §7, §9] |
+| P1-4 | blob_resource 管理 | DB外ファイルの参照・ハッシュ・MIME・サイズ管理、blob 分類配置ルール（extracted→figures 正規配置昇格） | P1-2, P1-3 | [sdd_data_structure §2.2] |
+| P1-5 | JSON Schema 検証基盤 | ajv 導入、`backend/schemas/` 構成（ワーカーI/O・LLM構造化出力・候補セット） | P0-3 | [NFR-033] |
+| P1-6 | relation_rule_master 初期データ | 11 relation_type × 許容 Source/Target 分類 × 必須属性のマスタ投入 | P1-1 | [srs §9.2〜9.4] |
+
+## 5. P2: プラットフォーム基盤機能（Local Backend）
+
+| ID | タスク | 内容 | 依存 | 対応 |
+| --- | --- | --- | --- | --- |
+| P2-1 | プロジェクト管理 | プロジェクト作成・オープン・切替、成果物定義・文書体系（親子関係）・開発フェーズのプロジェクト設定 CRUD | P1-2, P1-3 | [CORE-010〜012, CORE-042, CORE-043] |
+| P2-2 | 設定管理 | アプリ全体/プロジェクト別設定、APIキー・モデル・パス・プロキシ・テーマ・ショートカット、safeStorage による機密暗号化保存、機密除外のエクスポート/インポート | P1-3 | [CORE-040〜046, NFR-020] |
+| P2-3 | ジョブ管理 | ジョブキュー、状態（待機/実行/成功/失敗/部分完了/中断）、進捗通知、ジョブログ保存（`logs/jobs/`）、条件付き再実行、UI分離実行 | P1-2 | [CORE-020〜024, NFR-003, NFR-011] |
+| P2-4 | イベントバス | イベント発行・購読（project.opened、source.imported、extraction.completed、artifact.updated、intermediate.updated、design_model.updated、relation.updated、llm.candidate.generated、archive.created/imported、report.generated）、Renderer への通知 | P0-3 | [CORE-030〜032, sdd_function_architecture §9] |
+| P2-5 | 機能管理 | 機能単位の登録、機能種別・入出力・設定・権限・対応 schema_version の管理 | P1-2 | [CORE-001, sdd_function_architecture §3] |
+| P2-6 | 外部ワーカー基盤 | Python サブプロセス起動、stdin/stdout JSONL プロトコル（progress/result/error）、`api_key_ref` 解決、UTF-8 強制（PYTHONIOENCODING/PYTHONUTF8）、`D2D_PYTHON` 環境変数、エラー契約変換 | P2-3, P1-5 | [sdd_function_architecture §11.1〜11.2, NFR-032, sdd_tech_stack §5.2〜5.3] |
+| P2-7 | 操作単位 API 設計・実装規約 | `importDocument`/`searchElements`/`getTraceSubgraph` 等の操作単位 API 形式の確立、細粒度反復呼び出し禁止、Viewport/ページング分割応答 | P0-3 | [sdd_function_architecture §2, §2.4] |
+
+## 6. P3: UI Workbench 基盤（Renderer）
+
+| ID | タスク | 内容 | 依存 | 対応 |
+| --- | --- | --- | --- | --- |
+| P3-1 | Workbench Shell | Activity Bar、Primary/Secondary Side Bar、Panel、Status Bar、Editor Group/タブ、ペイン分割・最大化、レイアウト保存・復元 | P0-2 | [UI-005, UI-006, UI-021, UI-022, UI-025, sdd_ui_design §3, §9〜12] |
+| P3-2 | Resource / Command / Selection / Context モデル | Resource URI で開く UX、Command 定義とメニュー/ツールバー/コンテキストメニュー/ショートカット/コマンドパレットからの一貫実行、Selection・Context・Event による有効/無効制御 | P3-1 | [UI-003, UI-004, UI-023, UI-024, sdd_ui_design §4] |
+| P3-3 | テーマ・デザイントークン | ダーク/ライト切替、Serendie 5 カラーテーマ（konjo/asagi/sumire/tsutsuji/kurikawa）、@serendie/ui・design-token・symbols 導入、IDE 風コンパクトデザイン | P3-1 | [UI-001, UI-002, UI-008, UI-027, UI-028] |
+| P3-4 | グリッド・仮想スクロール基盤 | TanStack Table + Virtual による大量データ一覧、遅延ロード | P3-1 | [UI-007, NFR-001] |
+| P3-5 | ジョブ状態 UI | ステータスバー進捗、Job Log Viewer（Panel）、通知、警告表示、ジョブ完了→レビューへの導線 | P3-1, P2-3 | [UI-009, sdd_ui_design §6.4] |
+| P3-6 | エディタ基盤 | Monaco Editor 統合（Markdown/PlantUML/JSON/SQL/ログ）、marked + DOMPurify による Markdown プレビュー | P3-1 | [sdd_tech_stack §3] |
+| P3-7 | Pipeline Navigator・Perspective | ①〜④ステージナビゲーション、作業モード（M1〜M5）切替、遷移設計 | P3-2 | [sdd_ui_design §3.1, §5, §6] |
+| P3-8 | レビュー UX 共通コンポーネント | 対照レビューエディタ、レビューキュー(Inbox)、レビュー状態モデル（未確認/確認済/要修正/棄却）、キーボードトリアージ、一括操作 | P3-2, P3-4 | [EXT-022, sdd_ui_design §7] |
+| P3-9 | 補助表示（Secondary Side Bar） | 選択対象のプロパティ・根拠・関係・LLM候補・レビュー状態の補助表示 | P3-2 | [UI-026] |
+
+## 7. P4: 原本取込（①原本データ）
+
+| ID | タスク | 内容 | 依存 | 対応 |
+| --- | --- | --- | --- | --- |
+| P4-1 | 原本インポート | 対象形式（docx/xlsx/pptx/vsdx/PDF/txt/md/csv/tsv/json/jsonl/yaml）のファイル選択（Main OS統合）→ SHA-256 ハッシュ計算・同一性管理 → `blobs/originals/<uid>/` へ無改変コピー → source_document / blob_resource / batch_operation_info 登録 | P2-1, P2-3, P1-4 | [IMP-001〜006, IMP-008, IMP-009, srs §3.1] |
+| P4-2 | 原本ビュー | 取込済み原本の一覧・プレビュー表示（Source Explorer / 原本 Resource） | P3-2, P4-1 | [UI-010] |
+
+## 8. P5: 文書抽出（①→②抽出データ）
+
+Word を先行実装して抽出パイプライン全体（ワーカー→候補→レビュー→正本保存）を確立し、他形式へ横展開する。
+
+| ID | タスク | 内容 | 依存 | 対応 |
+| --- | --- | --- | --- | --- |
+| P5-1 | Python ワーカー骨格 | `workers/python/main.py`（JSONL エントリポイント）、commands フレームワーク、pytest + 検証用文書生成スクリプト | P2-6 | [sdd_function_architecture §11, sdd_directory §8] |
+| P5-2 | 共通抽出データモデル | `extracted_document.structure_json` の共通スキーマ、extracted_item ↔ resource_* ↔ source_location の登録処理、抽出器バージョン・原本ハッシュ保持 | P1-2, P5-1 | [DATA-001, DATA-008, EXT-008] |
+| P5-3 | 抽出要素 ID・履歴管理 | 抽出要素への重複しない ID 付与、編集・マージ・分割時の新 ID 割当、由来 trace_link（based_on + transform_note=merge/split/delete）による元 ID 追跡 | P5-2, P1-6 | [EXT-013〜015, sdd_data_structure §2.6] |
+| P5-4 | Word 抽出ワーカー | `extract.word`: 見出し階層・段落スタイル・箇条書き階層・表（結合セル）・図/画像・図表番号・キャプション・数式・脚注・コメント・変更履歴・ブックマーク・文書内参照・外部リンク・テキストボックス・ページ相当位置。OpenXML 直接解析 + python-docx 補助 | P5-1, P5-2 | [IMP-001, EXT-001〜008, EXT-016〜018, sdd_function_architecture §11.3, sdd_data_structure §2.7] |
+| P5-5 | Word 派生表示生成 | 原本忠実構造データ、レビュー用 Markdown（ページ番号・アンカー付き）、LLM 入力用クリーン Markdown の切替再生成 | P5-4 | [EXT-018, EXT-019] |
+| P5-6 | 抽出レビュー Editor（共通+Word） | 一覧表示・人間修正・レビュー状態付与・原本/抽出並列表示・アウトライン/プレビュー/Markdown/構造データ/コメント・変更履歴の相互ジャンプ・同期表示・短時間ハイライト、採用確定→②正本保存（project.db + blobs）+ trace_link 登録 + extraction.completed 発行 | P3-8, P5-4, P5-5 | [EXT-020〜026, UI-029, UI-030, sdd_function_architecture §8.2] |
+| P5-7 | Excel 抽出 | `extract.excel`: セル・結合セル・行列構造・シート名位置（openpyxl） | P5-1, P5-2 | [IMP-002, EXT-009] |
+| P5-8 | PowerPoint 抽出ワーカー | `extract.pptx`: スライド順・寸法・タイトル・テキスト・図形・コネクタ・画像・表・スピーカーノート、絶対座標（EMU）・回転/反転/テーマカラー等の表示属性、overview PNG | P5-1, P5-2 | [IMP-003, EXT-010, EXT-034〜036, sdd_data_structure §2.8] |
+| P5-9 | PowerPoint 抽出レビュー Editor | スライド一覧・プレビュー・透明選択レイヤー（クリック/複数選択）・要素除外・役割補正・グループ化・ノート編集・スライド単位レビュー状態、Markdown/構造データへの即時反映候補、空間読み順 Markdown | P3-8, P5-8 | [EXT-037〜039, UI-033, UI-034] |
+| P5-10 | PDF 抽出ワーカー | `extract.pdf`: ページ画像・ページ寸法・テキスト・表（bbox・二次元配列・ヘッダー候補）・図/画像・数式・タイトル/キャプション・座標範囲（pdfplumber。pymupdf は TBD-01） | P5-1, P5-2 | [IMP-005, EXT-012, EXT-027, sdd_data_structure §2.9] |
+| P5-11 | PDF 抽出レビュー Editor | ページ画像上の領域枠の移動・リサイズ・追加・削除・種別変更（ズーム対応）、表エディタ、座標順 Markdown、ページ/文書全体プレビュー切替、警告・同期表示 | P3-8, P5-10 | [EXT-028, EXT-029, EXT-031〜033, UI-031, UI-032] |
+| P5-12 | PDF LLM OCR・補正 | 選択領域単位の Vision モデルによる OCR・表 OCR・テキスト補正・数式 LaTeX 化候補生成 → 人間レビュー後反映（専用 OCR エンジン不使用） | P5-11, P6-1〜P6-5 | [EXT-030] |
+| P5-13 | Visio 抽出 | `extract.visio`: 図形・接続・ラベル情報（zipfile + XML 直接解析） | P5-1, P5-2 | [IMP-004, EXT-011] |
+| P5-14 | テキスト系取込・抽出 | txt / Markdown / CSV / TSV / JSON / JSONL / YAML の構造抽出 | P5-1, P5-2 | [IMP-006] |
+| P5-15 | 抽出データビュー | ②抽出データの一覧・閲覧ビュー | P3-4, P5-2 | [UI-011] |
+| P5-16 | 抽出時 LLM 補助（任意経路） | 見出し判定・読み順・抽出補助の LLM 候補生成経路 | P5-6, P6 | [sdd_function_architecture §8.2 opt] |
+
+## 9. P6: LLM 基盤（共通機能。P2 完了後、P5 と並行可）
+
+| ID | タスク | 内容 | 依存 | 対応 |
+| --- | --- | --- | --- | --- |
+| P6-1 | LLM Provider クライアント | OpenAI / Gemini / Ollama / Azure OpenAI の fetch ベース実装（SDK 不使用）、Provider ごとの APIキー・endpoint・model 設定 | P2-2 | [LLM-001〜005, sdd_tech_stack §6] |
+| P6-2 | LLM 実行ログ管理 | llm_run_ref 登録、送信/応答内容の `blobs/llm/` 保存、モデル・プロンプト・入力チャンク・出力候補の紐づけ、token 使用量・概算コスト・処理時間・エラー記録、APIキー除外 | P6-1, P1-2 | [LLM-010〜016, NFR-021] |
+| P6-3 | プロンプトテンプレート管理 | prompt_template CRUD、バージョン管理、用途分類（抽出/要約/分類/関係候補生成/レビュー支援）、プロンプト↔出力の対応追跡 | P1-2 | [LLM-020〜023, NFR-031] |
+| P6-4 | 安全性・機密制御 | 外部送信前の内容確認 UI、機密情報マスキング、プロジェクト単位の外部送信可否、ローカル LLM 優先モード、再実行時の同一条件確認 | P6-1, P2-2 | [LLM-040〜044, NFR-022〜024] |
+| P6-5 | 構造化 JSON 出力検証 | 正規化テキスト・要素候補・関係候補・警告・生成条件を含む構造化 JSON の取得・ajv 検証、パース失敗/スキーマ不一致/未解決参照/許容外関係のエラー化と正本反映ブロック | P6-1, P1-5 | [LLM-045, LLM-046] |
+| P6-6 | LLM ジョブ統合 | LLM 実行のジョブ化、進捗、キャンセル、llm.candidate.generated イベント | P6-1, P2-3, P2-4 | [CORE-020] |
+| P6-7 | LLM ログビュー | 送受信ログの画面表示（Workbench 内） | P3-2, P6-2 | [UI-018, LLM-015] |
+
+## 10. P7: 中間データ処理（②→③）
+
+| ID | タスク | 内容 | 依存 | 対応 |
+| --- | --- | --- | --- | --- |
+| P7-1 | 中間文書生成・統合 | 複数②抽出文書の成果物単位統合（structure_json.sources、統合順序）、成果物種別・開発フェーズ紐づけ、章構成・親子関係・参照関係・段落関係の保持、based_on trace_link 自動同期、フェーズ間成果物トレース | P5-6, P2-1 | [MID-001〜003, DATA-002, DATA-009, DATA-018, sdd_data_structure §2.11] |
+| P7-2 | 中間データ ID・編集・マージ/分割 | 各情報単位への ID 付与、人間による編集・マージ・分割と新 ID 割当・由来追跡、抽出誤り修正の反映 | P7-1, P5-3 | [MID-004, MID-005, EXT-024] |
+| P7-3 | 設計観点別管理 | 図（番号・データ・キャプション・説明文）、表（番号・行列セル・構造説明）、本文・注記・前提の章節/図表紐づけ、モデル・シナリオ・状態遷移・検証・IF の各観点保持 | P7-1 | [MID-002, MID-010〜012, MID-020〜024] |
+| P7-4 | 図表説明 LLM 候補 | 図表説明・構造説明の LLM 候補生成→採用/修正/棄却→③正本確定反映 | P7-3, P6 | [MID-013, MID-014] |
+| P7-5 | チャンク管理 | chunk / chunk_item CRUD、ユーザ任意のチャンク範囲作成・修正・削除、③中間データ ID 範囲・本文・図表参照・プロンプトテンプレート参照の紐づけ、親子関係なし・一時単位の徹底 | P7-1 | [MID-030〜034] |
+| P7-6 | 正規化テキスト候補 | ③本文の曖昧性排除・表記揺れ統一・主語補完・用語正規化候補の生成、元範囲との対応・差分・根拠・採用状態の確認 | P7-5, P6-5 | [MID-026, MID-027] |
+| P7-7 | 中間データビュー・統合編集 | ③中間データビュー、JSON/DB からの文書風ビュー構築、設計要素別表示/非表示、統合編集、文書構成変更・章節並べ替え・マージ/分割、要約作成（LLM）、設計モデルへの反映導線 | P3-6, P7-2 | [UI-012, EDIT-002〜006, EDIT-008, LLM-035] |
+
+## 11. P8: 設計モデル（③→④）
+
+| ID | タスク | 内容 | 依存 | 対応 |
+| --- | --- | --- | --- | --- |
+| P8-1 | 設計要素管理 | 13 分類（SRC/STD/REQ/CST/FUNC/STRUCT/BEH/STATE/IF/DATA/VERIF/MGMT/IMPL）の登録・編集・削除、uid/code/分類/タイトル/状態/レビュー情報、design_category、owner_uid と allocated_to の区別 | P1-2, P1-6 | [MODEL-001〜005, srs §9.1] |
+| P8-2 | trace_link 関係管理 | 11 relation_type 限定の関係 CRUD、関係属性（confidence/created_by/review_status/rationale/basis_kind/evidence_span/usage_kind/direction 等）、relation_rule_master による許容関係・重複検査（conflicts_with の文脈属性込み） | P8-1, P1-6 | [srs §9.2〜9.4, DATA-011, DATA-017] |
+| P8-3 | 設計モデル候補生成 | チャンク→LLM による要求/制約/機能/構造/関係候補の生成（要素候補と関係候補の分離、根拠範囲・信頼度・生成プロンプト・レビュー状態の紐づけ）、`generateDesignCandidates` API | P7-5, P6-5, P6-6 | [MID-025, MID-028, LLM-030〜034, LLM-037, sdd_function_architecture §10.1〜10.2] |
+| P8-4 | 候補セットレビュー Editor | `candidate://` Resource、保存前の表形式追加・修正・削除・種別変更、一時 ID による要素名変更時の関係 From/To 追従、正規化テキスト・要素候補・関係候補・警告・LLM ログ・検証エラーの同期表示 | P3-8, P8-3 | [MODEL-007, MODEL-008, UI-035, UI-036, LLM-038] |
+| P8-5 | 候補採用トランザクション | 候補セット採用時の同一トランザクション検査（許容関係・重複・未解決参照・根拠リンク不足）、一時 ID→UUIDv7 変換、entity_registry + resource_* + trace_link への正本反映、採用/修正/棄却履歴の保存 | P8-4, P8-2 | [MODEL-006, MODEL-009, LLM-039, sdd_data_structure §2.10] |
+| P8-6 | 設計モデルビュー | ④設計要素・関係の一覧・詳細ビュー | P3-4, P8-1 | [UI-013] |
+
+## 12. P9: トレーサビリティ・分析
+
+| ID | タスク | 内容 | 依存 | 対応 |
+| --- | --- | --- | --- | --- |
+| P9-1 | 関係クエリエンジン | SQLite 再帰 CTE による双方向トレース探索（上流/下流・関係種別・深さ・方向指定）、深さ・件数上限と段階展開、`getTraceSubgraph` API、索引設計 | P8-2 | [TRACE-001〜003, TRACE-022, NFR-004, NFR-005] |
+| P9-2 | 関係クエリ UI・結果出力 | UI からのクエリ実行、結果の表・階層リスト・グラフ表示、JSON/CSV/Markdown 出力 | P9-1, P3-2 | [TRACE-021, TRACE-023, TRACE-024] |
+| P9-3 | 関係グラフビュー | SVG + React 自前実装（力学レイアウト・階層表示）、起点要素からの指定ホップ数強調・減衰表示、フィルタ・レイアウト切替 | P9-1 | [UI-016, TRACE-025] |
+| P9-4 | トレースマトリクスビュー | 行×列マトリクス表示 | P9-1, P3-4 | [UI-014] |
+| P9-5 | 階層化リスト間リンク表示ビュー | 階層リスト同士のリンク表示 | P9-1 | [UI-015] |
+| P9-6 | 整合性検査（双方向トレーサビリティ分析） | 未接続・不整合・根拠不足・粒度不一致・循環・過剰な relates_to 利用の検出、修正候補/レポート提示、検証未対応要求・検証カバレッジ | P9-1 | [srs §2.3 検査, EDIT-043, EDIT-044, NFR-010] |
+
+## 13. P10: 編集機能拡充
+
+| ID | タスク | 内容 | 依存 | 対応 |
+| --- | --- | --- | --- | --- |
+| P10-1 | Markdown エディタ拡張 | 独自 Markdown エディタ（Monaco ベース）、用語ハイライト、差分表示、フォント装飾、表示モード切替、設計要素リンク埋め込み | P3-6 | [EDIT-010〜015] |
+| P10-2 | 表グリッド編集 | 構造化表編集（Excel 完全互換にしない）、行/列/セル ID 付与、表全体・セル単位の設計根拠利用 | P3-4, P7-3 | [EDIT-022〜025] |
+| P10-3 | 図編集・モデル表現 | 図情報表示・編集、構造図・状態遷移図・関係グラフ、PlantUML / SysMLv2 テキストのレンダリング（Java 実行、ライセンスは TBD-02）、モデル表記と要素 ID 対応表のセット管理 | P3-6, P8-1 | [EDIT-020, EDIT-021, FORM-001, FORM-002] |
+| P10-4 | 状態遷移編集 | 状態一覧・遷移一覧・遷移条件/イベント/アクション編集、状態遷移図表示、簡易シミュレーション、未到達状態・未定義遷移・競合遷移検出 | P8-1, P10-3 | [EDIT-030〜035] |
+| P10-5 | 検証編集 | 検証項目編集、検証対象（要求/制約/機能）紐づけ、検証条件・手順・期待結果管理 | P8-1, P8-2 | [EDIT-040〜042] |
+| P10-6 | 用語集 | 用語・略語・定義・同義語・禁止語管理（resource_glossary/synonym）、文書中用語候補抽出（LLM 含む）、揺れ検出、文書・設計要素とのリンク、②③④各時点での選択テキストからの登録、承認済み用語のエディタハイライト・定義参照 | P8-1, P6, P10-1 | [EDIT-050〜056, LLM-036] |
+| P10-7 | Undo/Redo・破壊的変更確認 | 編集操作の Undo/Redo、破壊的変更前の確認ダイアログ | P3-2 | [NFR-012, NFR-013] |
+
+## 14. P11: 検索
+
+| ID | タスク | 内容 | 依存 | 対応 |
+| --- | --- | --- | --- | --- |
+| P11-1 | MeCab 前処理・FTS5 索引 | MeCab 分かち書き（Windows 優先、同梱またはパス設定。辞書ライセンスは TBD-03）、FTS5 検索本文登録・索引更新 | P1-2, P7-1 | [SEARCH-001, NFR-004] |
+| P11-2 | 検索 UI | タイトル・本文・用語・レビュー記録の日本語全文検索、code/uid 検索、結果からの Resource ジャンプ | P11-1, P3-2 | [SEARCH-001〜003] |
+
+## 15. P12: DB to Text / ZIP / Git / 差分（P1・P2 完了後いつでも並行可）
+
+| ID | タスク | 内容 | 依存 | 対応 |
+| --- | --- | --- | --- | --- |
+| P12-1 | DB to Text | ②③④の DB 内容を安定順序でテキスト化（`exports/db_to_text/*.jsonl`）、要素一覧・関係一覧・トレースマトリクスの Markdown/CSV/TSV/JSONL 出力、成果物単位フィルタ、保存/差分確認からの Hook 呼び出し、正本非置換 | P1-2 | [DATA-020〜024, DATA-001, DATA-002, GIT-001] |
+| P12-2 | SQLite dump 出力 | schema.sql / data.sql 出力（調査・履歴参照用） | P1-2 | [sdd_directory §2] |
+| P12-3 | ZIP アーカイブ生成 | 成果物セットの ZIP 化（adm-zip）、manifest 生成（schema_version・作成日時・原本ハッシュ・抽出器バージョン・成果物一覧・ファイル役割識別）、`archives/` 配置、archive.created イベント | P1-3, P2-3 | [DATA-003, DATA-004, DATA-030, DATA-033] |
+| P12-4 | ZIP 差分インポート | ZIP の一時領域展開・manifest 検査・正本非上書き、現在正本/DB to Text との差分比較 | P12-3, P12-1 | [DATA-007, DATA-031, DATA-032, NFR-014] |
+| P12-5 | Git 履歴参照 | simple-git による履歴・diff の読み取り専用参照（コミットはツール外）、Git 履歴からの DB to Text 比較 | P1-3 | [GIT-001, GIT-002, GIT-007] |
+| P12-6 | Diff ビュー | テキスト/JSONL 差分表示（Monaco diff）、過去版の設計要素・関係・トレースマトリクス比較、Git 履歴参照ビュー | P3-6, P12-1, P12-5 | [UI-017, UI-019, GIT-005, GIT-006, EDIT-012] |
+| P12-7 | ストア閲覧ビュー | SQLite DB・JSON/JSONL のストア閲覧 | P3-4 | [UI-020] |
+
+## 16. P13: レポート・出力
+
+| ID | タスク | 内容 | 依存 | 対応 |
+| --- | --- | --- | --- | --- |
+| P13-1 | レポート生成エンジン | ②③④からの文書風レポート・一覧・関係情報の構築（②原本由来情報、③本文・章構成・図表・参照、④要素・関係）、成果物 ID/章/節/設計観点/情報種別/レビュー状態/設計要素によるフィルタ、範囲・表示/非表示・形式選択 | P7-1, P8-1, P9-1 | [EXP-001〜004] |
+| P13-2 | Markdown / HTML 出力 | 出力形式実装、report.generated イベント、LLM 要約候補の組み込み（任意） | P13-1 | [EXP-005, EXP-006] |
+
+## 17. P14: 非機能仕上げ・配布
+
+| ID | タスク | 内容 | 依存 | 対応 |
+| --- | --- | --- | --- | --- |
+| P14-1 | 性能チューニング | NFR-005 目標値の実測・改善（一覧初期描画 1 秒、深さ 5 探索 3 秒、取込〜候補表示 100 ページ/分、10 万要素・30 万リンク）、Index 見直し | 全体 | [NFR-001, NFR-003〜005] |
+| P14-2 | オフライン・ローカル動作確認 | オフラインでの①〜④閲覧・編集、外部 LLM 利用可否制御、閉域動作 | P6-4 | [APP-004〜006] |
+| P14-3 | ログ・障害解析 | ジョブ失敗時の途中状態・エラー確認、障害解析可能なログ整備 | P2-3 | [NFR-011, NFR-034] |
+| P14-4 | TBD 解決・ライセンス確定 | TBD-01（pymupdf）、TBD-02（PlantUML 配布形態）、TBD-03（MeCab 辞書）の審査確定、フォント・テンプレート再配布条件確認、依存・ライセンス一覧出力 | P0-5 | [NFR-040〜044, docs/tbd_register.md] |
+| P14-5 | パッケージング・配布 | electron-builder（Windows インストーラ、@electron/rebuild）、PyInstaller（d2d-worker.exe、extraResources 配置）、macOS/Linux を妨げない構成確認 | 全体 | [APP-001, APP-002, sdd_tech_stack §5.4] |
+
+---
+
+## 18. マイルストーン案
+
+UI 設計書の作業モード M1〜M5 に対応させた区切り。
+
+| マイルストーン | 含むフェーズ | 動くもの |
+| --- | --- | --- |
+| **MS1: 骨格・基盤** | P0〜P3 | アプリ起動、プロジェクト作成/オープン、Workbench シェル、ジョブ・イベント・設定基盤 |
+| **MS2: 取込・抽出（M1）** | P4、P5（Word 先行→他形式）、P6 | 原本取込→Word 抽出→レビュー→②正本保存。LLM 基盤並行構築 |
+| **MS3: 統合（M2）** | P7 | ②→③統合、中間データ編集、チャンク、正規化テキスト候補 |
+| **MS4: モデル化（M3）** | P8 | LLM 候補生成→候補セットレビュー→④正本反映 |
+| **MS5: トレース・分析（M4）** | P9 | 関係クエリ、グラフ/マトリクス、整合性検査 |
+| **MS6: 履歴・差分・出力（M5）** | P10〜P13 | 編集機能拡充、検索、DB to Text / ZIP / Git 差分、レポート |
+| **MS7: リリース準備** | P14 | 性能・非機能・ライセンス・配布 |
+
+P12（DB to Text / ZIP / Git）は正本スキーマ（P1）が安定した時点から前倒し可能であり、MS2〜MS4 の開発中の差分確認手段としても有用なため、早期着手を推奨する。
+
+---
+
+## 19. SRS 要求 ID カバレッジ表
+
+| SRS ID 範囲 | 担当タスク |
+| --- | --- |
+| APP-001〜002 | P0-1, P14-5 |
+| APP-003 | P1-1〜P1-4, P12-3 |
+| APP-004〜006 | P14-2, P6-4 |
+| CORE-001 | P2-5 |
+| CORE-010〜012 | P2-1 |
+| CORE-020〜024 | P2-3 |
+| CORE-030〜032 | P2-4 |
+| CORE-040〜046 | P2-2 |
+| DATA-001, 001A, 002 | P5-2, P12-1, P12-3 |
+| DATA-003〜004 | P12-3 |
+| DATA-005〜006 | P1-3 |
+| DATA-007 | P12-4 |
+| DATA-008 | P5-2 |
+| DATA-009, 018 | P7-1 |
+| DATA-010〜011, 017 | P1-1, P8-2 |
+| DATA-020〜024 | P12-1 |
+| DATA-030〜033 | P12-3, P12-4 |
+| IMP-001〜006, 008〜009 | P4-1（形式別抽出は P5-4/7/8/10/13/14） |
+| EXT-001〜008 | P5-4（Word 起点、各形式ワーカーで共通適用） |
+| EXT-009 | P5-7 |
+| EXT-010 | P5-8 |
+| EXT-011 | P5-13 |
+| EXT-012 | P5-10 |
+| EXT-013〜015 | P5-3 |
+| EXT-016〜019 | P5-4, P5-5 |
+| EXT-020〜026 | P5-6 |
+| EXT-027〜029, 031 | P5-10, P5-11 |
+| EXT-030 | P5-12 |
+| EXT-032〜033 | P5-11 |
+| EXT-034〜037 | P5-8, P5-9 |
+| EXT-038〜039 | P5-9 |
+| MID-001〜005 | P7-1, P7-2 |
+| MID-010〜014 | P7-3, P7-4 |
+| MID-020〜024 | P7-3 |
+| MID-025, 028 | P8-3 |
+| MID-026〜027 | P7-6 |
+| MID-030〜034 | P7-5 |
+| MODEL-001〜005 | P8-1 |
+| MODEL-006〜009 | P8-4, P8-5 |
+| TRACE-001〜003, 021〜022 | P9-1, P9-2 |
+| TRACE-023〜024 | P9-2 |
+| TRACE-025 | P9-3 |
+| EDIT-002〜006, 008 | P7-7 |
+| EDIT-010〜015 | P10-1（差分表示は P12-6 と連携） |
+| EDIT-020〜025 | P10-2, P10-3 |
+| EDIT-030〜035 | P10-4 |
+| EDIT-040〜042 | P10-5 |
+| EDIT-043〜044 | P9-6 |
+| EDIT-050〜056 | P10-6 |
+| LLM-001〜005 | P6-1 |
+| LLM-010〜016 | P6-2 |
+| LLM-020〜023 | P6-3 |
+| LLM-030〜034, 037 | P8-3 |
+| LLM-035 | P7-7 |
+| LLM-036 | P10-6 |
+| LLM-038〜039 | P8-4, P8-5 |
+| LLM-040〜044 | P6-4 |
+| LLM-045〜046 | P6-5 |
+| UI-001〜008 | P3-1〜P3-4 |
+| UI-009 | P3-5 |
+| UI-010 | P4-2 |
+| UI-011 | P5-15 |
+| UI-012 | P7-7 |
+| UI-013 | P8-6 |
+| UI-014〜016 | P9-3〜P9-5 |
+| UI-017, 019 | P12-6 |
+| UI-018 | P6-7 |
+| UI-020 | P12-7 |
+| UI-021〜026 | P3-1, P3-2, P3-9 |
+| UI-027〜028 | P3-3 |
+| UI-029〜030 | P5-6 |
+| UI-031〜032 | P5-11, P5-12 |
+| UI-033〜034 | P5-9 |
+| UI-035〜036 | P8-4 |
+| SEARCH-001〜003 | P11-1, P11-2 |
+| EXP-001〜006 | P13-1, P13-2 |
+| GIT-001〜002, 005〜007 | P12-1, P12-5, P12-6 |
+| FORM-001〜002 | P10-3 |
+| NFR-001, 003〜005 | P3-4, P2-3, P9-1, P14-1 |
+| NFR-010 | P5-3, P7-2, P8-5, P9-6 |
+| NFR-011 | P2-3, P14-3 |
+| NFR-012〜013 | P10-7 |
+| NFR-014 | P12-4 |
+| NFR-020〜024 | P2-2, P6-2, P6-4 |
+| NFR-030 | P0-4 |
+| NFR-031 | P1-1, P6-3 |
+| NFR-032 | P2-6 |
+| NFR-033 | P1-5 |
+| NFR-034 | P14-3 |
+| NFR-040〜044 | P0-5, P14-4 |
+
+欠番 ID（IMP-007、EXT なし、TRACE-020、EDIT-001/007、CLI-001〜008、NFR-002）は対象外。
+
+---
+
+## 20. リスク・先行判断事項
+
+| 項目 | 内容 | 影響タスク |
+| --- | --- | --- |
+| TBD-01 pymupdf（AGPL） | PDF ページ画像レンダリングの実装方式。pdfplumber で不足する場合の商用ライセンス購入 or pdfminer.six 代替判断 | P5-10, P5-11 |
+| TBD-02 PlantUML（GPL） | 配布形態（MIT 限定ビルド / 外部実行）と Java・Graphviz 依存の確定。P10-3 着手前に要決定 | P10-3 |
+| TBD-03 MeCab 辞書 | 採用辞書と再配布条件の確定。P11 着手前に要決定 | P11-1 |
+| better-sqlite3 同期 API | 長時間クエリの UI ブロック。P1-2 時点で worker_threads 分離の設計を確立しておく | P1-2, P9-1 |
+| 関係グラフ SVG 自前実装 | 力学レイアウトの実装コストが高い。P9-3 は最小レイアウト→段階改善を推奨 | P9-3 |
+| Word 先行の横展開 | P5-2/P5-3 の共通抽出データモデルの出来が他形式（PPT/PDF）の工数を左右する。Word 実装時に形式固有ロジックを混入させない | P5 全体 |
