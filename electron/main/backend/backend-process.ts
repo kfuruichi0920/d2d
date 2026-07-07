@@ -77,11 +77,17 @@ export class BackendProcessManager {
 
   stop(): void {
     this.stopping = true
+    this.ready = false
+    this.failAllPending({
+      error_code: 'cancelled',
+      message: 'Local Backend を停止しました',
+      detail: '',
+      retryable: false
+    })
     if (this.child) {
       this.child.kill()
       this.child = null
     }
-    this.ready = false
   }
 
   /** Backend API を呼び出し、基盤APIエラー契約に従う結果を返す（例外は投げない） */
