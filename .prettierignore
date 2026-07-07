@@ -1,0 +1,12 @@
+# 設計文書・タスク文書は手書きの表整形を保持する（prettier 対象外）
+docs/
+tasks/
+CLAUDE.md
+
+# 生成物
+out/
+dist/
+release/
+node_modules/
+workers/python/dist/
+package-lock.json

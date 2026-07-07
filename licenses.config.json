@@ -1,0 +1,43 @@
+{
+  "$comment": "P0-5 ライセンス検査設定。forbiddenPattern に合致する npm 依存は allowedPackages に明示しない限り CI で失敗させる。npm 外の同梱物は bundledComponents で管理する（TBD-01/02/03 決定済み）。",
+  "forbiddenPattern": "GPL|AGPL|SSPL|EUPL",
+  "allowedPackages": [],
+  "bundledComponents": [
+    {
+      "name": "PlantUML",
+      "licenses": "GPL-3.0",
+      "repository": "https://plantuml.com",
+      "note": "TBD-02 決定: GPL版をツールとして同梱利用。P10-3/P14-5 で同梱"
+    },
+    {
+      "name": "Java Runtime (JRE)",
+      "licenses": "GPL-2.0 WITH Classpath-exception-2.0 (Temurin)",
+      "repository": "https://adoptium.net",
+      "note": "PlantUML 実行用に同梱（TBD-02）"
+    },
+    {
+      "name": "Graphviz",
+      "licenses": "EPL-1.0",
+      "repository": "https://graphviz.org",
+      "note": "PlantUML の一部図種のレンダリング用に同梱（TBD-02）"
+    },
+    {
+      "name": "pymupdf",
+      "licenses": "AGPL-3.0",
+      "repository": "https://github.com/pymupdf/PyMuPDF",
+      "note": "TBD-01 決定: 開発版で採用。商用利用向け版（P14-6）で商用ライセンスまたは代替へ差し替え"
+    },
+    {
+      "name": "MeCab",
+      "licenses": "BSD-3-Clause (トリプルライセンスから BSD を選択)",
+      "repository": "https://taku910.github.io/mecab/",
+      "note": "TBD-03 決定: MeCab + UniDic 標準構成"
+    },
+    {
+      "name": "UniDic",
+      "licenses": "BSD-3-Clause / GPL-2.0 / LGPL-2.1 (トリプルライセンス)",
+      "repository": "https://clrd.ninjal.ac.jp/unidic/",
+      "note": "TBD-03 決定: 標準辞書。再配布条件の最終確認は P14-4"
+    }
+  ]
+}
