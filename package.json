@@ -23,12 +23,20 @@
     "licenses:report": "node scripts/check-licenses.mjs"
   },
   "dependencies": {
+    "@serendie/design-token": "^1.4.6",
+    "@serendie/symbols": "^1.0.3",
+    "@tanstack/react-table": "^8.21.3",
+    "@tanstack/react-virtual": "^3.14.5",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",
     "better-sqlite3": "^12.11.1",
+    "dompurify": "^3.4.11",
+    "marked": "^18.0.6",
+    "monaco-editor": "^0.55.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "uuid": "^14.0.1"
+    "uuid": "^14.0.1",
+    "zustand": "^5.0.14"
   },
   "devDependencies": {
     "@electron/rebuild": "^4.2.0",

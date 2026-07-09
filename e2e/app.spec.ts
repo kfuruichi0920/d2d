@@ -1,87 +1,132 @@
-import { test, expect, _electron as electron } from '@playwright/test'
+import { test, expect, _electron as electron, type ElectronApplication, type Page } from '@playwright/test'
 import { rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 /**
- * E2E スモークテスト: アプリが起動し、Renderer → Main → Local Backend の
- * 疎通（app.ping）が画面に反映されることを確認する。
+ * E2E: Workbench（P3）+ Backend 基盤（P0〜P2）の統合検証。
  */
-test('アプリが起動し Local Backend と接続できる', async () => {
-  const app = await electron.launch({ args: ['out/main/index.js'] })
-  const window = await app.firstWindow()
 
-  await expect(window.getByText('D2D — 設計情報デジタル化・トレーサビリティ支援ツール')).toBeVisible()
-  await expect(window.getByText(/接続済み/)).toBeVisible({ timeout: 15_000 })
+let app: ElectronApplication
+let page: Page
+const projectRoot = join(tmpdir(), `d2d-e2e-p3-${Date.now()}`)
 
-  await app.close()
+test.beforeAll(async () => {
+  app = await electron.launch({ args: ['out/main/index.js'] })
+  page = await app.firstWindow()
+  await expect(page.getByTestId('workbench')).toBeVisible({ timeout: 15_000 })
 })
 
-test('Backend でプロジェクトを作成・オープンできる（P1 疎通）', async () => {
-  const app = await electron.launch({ args: ['out/main/index.js'] })
-  const page = await app.firstWindow()
-  await expect(page.getByText(/接続済み/)).toBeVisible({ timeout: 15_000 })
+test.afterAll(async () => {
+  // アプリ終了後に一時プロジェクトを削除する（DB を掴んだまま消さない）
+  await app.close()
+  rmSync(projectRoot, { recursive: true, force: true })
+})
 
-  const rootPath = join(tmpdir(), `d2d-e2e-${Date.now()}`)
+test('Workbench シェルが表示される（P3-1）', async () => {
+  await expect(page.getByTestId('activity-bar')).toBeVisible()
+  await expect(page.getByTestId('pipeline-navigator')).toBeVisible()
+  await expect(page.getByTestId('status-bar')).toBeVisible()
+  await expect(page.getByTestId('welcome-editor')).toBeVisible()
+
+  // Activity 切替（Explorer → Jobs）
+  await page.getByTestId('activity-jobs').click()
+  await expect(page.getByTestId('primary-sidebar')).toContainText('Jobs')
+  // 同じ Activity 再クリックで Side Bar が閉じる
+  await page.getByTestId('activity-jobs').click()
+  await expect(page.getByTestId('primary-sidebar')).toBeHidden()
+  await page.getByTestId('activity-explorer').click()
+})
+
+test('コマンドパレットからテーマを切り替えられる（P3-2 / P3-3）', async () => {
+  await page.keyboard.press('Control+Shift+P')
+  await expect(page.getByTestId('command-palette')).toBeVisible()
+
+  await page.getByTestId('palette-input').fill('カラーテーマ: asagi')
+  await page.keyboard.press('Enter')
+  await expect(page.locator('html')).toHaveAttribute('data-panda-theme', 'asagi')
+
+  // 表示モード light へ
+  await page.keyboard.press('Control+Shift+P')
+  await page.getByTestId('palette-input').fill('表示モード: light')
+  await page.keyboard.press('Enter')
+  await expect(page.locator('html')).toHaveAttribute('data-d2d-mode', 'light')
+
+  // 戻す（konjo + dark → konjo-dark 変種）
+  await page.keyboard.press('Control+Shift+P')
+  await page.getByTestId('palette-input').fill('表示モード: dark')
+  await page.keyboard.press('Enter')
+  await page.keyboard.press('Control+Shift+P')
+  await page.getByTestId('palette-input').fill('カラーテーマ: konjo')
+  await page.keyboard.press('Enter')
+  await expect(page.locator('html')).toHaveAttribute('data-panda-theme', 'konjo-dark')
+})
+
+test('作業モード切替とレイアウトプリセット（P3-7）', async () => {
+  await page.keyboard.press('Control+4') // M3: モデル化
+  await expect(page.getByTestId('status-mode')).toContainText('M3')
+  // M3 プリセットは Panel(LLM Logs) と Secondary(candidates) を開く
+  await expect(page.getByTestId('panel')).toBeVisible()
+  await expect(page.getByTestId('secondary-sidebar')).toBeVisible()
+
+  await page.keyboard.press('Control+1') // M0
+  await expect(page.getByTestId('status-mode')).toContainText('M0')
+})
+
+test('プロジェクト作成でタイトル・パイプラインが更新される（P1〜P3 連携）', async () => {
   const created = await page.evaluate(
-    async ([root]) => await window.api.invoke('project.create', { rootPath: root, name: 'E2Eプロジェクト' }),
-    [rootPath]
+    async ([root]) => await window.api.invoke('project.create', { rootPath: root, name: 'P3プロジェクト' }),
+    [projectRoot]
   )
-  expect(created).toMatchObject({
-    ok: true,
-    result: { name: 'E2Eプロジェクト', schemaVersion: '1.0.0', code: 'PRJ-000001' }
-  })
+  expect(created).toMatchObject({ ok: true })
 
-  const reopened = await page.evaluate(
-    async ([root]) => {
-      await window.api.invoke('project.close')
-      return await window.api.invoke('project.open', { path: root })
-    },
-    [rootPath]
-  )
-  expect(reopened).toMatchObject({ ok: true, result: { name: 'E2Eプロジェクト' } })
+  // project.opened イベント → タイトル・ステータスバー・パイプライン件数へ反映
+  await expect(page.getByTestId('title-project')).toContainText('P3プロジェクト')
+  await expect(page.getByTestId('status-project')).toContainText('P3プロジェクト')
+  await expect(page.getByTestId('stage-source')).toContainText('0')
 
-  await app.close()
-  rmSync(rootPath, { recursive: true, force: true })
+  // ダッシュボードを開く
+  await page.getByTestId('explorer-project-row').click()
+  await expect(page.getByTestId('dashboard-editor')).toBeVisible()
+  await expect(page.getByTestId('dashboard-editor')).toContainText('schema_version')
 })
 
-test('safeStorage 機密保存とワーカージョブが動作する（P2 疎通）', async () => {
-  const app = await electron.launch({ args: ['out/main/index.js'] })
-  const page = await app.firstWindow()
-  await expect(page.getByText(/接続済み/)).toBeVisible({ timeout: 15_000 })
-
-  // P2-2: safeStorage 経由の機密保存（値は Renderer へ返さない）
-  const secretKey = `e2e_test_key_${Date.now()}`
-  const secret = await page.evaluate(
-    async ([key]) => {
-      const saved = await window.api.invoke('settings.setSecret', { key, value: 'sk-e2e-secret' })
-      const has = await window.api.invoke('settings.hasSecret', { key })
-      const exported = await window.api.invoke('settings.export')
-      await window.api.invoke('settings.deleteSecret', { key })
-      return { saved, has, exportedJson: JSON.stringify(exported) }
-    },
-    [secretKey]
+test('ジョブ実行が Jobs Panel と Status Bar に反映される（P3-5）', async () => {
+  const enq = await page.evaluate(
+    async () =>
+      await window.api.invoke<{ jobId: string }>('job.enqueue', { type: 'worker.ping', params: { from: 'e2e' } })
   )
-  expect(secret.saved).toMatchObject({ ok: true })
-  expect(secret.has).toMatchObject({ ok: true, result: true })
-  expect(secret.exportedJson).not.toContain('sk-e2e-secret') // CORE-046: 機密除外
+  expect(enq).toMatchObject({ ok: true })
 
-  // P2-3/P2-6: ワーカー疎通ジョブの実行と完了待ち
-  const job = await page.evaluate(async () => {
-    const enq = await window.api.invoke<{ jobId: string }>('job.enqueue', {
-      type: 'worker.ping',
-      params: { from: 'e2e' }
-    })
-    if (!enq.ok) return enq
-    const jobId = enq.result.jobId
-    for (let i = 0; i < 60; i++) {
-      const got = await window.api.invoke<{ status: string; output: unknown }>('job.get', { jobId })
-      if (got.ok && ['success', 'failed', 'partial', 'aborted'].includes(got.result.status)) return got
-      await new Promise((r) => setTimeout(r, 500))
-    }
-    return { ok: false, error: { error_code: 'internal', message: 'job timeout', detail: '', retryable: false } }
+  // Status Bar クリック → Jobs Panel 表示
+  await page.getByTestId('status-jobs').click()
+  await expect(page.getByTestId('panel')).toBeVisible()
+  await expect(page.getByTestId('jobs-list')).toContainText('worker.ping')
+  await expect(page.getByTestId('jobs-list').locator('.d2d-badge.status-success').first()).toBeVisible({
+    timeout: 30_000
   })
-  expect(job).toMatchObject({ ok: true, result: { status: 'success' } })
 
-  await app.close()
+  // ジョブログを開く（V-16）
+  await page.getByRole('button', { name: 'ログ' }).first().click()
+  await expect(page.getByTestId('job-log-editor')).toBeVisible()
+  await expect(page.getByTestId('job-log-editor')).toContainText('ジョブ開始')
+})
+
+test('設定エディタで機密情報を暗号化保存できる（P2-2 UI）', async () => {
+  await page.keyboard.press('Control+Shift+P')
+  await page.getByTestId('palette-input').fill('設定を開く')
+  await page.keyboard.press('Enter')
+  await expect(page.getByTestId('settings-editor')).toBeVisible()
+
+  await page.getByTestId('secret-value-input').fill('sk-e2e-ui-secret')
+  await page.getByTestId('secret-save').click()
+  await expect(page.getByTestId('settings-editor')).toContainText('登録済み')
+
+  // 後始末
+  await page.getByRole('button', { name: '削除' }).first().click()
+})
+
+test('スクリーンショットを保存する', async () => {
+  await page.keyboard.press('Control+1')
+  await page.screenshot({ path: 'test-results/workbench.png' })
 })

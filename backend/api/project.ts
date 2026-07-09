@@ -56,6 +56,35 @@ export function registerProjectApi(router: ApiRouter): void {
     return currentProject()?.info ?? null
   })
 
+  /** Pipeline Navigator 用のステージ集計（sdd_ui_design §3.1） */
+  router.register('project.getPipelineStats', () => {
+    const { db } = requireProject()
+    const countByType = (type: string): number =>
+      (
+        db
+          .prepare(`SELECT COUNT(*) AS n FROM entity_registry WHERE entity_type = ? AND status <> 'deleted'`)
+          .get(type) as { n: number }
+      ).n
+    const designElements = (
+      db
+        .prepare(`SELECT COUNT(*) AS n FROM entity_registry WHERE design_category IS NOT NULL AND status <> 'deleted'`)
+        .get() as { n: number }
+    ).n
+    const candidates = (
+      db.prepare(`SELECT COUNT(*) AS n FROM llm_run_ref WHERE status IN ('success', 'partial')`).get() as {
+        n: number
+      }
+    ).n
+    return {
+      sources: countByType('source_document'),
+      extracted: countByType('extracted_document'),
+      intermediate: countByType('intermediate_document'),
+      designElements,
+      traceLinks: countByType('trace_link'),
+      candidates
+    }
+  })
+
   // ---- プロジェクト設定 CRUD（P2-1、CORE-012） ----
 
   router.register('project.listArtifactSettings', () => {

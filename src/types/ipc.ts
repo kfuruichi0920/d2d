@@ -93,6 +93,12 @@ export interface RendererApi {
   onEvent(listener: (event: string, payload: unknown) => void): () => void
   /** Main（OS統合）側の情報取得 */
   getVersions(): Promise<{ app: string; electron: string; chrome: string; node: string }>
+  /** OS のファイル・フォルダ選択ダイアログ（Main 経由） */
+  showOpenDialog(options: {
+    title?: string
+    mode: 'file' | 'directory'
+    filters?: { name: string; extensions: string[] }[]
+  }): Promise<string | null>
 }
 
 declare global {

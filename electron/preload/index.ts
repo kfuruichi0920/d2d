@@ -25,6 +25,10 @@ const api: RendererApi = {
       chrome: string
       node: string
     }>
+  },
+
+  showOpenDialog(options): Promise<string | null> {
+    return ipcRenderer.invoke('system:showOpenDialog', options) as Promise<string | null>
   }
 }
 

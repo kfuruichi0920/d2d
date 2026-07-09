@@ -1,6 +1,8 @@
 /**
  * プラットフォーム基盤 API（P2: settings / job / feature / worker）。
  */
+import { existsSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import type { ApiRouter } from './router'
 import { BackendError } from './errors'
 import type { JobManager } from '../jobs/job-manager'
@@ -77,6 +79,26 @@ export function registerJobApi(router: ApiRouter, jobs: JobManager): void {
   router.register('job.cancel', (params) => jobs.cancel(requireString(asRecord(params), 'jobId')))
   router.register('job.retry', (params) => jobs.retry(requireString(asRecord(params), 'jobId')))
   router.register('job.listTypes', () => jobs.executorTypes())
+
+  /** ジョブログ JSONL の読み出し（CORE-022、V-16 Job Log Viewer） */
+  router.register('job.getLog', (params) => {
+    const jobId = requireString(asRecord(params), 'jobId')
+    // ジョブ実在確認（見つからなければ not_found 契約）
+    jobs.get(jobId)
+    const project = requireProject()
+    const logPath = join(project.paths.logsDir, 'jobs', `${jobId}.jsonl`)
+    if (!existsSync(logPath)) return []
+    return readFileSync(logPath, 'utf-8')
+      .split('\n')
+      .filter((line) => line.trim())
+      .map((line) => {
+        try {
+          return JSON.parse(line) as unknown
+        } catch {
+          return { ts: '', level: 'info', message: line }
+        }
+      })
+  })
 }
 
 export function registerFeatureApi(router: ApiRouter): void {
