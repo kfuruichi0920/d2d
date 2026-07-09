@@ -23,10 +23,7 @@ export function App(): React.JSX.Element {
 
     async function load(): Promise<void> {
       try {
-        const [pingResult, v] = await Promise.all([
-          window.api.invoke<PingResult>('app.ping'),
-          window.api.getVersions()
-        ])
+        const [pingResult, v] = await Promise.all([window.api.invoke<PingResult>('app.ping'), window.api.getVersions()])
         if (cancelled) return
         setVersions(v)
         if (pingResult.ok) {

@@ -10,6 +10,7 @@
 import type { BackendRequest } from '../src/types/ipc'
 import { ApiRouter } from './api/router'
 import { registerAppApi } from './api/app'
+import { registerProjectApi } from './api/project'
 
 const BACKEND_VERSION = '0.1.0'
 
@@ -37,6 +38,7 @@ function isBackendRequest(data: unknown): data is BackendRequest {
 function main(): void {
   const router = new ApiRouter()
   registerAppApi(router, BACKEND_VERSION)
+  registerProjectApi(router)
 
   const port = getParentPort()
 

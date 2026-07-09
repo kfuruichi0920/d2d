@@ -1,0 +1,27 @@
+{
+  "$id": "d2d://schemas/project-d2d",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "project.d2d",
+  "description": "プロジェクト定義ファイル（sdd_directory §4）。相対参照のみ使用し、絶対パスを持たない。",
+  "type": "object",
+  "required": ["d2d_version", "project_uid", "schema_version", "created_at"],
+  "additionalProperties": false,
+  "properties": {
+    "d2d_version": {
+      "type": "string",
+      "enum": ["1"]
+    },
+    "project_uid": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+    },
+    "schema_version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}
