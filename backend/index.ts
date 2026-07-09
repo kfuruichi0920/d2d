@@ -20,7 +20,12 @@ import { SettingsService, type SecretCipher } from './settings/settings-service'
 import { registerBuiltinFeatures } from './features/feature-registry'
 import { callMain, handleBridgeMessage, initMainBridge } from './main-bridge'
 import { runWorker } from './workers/worker-runner'
-import type { ProjectInfo } from './project/project-service'
+import { requireProject, type ProjectInfo } from './project/project-service'
+import { registerDocumentApi } from './api/documents'
+import { getSourceDocument, importSourceDocument } from './import/import-service'
+import { storeExtractionResult, type ExtractionOutput } from './extract/store-extraction'
+import { BackendError } from './api/errors'
+import { readFileSync } from 'node:fs'
 
 const BACKEND_VERSION = '0.1.0'
 
@@ -77,6 +82,60 @@ function main(): void {
     return { status: result.status === 'partial' ? 'partial' : 'success', output: result.output }
   })
 
+  // ①原本取込ジョブ（P4-1、IMP-001〜009）
+  jobs.registerExecutor('import.source', async (params, ctx) => {
+    const { filePath } = params as { filePath: string }
+    const { db, info } = requireProject()
+    ctx.reportProgress(20, '原本を取込中')
+    const result = importSourceDocument(db, info.projectUid, info.rootPath, filePath)
+    ctx.log('info', `原本を取込みました: ${result.fileName}`, { code: result.code, hash: result.fileHash })
+    return { status: 'success', output: result }
+  })
+
+  // ②Word 抽出ジョブ（P5、EXT-001〜018）
+  jobs.registerExecutor('extract.word', async (params, ctx) => {
+    const { sourceDocumentUid } = params as { sourceDocumentUid: string }
+    const { db, info, paths } = requireProject()
+    const doc = getSourceDocument(db, sourceDocumentUid)
+    if (!doc.blob_relative_path) {
+      throw new BackendError('not_found', '原本ファイルの blob 参照がありません', sourceDocumentUid)
+    }
+    const filePath = join(info.rootPath, doc.blob_relative_path)
+    const workDir = join(paths.blobsDir, 'extracted', `job-${ctx.jobId}`)
+
+    ctx.reportProgress(5, 'ワーカーを起動中')
+    const workerResult = await runWorker({
+      request: {
+        job_id: ctx.jobId,
+        project_uid: info.projectUid,
+        worker_name: 'd2d-worker',
+        command: 'extract.word',
+        parameters: { file_path: filePath, work_dir: workDir }
+      },
+      onProgress: (p) => ctx.reportProgress(5 + p.percent * 0.6, p.message),
+      signal: ctx.signal
+    })
+    if (!workerResult.output_ref) {
+      throw new BackendError('worker', '抽出ワーカーが出力を返しませんでした', '')
+    }
+
+    ctx.reportProgress(70, '抽出結果を候補として保存中')
+    const extraction = JSON.parse(readFileSync(workerResult.output_ref, 'utf-8')) as ExtractionOutput
+    const stored = storeExtractionResult(db, {
+      projectUid: info.projectUid,
+      projectRoot: info.rootPath,
+      sourceDocumentUid,
+      extraction,
+      workDir
+    })
+    ctx.log('info', `②抽出データ候補を保存しました: ${stored.code}`, stored)
+    eventBus.emit('artifact.updated', { extractedDocumentUid: stored.extractedDocumentUid })
+    return {
+      status: workerResult.status === 'partial' ? 'partial' : 'success',
+      output: stored
+    }
+  })
+
   // プロジェクト open/close に応じてジョブログ出力先を切り替える
   eventBus.on('project.opened', (_event, payload) => {
     const info = payload as ProjectInfo
@@ -90,6 +149,7 @@ function main(): void {
   registerSettingsApi(router, settings)
   registerJobApi(router, jobs)
   registerFeatureApi(router)
+  registerDocumentApi(router, jobs)
 
   // Backend 内イベントを Renderer へ転送する（CORE-030〜032）
   eventBus.onAny((event, payload) => {

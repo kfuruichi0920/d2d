@@ -53,6 +53,7 @@ export function WorkbenchShell(): React.JSX.Element {
         useProjectStore.getState().setProject(null)
       } else if (
         [
+          'source.imported',
           'extraction.completed',
           'intermediate.updated',
           'design_model.updated',

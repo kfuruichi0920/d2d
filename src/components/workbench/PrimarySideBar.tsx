@@ -8,6 +8,7 @@ import { useProjectStore } from '../../stores/project-store'
 import { useWorkbenchStore, type Activity } from '../../stores/workbench-store'
 import { JobsListView } from '../views/JobsListView'
 import { ReviewQueueView } from '../views/ReviewQueueView'
+import { DocumentsTree } from '../views/DocumentsTree'
 
 const TITLES: Record<Activity, string> = {
   explorer: 'Explorer',
@@ -85,11 +86,8 @@ function ExplorerView(): React.JSX.Element {
       >
         📁 {project.name}
       </div>
-      <div style={{ paddingLeft: 12, color: 'var(--d2d-fg-muted)' }}>
-        <div className="d2d-list-row">①原本（P4 で実装）</div>
-        <div className="d2d-list-row">②抽出データ（P5 で実装）</div>
-        <div className="d2d-list-row">③中間データ（P7 で実装）</div>
-        <div className="d2d-list-row">④設計モデル（P8 で実装）</div>
+      <div style={{ paddingLeft: 8 }}>
+        <DocumentsTree />
       </div>
     </div>
   )

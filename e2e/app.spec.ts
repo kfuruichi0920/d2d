@@ -1,4 +1,5 @@
 import { test, expect, _electron as electron, type ElectronApplication, type Page } from '@playwright/test'
+import { execFileSync } from 'node:child_process'
 import { rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -126,7 +127,62 @@ test('設定エディタで機密情報を暗号化保存できる（P2-2 UI）'
   await page.getByRole('button', { name: '削除' }).first().click()
 })
 
+test('原本取込→Word抽出→レビュー→②正本確定の全経路（P4/P5）', async () => {
+  // テスト用 docx を Python で生成
+  const docxPath = join(tmpdir(), `d2d-e2e-spec-${Date.now()}.docx`)
+  execFileSync(process.platform === 'win32' ? 'python' : 'python3', [
+    join(process.cwd(), 'workers', 'python', 'tests', 'make_docx.py'),
+    docxPath
+  ])
+
+  // 取込ジョブ（P4-1）: ダイアログを介さず API で開始し、UI 反映を検証する
+  const imported = await page.evaluate(
+    async ([path]) => await window.api.invoke<{ jobId: string }>('document.import', { filePath: path }),
+    [docxPath]
+  )
+  expect(imported).toMatchObject({ ok: true })
+
+  // Explorer ①原本ツリーへ出現（source.imported イベント）。
+  // Activity 再クリックはトグルのため、非表示時のみクリックして Explorer を確実に開く
+  if (
+    !(await page
+      .getByTestId('documents-tree')
+      .isVisible()
+      .catch(() => false))
+  ) {
+    await page.getByTestId('activity-explorer').click()
+  }
+  await expect(page.getByTestId('source-doc-DOC-000001')).toBeVisible({ timeout: 15_000 })
+  await expect(page.getByTestId('stage-source')).toContainText('1')
+
+  // 原本ビュー（P4-2）から抽出ジョブを実行（P5）
+  await page.getByTestId('source-doc-DOC-000001').click()
+  await expect(page.getByTestId('original-viewer')).toBeVisible()
+  await expect(page.getByTestId('original-viewer')).toContainText('SHA-256')
+  await page.getByTestId('extract-button').click()
+
+  // 抽出完了 → ②抽出データがツリーへ出現
+  await expect(page.getByTestId('extracted-doc-EXDOC-000001')).toBeVisible({ timeout: 60_000 })
+  await expect(page.getByTestId('stage-extracted')).toContainText('1')
+
+  // 抽出レビュー Editor（P5-6）: 要素一覧 + Markdown 対照表示
+  await page.getByTestId('extracted-doc-EXDOC-000001').click()
+  await expect(page.getByTestId('extraction-review-editor')).toBeVisible()
+  await expect(page.getByTestId('element-grid')).toContainText('1. 概要')
+  await expect(page.getByTestId('element-grid')).toContainText('heading')
+  await expect(page.getByTestId('review-markdown')).toContainText('1.1 対象範囲')
+  await expect(page.getByTestId('review-markdown')).toContainText('100ms以内')
+
+  // 採用確定 → ②正本化（extraction.completed）
+  await page.getByTestId('approve-all-button').click()
+  await expect(page.getByTestId('approve-all-button')).toContainText('正本確定済み')
+  await expect(
+    page.getByTestId('extraction-review-editor').locator('.d2d-badge.review-confirmed').first()
+  ).toBeVisible()
+
+  rmSync(docxPath, { force: true })
+})
+
 test('スクリーンショットを保存する', async () => {
-  await page.keyboard.press('Control+1')
   await page.screenshot({ path: 'test-results/workbench.png' })
 })
