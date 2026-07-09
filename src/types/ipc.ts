@@ -39,10 +39,41 @@ export interface BackendEvent {
   payload: unknown
 }
 
-export type BackendMessage = BackendResponse | BackendEvent
+/**
+ * Backend → Main のブリッジ要求。
+ * safeStorage 等、Electron Main 専用の OS 統合機能を Backend から利用するための逆方向 RPC。
+ * Main は OS 統合のみを担い、業務ロジックは実装しない（sdd_function_architecture §2）。
+ */
+export interface MainBridgeRequest {
+  bridgeId: number
+  bridgeMethod: string
+  bridgeParams: unknown
+}
+
+/** Main → Backend のブリッジ応答 */
+export interface MainBridgeResponse {
+  bridgeId: number
+  ok: boolean
+  result?: unknown
+  error?: ApiError
+}
+
+export type BackendMessage = BackendResponse | BackendEvent | MainBridgeRequest
 
 export function isBackendEvent(msg: BackendMessage): msg is BackendEvent {
   return typeof (msg as BackendEvent).event === 'string'
+}
+
+export function isMainBridgeRequest(msg: BackendMessage): msg is MainBridgeRequest {
+  return (
+    typeof (msg as MainBridgeRequest).bridgeId === 'number' &&
+    typeof (msg as MainBridgeRequest).bridgeMethod === 'string'
+  )
+}
+
+export function isMainBridgeResponse(msg: unknown): msg is MainBridgeResponse {
+  const m = msg as MainBridgeResponse
+  return typeof m === 'object' && m !== null && typeof m.bridgeId === 'number' && typeof m.ok === 'boolean'
 }
 
 /** app.ping の応答 */

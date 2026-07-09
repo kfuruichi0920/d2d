@@ -20,6 +20,7 @@ import {
   type ProjectPaths
 } from './layout'
 import { INITIAL_SCHEMA_VERSION } from '../db/schema/initial-schema'
+import { eventBus } from '../events/event-bus'
 
 export interface ProjectInfo {
   projectUid: string
@@ -106,6 +107,8 @@ export function createProject(input: CreateProjectInput): ProjectInfo {
       code
     }
   }
+  // sdd_function_architecture §9: プロジェクトファイル読込完了通知
+  eventBus.emit('project.opened', { ...current.info, created: true })
   return current.info
 }
 
@@ -169,11 +172,16 @@ export function openProject(input: OpenProjectInput): ProjectInfo {
       code: codeRow?.code ?? null
     }
   }
+  eventBus.emit('project.opened', { ...current.info, created: false })
   return current.info
 }
 
 export function closeProject(): void {
+  const closing = current?.info ?? null
   closeAndForget()
+  if (closing) {
+    eventBus.emit('project.closed', { projectUid: closing.projectUid })
+  }
 }
 
 function closeAndForget(): void {

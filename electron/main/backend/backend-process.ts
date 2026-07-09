@@ -2,10 +2,17 @@
  * Local Backend プロセスの起動・停止・接続監視（P0-3）。
  * Main は Gateway として Backend への要求中継のみを行い、業務ロジックを持たない。
  */
-import { utilityProcess, type UtilityProcess } from 'electron'
+import { app, safeStorage, utilityProcess, type UtilityProcess } from 'electron'
 import { join } from 'node:path'
-import type { ApiError, ApiResult, BackendMessage, BackendRequest } from '../../../src/types/ipc'
-import { isBackendEvent } from '../../../src/types/ipc'
+import type {
+  ApiError,
+  ApiResult,
+  BackendMessage,
+  BackendRequest,
+  MainBridgeRequest,
+  MainBridgeResponse
+} from '../../../src/types/ipc'
+import { isBackendEvent, isMainBridgeRequest } from '../../../src/types/ipc'
 
 const REQUEST_TIMEOUT_MS = 30_000
 const MAX_RESTARTS = 3
@@ -42,7 +49,12 @@ export class BackendProcessManager {
     const entry = join(__dirname, 'backend.js')
     const child = utilityProcess.fork(entry, [], {
       serviceName: 'd2d-local-backend',
-      stdio: 'pipe'
+      stdio: 'pipe',
+      env: {
+        ...process.env,
+        // Backend は Electron API を持たないため、設定保存先を環境変数で渡す
+        D2D_USER_DATA: app.getPath('userData')
+      }
     })
     this.child = child
 
@@ -125,6 +137,10 @@ export class BackendProcessManager {
   }
 
   private handleMessage(msg: BackendMessage): void {
+    if (isMainBridgeRequest(msg)) {
+      this.handleBridgeRequest(msg)
+      return
+    }
     if (isBackendEvent(msg)) {
       if (msg.event === 'backend.ready') {
         this.ready = true
@@ -150,6 +166,62 @@ export class BackendProcessManager {
             detail: '',
             retryable: false
           } satisfies ApiError)
+      })
+    }
+  }
+
+  /**
+   * Backend からのブリッジ要求を処理する（Electron Main 専用 OS 統合のみ）。
+   * safeStorage による機密情報の暗号化・復号（CORE-045 / NFR-020）。
+   */
+  private handleBridgeRequest(msg: MainBridgeRequest): void {
+    const respond = (response: MainBridgeResponse): void => {
+      this.child?.postMessage(response)
+    }
+    try {
+      switch (msg.bridgeMethod) {
+        case 'secure.isAvailable':
+          respond({ bridgeId: msg.bridgeId, ok: true, result: safeStorage.isEncryptionAvailable() })
+          return
+        case 'secure.encrypt': {
+          const plain = String((msg.bridgeParams as { value?: unknown })?.value ?? '')
+          if (!safeStorage.isEncryptionAvailable()) {
+            throw new Error('OS の資格情報保護機構が利用できません')
+          }
+          respond({ bridgeId: msg.bridgeId, ok: true, result: safeStorage.encryptString(plain).toString('base64') })
+          return
+        }
+        case 'secure.decrypt': {
+          const cipher = String((msg.bridgeParams as { value?: unknown })?.value ?? '')
+          respond({
+            bridgeId: msg.bridgeId,
+            ok: true,
+            result: safeStorage.decryptString(Buffer.from(cipher, 'base64'))
+          })
+          return
+        }
+        default:
+          respond({
+            bridgeId: msg.bridgeId,
+            ok: false,
+            error: {
+              error_code: 'not_found',
+              message: `不明なブリッジメソッドです: ${msg.bridgeMethod}`,
+              detail: '',
+              retryable: false
+            }
+          })
+      }
+    } catch (err) {
+      respond({
+        bridgeId: msg.bridgeId,
+        ok: false,
+        error: {
+          error_code: 'internal',
+          message: err instanceof Error ? err.message : String(err),
+          detail: '',
+          retryable: false
+        }
       })
     }
   }

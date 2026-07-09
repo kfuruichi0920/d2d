@@ -1,0 +1,258 @@
+/**
+ * プロジェクト設定 CRUD（P2-1、CORE-012）。
+ * 成果物定義（project_artifact_setting）、文書体系（project_artifact_relation）、
+ * 開発フェーズ（project_dev_phase_setting）を管理する。
+ * これらは project 設定情報であり entity_registry には登録しない（sdd_data_structure §4.2〜4.4）。
+ */
+import type { Database } from 'better-sqlite3'
+import { BackendError } from '../api/errors'
+import { newUid } from '../store/uid'
+
+function nowIso(): string {
+  return new Date().toISOString()
+}
+
+// ---- 成果物定義 ----
+
+export interface ArtifactSetting {
+  uid: string
+  artifact_name: string
+  artifact_type_id: string
+  sort_order: number
+  is_active: number
+}
+
+export function listArtifactSettings(db: Database, projectUid: string): ArtifactSetting[] {
+  return db
+    .prepare(
+      `SELECT uid, artifact_name, artifact_type_id, sort_order, is_active
+         FROM project_artifact_setting WHERE project_uid = ? ORDER BY sort_order, artifact_name`
+    )
+    .all(projectUid) as ArtifactSetting[]
+}
+
+export interface SaveArtifactSettingInput {
+  uid?: string
+  artifactName: string
+  artifactTypeId: string
+  sortOrder?: number
+  isActive?: boolean
+}
+
+export function saveArtifactSetting(
+  db: Database,
+  projectUid: string,
+  input: SaveArtifactSettingInput
+): ArtifactSetting {
+  if (!input.artifactName || !input.artifactTypeId) {
+    throw new BackendError('validation', 'artifactName と artifactTypeId は必須です', '')
+  }
+  const ts = nowIso()
+  if (input.uid) {
+    const result = db
+      .prepare(
+        `UPDATE project_artifact_setting
+            SET artifact_name = ?, artifact_type_id = ?, sort_order = ?, is_active = ?, updated_at = ?
+          WHERE uid = ? AND project_uid = ?`
+      )
+      .run(
+        input.artifactName,
+        input.artifactTypeId,
+        input.sortOrder ?? 0,
+        input.isActive === false ? 0 : 1,
+        ts,
+        input.uid,
+        projectUid
+      )
+    if (result.changes === 0) {
+      throw new BackendError('not_found', `成果物設定が見つかりません: ${input.uid}`, '')
+    }
+    return getArtifactSetting(db, projectUid, input.uid)
+  }
+  const uid = newUid()
+  try {
+    db.prepare(
+      `INSERT INTO project_artifact_setting (uid, project_uid, artifact_name, artifact_type_id, sort_order, is_active, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      uid,
+      projectUid,
+      input.artifactName,
+      input.artifactTypeId,
+      input.sortOrder ?? 0,
+      input.isActive === false ? 0 : 1,
+      ts,
+      ts
+    )
+  } catch (err) {
+    if (err instanceof Error && /UNIQUE/.test(err.message)) {
+      throw new BackendError('conflict', `同名の成果物が既に存在します: ${input.artifactName}`, err.message)
+    }
+    throw err
+  }
+  return getArtifactSetting(db, projectUid, uid)
+}
+
+function getArtifactSetting(db: Database, projectUid: string, uid: string): ArtifactSetting {
+  const row = db
+    .prepare(
+      `SELECT uid, artifact_name, artifact_type_id, sort_order, is_active
+         FROM project_artifact_setting WHERE uid = ? AND project_uid = ?`
+    )
+    .get(uid, projectUid) as ArtifactSetting | undefined
+  if (!row) throw new BackendError('not_found', `成果物設定が見つかりません: ${uid}`, '')
+  return row
+}
+
+/** 論理無効化（is_active=0）。削除せず非表示にする（sdd_data_structure §4.2 備考） */
+export function deactivateArtifactSetting(db: Database, projectUid: string, uid: string): void {
+  const result = db
+    .prepare(`UPDATE project_artifact_setting SET is_active = 0, updated_at = ? WHERE uid = ? AND project_uid = ?`)
+    .run(nowIso(), uid, projectUid)
+  if (result.changes === 0) {
+    throw new BackendError('not_found', `成果物設定が見つかりません: ${uid}`, '')
+  }
+}
+
+// ---- 文書体系（成果物親子関係） ----
+
+export interface ArtifactRelation {
+  uid: string
+  parent_artifact_uid: string
+  child_artifact_uid: string
+  sort_order: number
+  is_active: number
+}
+
+export function listArtifactRelations(db: Database, projectUid: string): ArtifactRelation[] {
+  return db
+    .prepare(
+      `SELECT uid, parent_artifact_uid, child_artifact_uid, sort_order, is_active
+         FROM project_artifact_relation WHERE project_uid = ? ORDER BY parent_artifact_uid, sort_order`
+    )
+    .all(projectUid) as ArtifactRelation[]
+}
+
+export interface SaveArtifactRelationInput {
+  parentArtifactUid: string
+  childArtifactUid: string
+  sortOrder?: number
+}
+
+export function addArtifactRelation(
+  db: Database,
+  projectUid: string,
+  input: SaveArtifactRelationInput
+): ArtifactRelation {
+  if (!input.parentArtifactUid || !input.childArtifactUid) {
+    throw new BackendError('validation', 'parentArtifactUid と childArtifactUid は必須です', '')
+  }
+  if (input.parentArtifactUid === input.childArtifactUid) {
+    throw new BackendError('validation', '親と子に同一の成果物は指定できません', '')
+  }
+  const uid = newUid()
+  const ts = nowIso()
+  try {
+    db.prepare(
+      `INSERT INTO project_artifact_relation (uid, project_uid, parent_artifact_uid, child_artifact_uid, sort_order, is_active, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, 1, ?, ?)`
+    ).run(uid, projectUid, input.parentArtifactUid, input.childArtifactUid, input.sortOrder ?? 0, ts, ts)
+  } catch (err) {
+    if (err instanceof Error && /UNIQUE/.test(err.message)) {
+      throw new BackendError('conflict', '同一の親子関係が既に存在します', err.message)
+    }
+    if (err instanceof Error && /FOREIGN KEY/.test(err.message)) {
+      throw new BackendError('validation', '親または子の成果物設定が存在しません', err.message)
+    }
+    throw err
+  }
+  const row = db
+    .prepare(
+      `SELECT uid, parent_artifact_uid, child_artifact_uid, sort_order, is_active FROM project_artifact_relation WHERE uid = ?`
+    )
+    .get(uid) as ArtifactRelation
+  return row
+}
+
+export function deactivateArtifactRelation(db: Database, projectUid: string, uid: string): void {
+  const result = db
+    .prepare(`UPDATE project_artifact_relation SET is_active = 0, updated_at = ? WHERE uid = ? AND project_uid = ?`)
+    .run(nowIso(), uid, projectUid)
+  if (result.changes === 0) {
+    throw new BackendError('not_found', `成果物親子関係が見つかりません: ${uid}`, '')
+  }
+}
+
+// ---- 開発フェーズ ----
+
+export interface DevPhaseSetting {
+  uid: string
+  dev_phase_id: string
+  dev_phase_name: string
+  sort_order: number
+  is_active: number
+}
+
+export function listDevPhases(db: Database, projectUid: string): DevPhaseSetting[] {
+  return db
+    .prepare(
+      `SELECT uid, dev_phase_id, dev_phase_name, sort_order, is_active
+         FROM project_dev_phase_setting WHERE project_uid = ? ORDER BY sort_order, dev_phase_id`
+    )
+    .all(projectUid) as DevPhaseSetting[]
+}
+
+export interface SaveDevPhaseInput {
+  uid?: string
+  devPhaseId: string
+  devPhaseName: string
+  sortOrder?: number
+  isActive?: boolean
+}
+
+export function saveDevPhase(db: Database, projectUid: string, input: SaveDevPhaseInput): DevPhaseSetting {
+  if (!input.devPhaseId || !input.devPhaseName) {
+    throw new BackendError('validation', 'devPhaseId と devPhaseName は必須です', '')
+  }
+  const ts = nowIso()
+  if (input.uid) {
+    const result = db
+      .prepare(
+        `UPDATE project_dev_phase_setting
+            SET dev_phase_name = ?, sort_order = ?, is_active = ?, updated_at = ?
+          WHERE uid = ? AND project_uid = ?`
+      )
+      .run(input.devPhaseName, input.sortOrder ?? 0, input.isActive === false ? 0 : 1, ts, input.uid, projectUid)
+    if (result.changes === 0) {
+      throw new BackendError('not_found', `開発フェーズが見つかりません: ${input.uid}`, '')
+    }
+  } else {
+    try {
+      db.prepare(
+        `INSERT INTO project_dev_phase_setting (uid, project_uid, dev_phase_id, dev_phase_name, sort_order, is_active, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        newUid(),
+        projectUid,
+        input.devPhaseId,
+        input.devPhaseName,
+        input.sortOrder ?? 0,
+        input.isActive === false ? 0 : 1,
+        ts,
+        ts
+      )
+    } catch (err) {
+      if (err instanceof Error && /UNIQUE/.test(err.message)) {
+        throw new BackendError('conflict', `同一 ID の開発フェーズが既に存在します: ${input.devPhaseId}`, err.message)
+      }
+      throw err
+    }
+  }
+  const row = db
+    .prepare(
+      `SELECT uid, dev_phase_id, dev_phase_name, sort_order, is_active
+         FROM project_dev_phase_setting WHERE project_uid = ? AND dev_phase_id = ?`
+    )
+    .get(projectUid, input.devPhaseId) as DevPhaseSetting
+  return row
+}
