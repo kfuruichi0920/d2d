@@ -1,0 +1,32 @@
+/* P3-3（Serendie デザイントークン導入）までの暫定グローバルスタイル */
+:root {
+  color-scheme: dark;
+  --d2d-bg: #1e1e1e;
+  --d2d-fg: #d4d4d4;
+  --d2d-accent: #3794ff;
+  --d2d-border: #3c3c3c;
+  --d2d-ok: #4ec9b0;
+  --d2d-error: #f48771;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+}
+
+body {
+  background: var(--d2d-bg);
+  color: var(--d2d-fg);
+  font-family: 'Segoe UI', 'Yu Gothic UI', Meiryo, sans-serif;
+  font-size: 13px;
+}
+
+code {
+  font-family: Consolas, 'Courier New', monospace;
+}
