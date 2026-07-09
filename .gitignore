@@ -9,6 +9,7 @@ node_modules/
 
 # Python
 workers/python/__pycache__/
+workers/python/**/__pycache__/
 workers/python/.venv/
 workers/python/dist/
 workers/python/build/
