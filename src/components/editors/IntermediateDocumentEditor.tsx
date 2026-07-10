@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ColumnDef } from '@tanstack/react-table'
 import { invoke } from '../../services/backend'
+import { useEditorStore } from '../../stores/editor-store'
 import { useJobsStore } from '../../stores/jobs-store'
 import { useProjectStore } from '../../stores/project-store'
 import { VirtualDataGrid } from '../common/VirtualDataGrid'
@@ -166,6 +167,49 @@ export function IntermediateDocumentEditor({ uid }: { uid: string }): React.JSX.
     }
   }
 
+  /** ③→④: 全要素からチャンクを作成し LLM 候補を生成、候補セットレビューを開く（P8-3） */
+  const generateDesignCandidates = async (): Promise<void> => {
+    if (!doc) return
+    setGenerating(true)
+    try {
+      const chunkRes = await invoke<{ chunkUid: string }>('chunk.create', {
+        intermediateDocumentUid: uid,
+        elementIds: doc.elements.map((e) => e.id)
+      })
+      if (!chunkRes.ok) {
+        notify('error', 'チャンクを作成できませんでした', chunkRes.error.message)
+        return
+      }
+      const enq = await invoke<{ jobId: string }>('design.generateCandidates', { chunkUid: chunkRes.result.chunkUid })
+      if (!enq.ok) {
+        notify('error', '候補生成を開始できませんでした', enq.error.message)
+        return
+      }
+      for (let i = 0; i < 240; i++) {
+        const got = await invoke<{
+          status: string
+          output: { llmRunUid: string; elementCount: number }
+          error?: { message: string } | null
+        }>('job.get', { jobId: enq.result.jobId })
+        if (got.ok && got.result.status === 'success') {
+          notify('info', `④モデル候補を生成しました（要素 ${got.result.output.elementCount} 件）`)
+          useEditorStore
+            .getState()
+            .openResource(`candidate://${got.result.output.llmRunUid}`, '④候補セット', { preview: false })
+          return
+        }
+        if (got.ok && ['failed', 'aborted', 'partial'].includes(got.result.status)) {
+          notify('error', '④候補生成に失敗しました', got.result.error?.message)
+          return
+        }
+        await new Promise((r) => setTimeout(r, 500))
+      }
+      notify('error', '④候補生成がタイムアウトしました')
+    } finally {
+      setGenerating(false)
+    }
+  }
+
   const columns = useMemo<ColumnDef<IntermediateElement, unknown>[]>(
     () => [
       {
@@ -210,6 +254,16 @@ export function IntermediateDocumentEditor({ uid }: { uid: string }): React.JSX.
           {doc.artifact_type_id} / {doc.dev_phase_id} / {doc.elements.length} 要素 / 統合元 {doc.sources.length} 文書
         </span>
         <span style={{ flex: 1 }} />
+        <button
+          type="button"
+          className="d2d-btn"
+          disabled={generating}
+          onClick={() => void generateDesignCandidates()}
+          data-testid="generate-design-candidates"
+          title="全要素からチャンクを作成し、LLM で④設計モデル候補を生成します"
+        >
+          {generating ? '生成中…' : '④モデル候補を生成（LLM）'}
+        </button>
         <button
           type="button"
           className="d2d-btn primary"

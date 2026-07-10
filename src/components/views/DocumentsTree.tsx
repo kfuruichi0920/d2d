@@ -7,6 +7,7 @@ import { executeCommand } from '../../services/command-registry'
 import { useEditorStore } from '../../stores/editor-store'
 import { useJobsStore } from '../../stores/jobs-store'
 import { reviewStateFromEntityStatus, ReviewStatusBadge } from '../common/review'
+import { DesignModelTree } from './DesignModelViews'
 
 export interface SourceDocumentItem {
   uid: string
@@ -161,9 +162,7 @@ export function DocumentsTree(): React.JSX.Element {
         </div>
       ))}
 
-      <div style={{ padding: '8px 4px 2px', color: 'var(--d2d-fg-muted)' }}>
-        <div>④設計モデル（P8 で実装）</div>
-      </div>
+      <DesignModelTree />
     </div>
   )
 

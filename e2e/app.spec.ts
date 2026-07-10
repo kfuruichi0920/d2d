@@ -330,6 +330,72 @@ test('LLM 実行（モック Ollama）→ ログビューまでの全経路（P6
   }
 })
 
+test('③→④候補生成→候補レビュー→採用の全経路（P8）', async () => {
+  // 設計候補 JSON を返すモック LLM サーバ
+  const candidateJson = JSON.stringify({
+    elements: [
+      { temp_id: 't1', category: 'REQ', title: '応答時間要求', description: '100ms以内', evidence: '100ms以内' },
+      { temp_id: 't2', category: 'FUNC', title: '応答処理機能' }
+    ],
+    relations: [{ from_temp_id: 't2', to_temp_id: 't1', relation_type: 'satisfies', rationale: '機能が要求を満たす' }],
+    warnings: []
+  })
+  const mock = createServer((req, res) => {
+    let data = ''
+    req.on('data', (c) => (data += c))
+    req.on('end', () => {
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ message: { content: candidateJson }, prompt_eval_count: 100, eval_count: 50 }))
+    })
+  })
+  await new Promise<void>((resolve) => mock.listen(0, '127.0.0.1', resolve))
+  const port = (mock.address() as { port: number }).port
+
+  try {
+    await page.evaluate(
+      async ([endpoint]) => {
+        await window.api.invoke('settings.set', { key: 'llm.ollama.endpoint', value: endpoint })
+      },
+      [`http://127.0.0.1:${port}`]
+    )
+
+    // ③エディタから「④モデル候補を生成」→ 候補セットレビュー Editor が開く
+    if (
+      !(await page
+        .getByTestId('documents-tree')
+        .isVisible()
+        .catch(() => false))
+    ) {
+      await page.getByTestId('activity-explorer').click()
+    }
+    await page.getByTestId('intermediate-doc-IMDOC-000001').click()
+    await expect(page.getByTestId('intermediate-editor')).toBeVisible()
+    await page.getByTestId('generate-design-candidates').click()
+    await expect(page.getByTestId('candidate-editor')).toBeVisible({ timeout: 60_000 })
+
+    // 候補が表形式で表示され、要素名変更が関係 From/To 表示へ追従する（MODEL-008）
+    await expect(page.getByTestId('element-title-t1')).toHaveValue('応答時間要求')
+    await expect(page.getByTestId('relation-row-0')).toContainText('t1: 応答時間要求')
+    await page.getByTestId('element-title-t1').fill('応答時間要求（改）')
+    await expect(page.getByTestId('relation-row-0')).toContainText('t1: 応答時間要求（改）')
+
+    // 採用 → ④正本反映（同一トランザクション）→ ④ツリー・パイプライン件数へ反映
+    await page.getByTestId('candidate-adopt-all').click()
+    await expect(page.getByTestId('stage-design')).toContainText('2', { timeout: 15_000 })
+    await expect(page.getByTestId('design-el-REQ-000001')).toBeVisible()
+    await expect(page.getByTestId('design-el-FUNC-000001')).toBeVisible()
+
+    // 設計要素ビューアで関係と根拠を確認（UI-013）
+    await page.getByTestId('design-el-FUNC-000001').click()
+    await expect(page.getByTestId('design-element-viewer')).toBeVisible()
+    await expect(page.getByTestId('design-element-viewer')).toContainText('satisfies')
+    await expect(page.getByTestId('design-element-viewer')).toContainText('応答時間要求（改）')
+    await expect(page.getByTestId('design-element-viewer')).toContainText('based_on')
+  } finally {
+    mock.close()
+  }
+})
+
 test('スクリーンショットを保存する', async () => {
   await page.screenshot({ path: 'test-results/workbench.png' })
 })

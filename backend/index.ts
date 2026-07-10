@@ -24,6 +24,9 @@ import { requireProject, type ProjectInfo } from './project/project-service'
 import { registerDocumentApi } from './api/documents'
 import { registerLlmApi } from './api/llm'
 import { registerIntermediateApi } from './api/intermediate'
+import { registerDesignApi } from './api/design'
+import { getChunkText } from './intermediate/intermediate-service'
+import { validateCandidateOutput } from './llm/candidate-validation'
 import { runLlm } from './llm/llm-service'
 import type { ChatMessage } from './llm/providers'
 import { getSourceDocument, importSourceDocument } from './import/import-service'
@@ -239,6 +242,65 @@ function main(): void {
     }
   })
 
+  // ④設計モデル候補生成ジョブ（P8-3、LLM-030〜034、sdd_function_architecture §10.2）
+  jobs.registerExecutor('design.generateCandidates', async (params, ctx) => {
+    const { chunkUid } = params as { chunkUid: string }
+    const { db, info } = requireProject()
+
+    ctx.reportProgress(10, '入力チャンクを構築中')
+    const chunkText = getChunkText(db, chunkUid)
+
+    const systemPrompt = [
+      'あなたは設計文書から設計モデル候補を抽出するAIです。',
+      '与えられた本文から設計要素候補と関係候補を抽出し、次の JSON だけを出力してください。',
+      '{"elements":[{"temp_id":"t1","category":"REQ","title":"...","description":"...","evidence":"根拠となる本文の抜粋"}],',
+      ' "relations":[{"from_temp_id":"t2","to_temp_id":"t1","relation_type":"satisfies","rationale":"..."}],',
+      ' "warnings":[]}',
+      'category は STD/REQ/CST/FUNC/STRUCT/BEH/STATE/IF/DATA/VERIF/MGMT/IMPL のいずれか。',
+      'relation_type は based_on/satisfies/allocated_to/verifies/contains/decomposes/implements/uses/calls/conflicts_with/relates_to のいずれか。',
+      '関係の from_temp_id / to_temp_id は elements の temp_id を参照すること。'
+    ].join('\n')
+
+    ctx.reportProgress(30, 'LLM で候補を生成中')
+    const result = await runLlm(
+      db,
+      settings,
+      { projectUid: info.projectUid, rootPath: info.rootPath },
+      {
+        processName: 'design-candidates',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: chunkText }
+        ],
+        jsonMode: true,
+        inputRefUid: chunkUid,
+        signal: ctx.signal
+      }
+    )
+
+    // 検証（LLM-045/046）。エラーでも候補セットとして開けるよう、結果は llm_run 参照で返す
+    const validation = validateCandidateOutput(result.content)
+    ctx.log(
+      'info',
+      `候補生成完了: 要素${validation.candidateSet?.elements.length ?? 0}件 / 関係${validation.candidateSet?.relations.length ?? 0}件`,
+      {
+        errors: validation.errors
+      }
+    )
+    eventBus.emit('llm.candidate.generated', { llmRunUid: result.llmRunUid, chunkUid, ok: validation.ok })
+    return {
+      status: 'success',
+      output: {
+        llmRunUid: result.llmRunUid,
+        chunkUid,
+        ok: validation.ok,
+        errors: validation.errors,
+        elementCount: validation.candidateSet?.elements.length ?? 0,
+        relationCount: validation.candidateSet?.relations.length ?? 0
+      }
+    }
+  })
+
   // プロジェクト open/close に応じてジョブログ出力先を切り替える
   eventBus.on('project.opened', (_event, payload) => {
     const info = payload as ProjectInfo
@@ -255,6 +317,7 @@ function main(): void {
   registerDocumentApi(router, jobs)
   registerLlmApi(router, jobs, settings)
   registerIntermediateApi(router, jobs)
+  registerDesignApi(router, jobs)
 
   // Backend 内イベントを Renderer へ転送する（CORE-030〜032）
   eventBus.onAny((event, payload) => {
