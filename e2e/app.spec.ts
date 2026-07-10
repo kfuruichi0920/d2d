@@ -396,6 +396,54 @@ test('③→④候補生成→候補レビュー→採用の全経路（P8）', 
   }
 })
 
+test('トレースクエリ→グラフ→マトリクス→整合性検査（P9）', async () => {
+  // Trace Activity のクエリフォームから実行（P8 で採用した REQ/FUNC + satisfies が対象）
+  await page.getByTestId('activity-trace').click()
+  await expect(page.getByTestId('trace-sidebar')).toBeVisible()
+  await page.getByTestId('trace-run').click()
+
+  // 関係グラフ（SVG）: 起点 + 関係先ノードとホップ強調スライダー（TRACE-025）
+  await expect(page.getByTestId('trace-graph')).toBeVisible()
+  await expect(page.getByTestId('graph-node-REQ-000001')).toBeVisible()
+  await expect(page.getByTestId('graph-node-FUNC-000001')).toBeVisible()
+  await expect(page.getByTestId('trace-graph')).toContainText('satisfies')
+  await expect(page.getByTestId('hop-slider')).toBeVisible()
+
+  // グラフノードクリック → 設計要素ビューアへジャンプ（SEARCH-003 相当の導線）
+  await page.getByTestId('graph-node-FUNC-000001').click()
+  await expect(page.getByTestId('design-element-viewer')).toBeVisible()
+
+  // トレースマトリクス（UI-014）: FUNC×REQ に ● が入る
+  await page.getByTestId('open-matrix').click()
+  await expect(page.getByTestId('trace-matrix')).toBeVisible()
+  await expect(page.getByTestId('trace-matrix')).toContainText('FUNC-000001')
+  await expect(page.getByTestId('trace-matrix').locator('td', { hasText: '●' }).first()).toBeVisible()
+
+  // 根拠チェーン（UI-015）: ④要素 → ③中間文書
+  await page.getByTestId('open-basis-chain').click()
+  await expect(page.getByTestId('basis-chain')).toBeVisible()
+  await expect(page.getByTestId('basis-chain')).toContainText('IMDOC-000001')
+
+  // 整合性検査（Problems Panel）: REQ-000001 は verifies 未対応として検出される
+  // Status Bar クリックで Panel を確実に開く（Ctrl+@ はトグルのため）
+  await page.getByTestId('status-jobs').click()
+  await page.getByTestId('panel-tab-problems').click()
+  await expect(page.getByTestId('problems-list')).toContainText('検証未対応')
+  await expect(page.getByTestId('problems-list')).toContainText('REQ-000001')
+
+  // クエリ結果のエクスポート（TRACE-024）
+  if (
+    !(await page
+      .getByTestId('trace-sidebar')
+      .isVisible()
+      .catch(() => false))
+  ) {
+    await page.getByTestId('activity-trace').click()
+  }
+  await page.getByTestId('trace-sidebar').getByRole('button', { name: 'markdown' }).click()
+  await expect(page.getByTestId('notifications')).toContainText('クエリ結果を出力しました')
+})
+
 test('スクリーンショットを保存する', async () => {
   await page.screenshot({ path: 'test-results/workbench.png' })
 })
