@@ -23,6 +23,7 @@ import { runWorker } from './workers/worker-runner'
 import { requireProject, type ProjectInfo } from './project/project-service'
 import { registerDocumentApi } from './api/documents'
 import { registerLlmApi } from './api/llm'
+import { registerIntermediateApi } from './api/intermediate'
 import { runLlm } from './llm/llm-service'
 import type { ChatMessage } from './llm/providers'
 import { getSourceDocument, importSourceDocument } from './import/import-service'
@@ -162,6 +163,82 @@ function main(): void {
     return { status: 'success', output: result }
   })
 
+  // ③テキスト候補生成ジョブ（P7-4/P7-6。正規化・図表説明。LLM 出力は候補のまま返す）
+  jobs.registerExecutor('intermediate.textCandidate', async (params, ctx) => {
+    const { uid, elementId, purpose } = params as { uid: string; elementId: string; purpose: 'normalize' | 'describe' }
+    const { db, info } = requireProject()
+
+    const doc = db.prepare(`SELECT structure_json FROM intermediate_document WHERE uid = ?`).get(uid) as
+      { structure_json: string } | undefined
+    if (!doc) {
+      throw new BackendError('not_found', `中間文書が見つかりません: ${uid}`, '')
+    }
+    const structure = JSON.parse(doc.structure_json) as {
+      elements: {
+        id: string
+        type: string
+        text?: string
+        rows?: { text: string }[][]
+        image?: string
+        resource_uid?: string
+      }[]
+    }
+    const element = structure.elements.find((e) => e.id === elementId)
+    if (!element) {
+      throw new BackendError('not_found', `要素が見つかりません: ${elementId}`, '')
+    }
+
+    let systemPrompt: string
+    let userContent: string
+    if (purpose === 'normalize') {
+      // MID-026: 設計意味を変えない正規化（曖昧性排除・表記揺れ統一・主語補完・用語正規化）
+      systemPrompt =
+        'あなたは設計文書の校正支援AIです。与えられた本文の設計上の意味を一切変えずに、' +
+        '曖昧な表現の明確化、表記揺れの統一、省略された主語の補完、用語の正規化のみを行ってください。' +
+        '正規化後の本文だけを出力してください（説明・前置きは不要）。'
+      userContent = element.text ?? ''
+    } else {
+      // MID-013: 図表説明候補
+      systemPrompt =
+        'あなたは設計文書のレビュー支援AIです。与えられた図または表の内容から、' +
+        '設計書に記載する簡潔な説明文（1〜3文）の候補を日本語で出力してください。説明文だけを出力してください。'
+      userContent =
+        element.type === 'table'
+          ? (element.rows ?? []).map((r) => r.map((c) => c.text).join(' | ')).join('\n')
+          : `図ファイル: ${element.image ?? ''}（周辺情報から推測してください）`
+    }
+    if (!userContent.trim()) {
+      throw new BackendError('validation', '候補生成の入力が空です', `element=${elementId}`)
+    }
+
+    ctx.reportProgress(20, 'LLM 候補を生成中')
+    const result = await runLlm(
+      db,
+      settings,
+      { projectUid: info.projectUid, rootPath: info.rootPath },
+      {
+        processName: purpose === 'normalize' ? 'normalize-text' : 'describe-figure',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userContent }
+        ],
+        inputRefUid: element.resource_uid,
+        signal: ctx.signal
+      }
+    )
+    eventBus.emit('llm.candidate.generated', { intermediateDocumentUid: uid, elementId, llmRunUid: result.llmRunUid })
+    return {
+      status: 'success',
+      output: {
+        llmRunUid: result.llmRunUid,
+        elementId,
+        purpose,
+        originalText: element.text ?? '',
+        candidateText: result.content.trim()
+      }
+    }
+  })
+
   // プロジェクト open/close に応じてジョブログ出力先を切り替える
   eventBus.on('project.opened', (_event, payload) => {
     const info = payload as ProjectInfo
@@ -177,6 +254,7 @@ function main(): void {
   registerFeatureApi(router)
   registerDocumentApi(router, jobs)
   registerLlmApi(router, jobs, settings)
+  registerIntermediateApi(router, jobs)
 
   // Backend 内イベントを Renderer へ転送する（CORE-030〜032）
   eventBus.onAny((event, payload) => {

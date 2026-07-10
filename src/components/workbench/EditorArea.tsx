@@ -9,6 +9,7 @@ import { WelcomeEditor } from '../editors/WelcomeEditor'
 import { ExtractionReviewEditor } from '../editors/ExtractionReviewEditor'
 import { OriginalViewer } from '../views/DocumentsTree'
 import { LlmRunViewer } from '../views/LlmViews'
+import { IntermediateDocumentEditor } from '../editors/IntermediateDocumentEditor'
 
 /** Resource URI → Editor Provider の解決（§10.2。P7 以降で Provider を追加する） */
 function resolveEditor(uri: string): React.JSX.Element {
@@ -18,6 +19,7 @@ function resolveEditor(uri: string): React.JSX.Element {
   if (uri.startsWith('log://llm/')) return <LlmRunViewer uid={uri.slice('log://llm/'.length)} />
   if (uri.startsWith('original://')) return <OriginalViewer uid={uri.slice('original://'.length)} />
   if (uri.startsWith('extracted://')) return <ExtractionReviewEditor uid={uri.slice('extracted://'.length)} />
+  if (uri.startsWith('intermediate://')) return <IntermediateDocumentEditor uid={uri.slice('intermediate://'.length)} />
   return <div className="d2d-empty">この Resource（{uri}）の Editor Provider は未実装です。</div>
 }
 

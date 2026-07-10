@@ -184,6 +184,32 @@ test('原本取込→Word抽出→レビュー→②正本確定の全経路（P
   rmSync(docxPath, { force: true })
 })
 
+test('②→③統合・編集・確定（P7）', async () => {
+  // Explorer の「③へ統合」で intermediate_document を生成
+  await expect(page.getByTestId('compose-EXDOC-000001')).toBeVisible()
+  await page.getByTestId('compose-EXDOC-000001').click()
+  await expect(page.getByTestId('intermediate-doc-IMDOC-000001')).toBeVisible({ timeout: 15_000 })
+  await expect(page.getByTestId('stage-intermediate')).toContainText('1')
+
+  // Intermediate Document Editor を開く
+  await page.getByTestId('intermediate-doc-IMDOC-000001').click()
+  await expect(page.getByTestId('intermediate-editor')).toBeVisible()
+  await expect(page.getByTestId('intermediate-editor')).toContainText('design_doc / DD')
+  await expect(page.getByTestId('intermediate-grid')).toContainText('1. 概要')
+  await expect(page.getByTestId('intermediate-markdown')).toContainText('対象項目その1')
+
+  // 要素編集（新ID割当・由来追跡）: 段落を選択して編集
+  await page.getByTestId('intermediate-grid').getByText('本書はテスト用の仕様書である。要求REQ-001を含む。').click()
+  await page.getByTestId('element-toolbar').getByRole('button', { name: '編集', exact: true }).click()
+  await page.getByTestId('edit-textarea').fill('本書はテスト用の仕様書である。要求REQ-001および要求REQ-002を含む。')
+  await page.getByTestId('edit-save').click()
+  await expect(page.getByTestId('intermediate-markdown')).toContainText('REQ-002')
+
+  // ③正本確定 → intermediate.updated
+  await page.getByTestId('intermediate-approve').click()
+  await expect(page.getByTestId('intermediate-approve')).toContainText('正本確定済み')
+})
+
 test('LLM 実行（モック Ollama）→ ログビューまでの全経路（P6）', async () => {
   // モック Ollama サーバを起動（Backend の fetch が接続する）
   const mock = createServer((req, res) => {
@@ -255,6 +281,50 @@ test('LLM 実行（モック Ollama）→ ログビューまでの全経路（P6
     await page.getByTestId('llm-logs-list').locator('.d2d-list-row').first().click()
     await expect(page.getByTestId('llm-run-viewer')).toBeVisible()
     await expect(page.getByTestId('llm-result-text')).toContainText('モックLLM応答: OK')
+
+    // ③要素の LLM 正規化候補 → 採用で③へ反映（P7-4/P7-6、MID-026/027）
+    const adopted = await page.evaluate(async () => {
+      const mids = await window.api.invoke<{ uid: string }[]>('intermediate.list')
+      if (!mids.ok || mids.result.length === 0) return { ok: false as const, step: 'list' }
+      const midUid = mids.result[0]!.uid
+      const enq = await window.api.invoke<{ jobId: string }>('intermediate.generateTextCandidate', {
+        uid: midUid,
+        elementId: 'i2',
+        purpose: 'normalize'
+      })
+      if (!enq.ok) return { ok: false as const, step: 'enqueue', error: enq.error.message }
+      for (let i = 0; i < 60; i++) {
+        const got = await window.api.invoke<{
+          status: string
+          output: { llmRunUid: string; candidateText: string }
+        }>('job.get', { jobId: enq.result.jobId })
+        if (got.ok && got.result.status === 'success') {
+          const adopt = await window.api.invoke('intermediate.adoptTextCandidate', {
+            uid: midUid,
+            elementId: 'i2',
+            newText: got.result.output.candidateText,
+            llmRunUid: got.result.output.llmRunUid
+          })
+          const md = await window.api.invoke<{ markdown: string }>('intermediate.getMarkdown', {
+            uid: midUid,
+            variant: 'clean'
+          })
+          return {
+            ok: adopt.ok && md.ok,
+            step: 'done',
+            candidate: got.result.output.candidateText,
+            markdown: md.ok ? md.result.markdown : ''
+          }
+        }
+        if (got.ok && ['failed', 'aborted'].includes(got.result.status)) {
+          return { ok: false as const, step: 'job-failed' }
+        }
+        await new Promise((r) => setTimeout(r, 250))
+      }
+      return { ok: false as const, step: 'timeout' }
+    })
+    expect(adopted).toMatchObject({ ok: true, candidate: 'モックLLM応答: OK' })
+    expect((adopted as { markdown: string }).markdown).toContain('モックLLM応答: OK')
   } finally {
     mock.close()
   }

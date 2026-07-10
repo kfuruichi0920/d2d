@@ -26,25 +26,42 @@ export interface ExtractedDocumentItem {
   source_document_uid: string
 }
 
+export interface IntermediateDocumentItem {
+  uid: string
+  code: string
+  title: string | null
+  status: string
+  artifact_type_id: string
+  dev_phase_id: string
+  item_count: number
+}
+
 export function DocumentsTree(): React.JSX.Element {
   const [sources, setSources] = useState<SourceDocumentItem[]>([])
   const [extracted, setExtracted] = useState<ExtractedDocumentItem[]>([])
+  const [intermediates, setIntermediates] = useState<IntermediateDocumentItem[]>([])
   const openResource = useEditorStore((s) => s.openResource)
   const notify = useJobsStore((s) => s.notify)
 
   const refresh = useCallback(async () => {
-    const [docs, exts] = await Promise.all([
+    const [docs, exts, mids] = await Promise.all([
       invoke<SourceDocumentItem[]>('document.list'),
-      invoke<ExtractedDocumentItem[]>('extracted.list')
+      invoke<ExtractedDocumentItem[]>('extracted.list'),
+      invoke<IntermediateDocumentItem[]>('intermediate.list')
     ])
     if (docs.ok) setSources(docs.result)
     if (exts.ok) setExtracted(exts.result)
+    if (mids.ok) setIntermediates(mids.result)
   }, [])
 
   useEffect(() => {
     void refresh()
     return onBackendEvent((event) => {
-      if (['source.imported', 'artifact.updated', 'extraction.completed', 'job.updated'].includes(event)) {
+      if (
+        ['source.imported', 'artifact.updated', 'extraction.completed', 'intermediate.updated', 'job.updated'].includes(
+          event
+        )
+      ) {
         void refresh()
       }
     })
@@ -108,15 +125,56 @@ export function DocumentsTree(): React.JSX.Element {
           <ReviewStatusBadge status={reviewStateFromEntityStatus(doc.status)} />
           <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{doc.title ?? doc.code}</span>
           <span style={{ color: 'var(--d2d-fg-muted)', fontSize: 11 }}>{doc.item_count}要素</span>
+          {doc.status === 'approved' && (
+            <button
+              type="button"
+              className="d2d-btn small"
+              title="承認済み②から③中間データ（統合設計書）を生成"
+              data-testid={`compose-${doc.code}`}
+              onClick={(e) => {
+                e.stopPropagation()
+                void composeIntermediate(doc.uid)
+              }}
+            >
+              ③へ統合
+            </button>
+          )}
+        </div>
+      ))}
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 4px 2px' }}>
+        <span style={{ fontWeight: 700 }}>③中間データ</span>
+        <span style={{ color: 'var(--d2d-fg-muted)' }}>{intermediates.length}</span>
+      </div>
+      {intermediates.map((doc) => (
+        <div
+          key={doc.uid}
+          className="d2d-list-row"
+          data-testid={`intermediate-doc-${doc.code}`}
+          onClick={() => openResource(`intermediate://${doc.uid}`, `③: ${doc.title ?? doc.code}`, { preview: true })}
+        >
+          <ReviewStatusBadge status={reviewStateFromEntityStatus(doc.status)} />
+          <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{doc.title ?? doc.code}</span>
+          <span style={{ color: 'var(--d2d-fg-muted)', fontSize: 11 }}>
+            {doc.artifact_type_id}/{doc.dev_phase_id}
+          </span>
         </div>
       ))}
 
       <div style={{ padding: '8px 4px 2px', color: 'var(--d2d-fg-muted)' }}>
-        <div>③中間データ（P7 で実装）</div>
         <div>④設計モデル（P8 で実装）</div>
       </div>
     </div>
   )
+
+  async function composeIntermediate(extractedUid: string): Promise<void> {
+    const res = await invoke<{ code: string }>('intermediate.create', { extractedDocumentUids: [extractedUid] })
+    if (res.ok) {
+      notify('info', `③中間データを生成しました: ${res.result.code}`)
+    } else {
+      notify('error', '③中間データを生成できませんでした', res.error.message)
+    }
+  }
 }
 
 /** 原本ビュー（V-01）。プレビューと抽出実行の起点 */

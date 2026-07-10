@@ -1,0 +1,214 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import type { Database } from 'better-sqlite3'
+import { closeDatabase, createDatabase, getProjectRow } from '../store/database'
+import { createProjectLayout } from '../project/layout'
+import { importSourceDocument } from '../import/import-service'
+import { storeExtractionResult, type ExtractionOutput } from '../extract/store-extraction'
+import {
+  createChunk,
+  createIntermediateDocument,
+  deleteChunk,
+  editElementText,
+  estimateTokens,
+  getChunkText,
+  listChunks,
+  mergeElements,
+  splitElement,
+  type IntermediateStructure
+} from './intermediate-service'
+
+const EXTRACTION: ExtractionOutput = {
+  metadata: { title: '元仕様書', extractor_name: 'test', extractor_version: '0' },
+  elements: [
+    { id: 'e1', type: 'heading', text: '1. 概要', level: 1, section_path: '' },
+    { id: 'e2', type: 'paragraph', text: '応答は速いこと。', section_path: '1. 概要' },
+    { id: 'e3', type: 'paragraph', text: '目安は100msである。', section_path: '1. 概要' },
+    { id: 'e4', type: 'list_item', text: '対象A', level: 0, section_path: '1. 概要' }
+  ]
+}
+
+describe('③中間データ（P7）', () => {
+  let dir: string
+  let root: string
+  let db: Database
+  let projectUid: string
+  let extractedUid: string
+
+  function structureOf(uid: string): IntermediateStructure {
+    const row = db.prepare(`SELECT structure_json FROM intermediate_document WHERE uid = ?`).get(uid) as {
+      structure_json: string
+    }
+    return JSON.parse(row.structure_json) as IntermediateStructure
+  }
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'd2d-mid-'))
+    root = join(dir, 'proj')
+    createProjectLayout(root)
+    db = createDatabase(join(root, 'project.db'), { projectName: 'p' })
+    projectUid = getProjectRow(db).uid
+
+    const src = join(dir, 'spec.docx')
+    writeFileSync(src, 'dummy')
+    const imported = importSourceDocument(db, projectUid, root, src)
+    mkdirSync(join(dir, 'work'), { recursive: true })
+    const stored = storeExtractionResult(db, {
+      projectUid,
+      projectRoot: root,
+      sourceDocumentUid: imported.sourceDocumentUid,
+      extraction: EXTRACTION,
+      workDir: join(dir, 'work')
+    })
+    extractedUid = stored.extractedDocumentUid
+    // ②正本確定（統合の前提）
+    db.prepare(`UPDATE entity_registry SET status = 'approved' WHERE uid = ?`).run(extractedUid)
+  })
+
+  afterEach(() => {
+    closeDatabase(db)
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('承認済み②から③を統合生成し、sources・対応・根拠リンクを登録する（P7-1）', () => {
+    const result = createIntermediateDocument(db, projectUid, {
+      extractedDocumentUids: [extractedUid],
+      artifactTypeId: 'design_doc',
+      devPhaseId: 'DD'
+    })
+    expect(result.code).toMatch(/^IMDOC-\d{6}$/)
+    expect(result.elementCount).toBe(4)
+
+    const structure = structureOf(result.intermediateDocumentUid)
+    expect(structure.sources).toEqual([{ extracted_document_uid: extractedUid, order: 1 }])
+    expect(structure.metadata.artifact_type_id).toBe('design_doc')
+    // ③要素は新しい ID（i1..）を持ち、②とリソースを共有する
+    expect(structure.elements.map((e) => e.id)).toEqual(['i1', 'i2', 'i3', 'i4'])
+    expect(structure.elements[0]!.resource_uid).toBeTruthy()
+
+    const itemCount = (
+      db
+        .prepare(`SELECT COUNT(*) AS n FROM intermediate_item WHERE intermediate_document_uid = ?`)
+        .get(result.intermediateDocumentUid) as { n: number }
+    ).n
+    expect(itemCount).toBe(4)
+
+    // ③→② based_on（basis_kind=extracted）
+    const link = db
+      .prepare(`SELECT relation_type, basis_kind FROM trace_link WHERE from_uid = ? AND to_uid = ?`)
+      .get(result.intermediateDocumentUid, extractedUid) as { relation_type: string; basis_kind: string }
+    expect(link).toEqual({ relation_type: 'based_on', basis_kind: 'extracted' })
+  })
+
+  it('未承認の②は統合を拒否する（SRS §2.2 原則10）', () => {
+    db.prepare(`UPDATE entity_registry SET status = 'draft' WHERE uid = ?`).run(extractedUid)
+    expect(() =>
+      createIntermediateDocument(db, projectUid, {
+        extractedDocumentUids: [extractedUid],
+        artifactTypeId: 'design_doc',
+        devPhaseId: 'DD'
+      })
+    ).toThrowError(/統合できません/)
+  })
+
+  it('テキスト編集は新リソース ID を割当て、based_on で元 ID を追跡する（P7-2 / MID-005）', () => {
+    const doc = createIntermediateDocument(db, projectUid, {
+      extractedDocumentUids: [extractedUid],
+      artifactTypeId: 'design_doc',
+      devPhaseId: 'DD'
+    })
+    const before = structureOf(doc.intermediateDocumentUid)
+    const oldResourceUid = before.elements[1]!.resource_uid!
+
+    const edited = editElementText(db, projectUid, doc.intermediateDocumentUid, 'i2', '応答時間は100ms以内とすること。')
+    expect(edited.newResourceUid).not.toBe(oldResourceUid)
+
+    const after = structureOf(doc.intermediateDocumentUid)
+    expect(after.elements[1]!.text).toBe('応答時間は100ms以内とすること。')
+    expect(after.elements[1]!.resource_uid).toBe(edited.newResourceUid)
+
+    // 由来リンク（新→旧、transform_note=edit）
+    const link = db
+      .prepare(`SELECT basis_kind, transform_note FROM trace_link WHERE from_uid = ? AND to_uid = ?`)
+      .get(edited.newResourceUid, oldResourceUid) as { basis_kind: string; transform_note: string }
+    expect(link).toEqual({ basis_kind: 'human_approved', transform_note: 'edit' })
+
+    // 旧リソース自体は②の正本として残る
+    const oldText = db.prepare(`SELECT text_body FROM resource_text WHERE uid = ?`).get(oldResourceUid) as {
+      text_body: string
+    }
+    expect(oldText.text_body).toBe('応答は速いこと。')
+  })
+
+  it('隣接要素のマージ: 1 要素へ統合し両元 ID を追跡する（EXT-014/015 相当）', () => {
+    const doc = createIntermediateDocument(db, projectUid, {
+      extractedDocumentUids: [extractedUid],
+      artifactTypeId: 'design_doc',
+      devPhaseId: 'DD'
+    })
+    const before = structureOf(doc.intermediateDocumentUid)
+    const oldA = before.elements[1]!.resource_uid!
+    const oldB = before.elements[2]!.resource_uid!
+
+    const merged = mergeElements(db, projectUid, doc.intermediateDocumentUid, ['i2', 'i3'])
+    const after = structureOf(doc.intermediateDocumentUid)
+    expect(after.elements).toHaveLength(3)
+    expect(after.elements[1]!.text).toBe('応答は速いこと。\n目安は100msである。')
+
+    const links = db
+      .prepare(`SELECT to_uid FROM trace_link WHERE from_uid = ? AND transform_note = 'merge' ORDER BY to_uid`)
+      .all(merged.newResourceUid) as { to_uid: string }[]
+    expect(links.map((l) => l.to_uid).sort()).toEqual([oldA, oldB].sort())
+
+    // 非隣接はエラー
+    expect(() => mergeElements(db, projectUid, doc.intermediateDocumentUid, ['i1', 'i4'])).toThrowError(/隣接/)
+  })
+
+  it('分割: 2 新リソースへ分割し双方から元 ID を追跡する', () => {
+    const doc = createIntermediateDocument(db, projectUid, {
+      extractedDocumentUids: [extractedUid],
+      artifactTypeId: 'design_doc',
+      devPhaseId: 'DD'
+    })
+    const oldUid = structureOf(doc.intermediateDocumentUid).elements[1]!.resource_uid!
+
+    const split = splitElement(db, projectUid, doc.intermediateDocumentUid, 'i2', [
+      '応答は速いこと。',
+      '具体値は別途定める。'
+    ])
+    expect(split.newElementIds).toEqual(['i2a', 'i2b'])
+
+    const after = structureOf(doc.intermediateDocumentUid)
+    expect(after.elements).toHaveLength(5)
+    expect(after.elements[1]!.text).toBe('応答は速いこと。')
+    expect(after.elements[2]!.text).toBe('具体値は別途定める。')
+
+    const links = db
+      .prepare(`SELECT COUNT(*) AS n FROM trace_link WHERE to_uid = ? AND transform_note = 'split'`)
+      .get(oldUid) as { n: number }
+    expect(links.n).toBe(2)
+  })
+
+  it('チャンク: 作成・本文再生成・一覧・削除（P7-5 / MID-030〜034）', () => {
+    const doc = createIntermediateDocument(db, projectUid, {
+      extractedDocumentUids: [extractedUid],
+      artifactTypeId: 'design_doc',
+      devPhaseId: 'DD'
+    })
+    const chunk = createChunk(db, projectUid, doc.intermediateDocumentUid, ['i1', 'i2', 'i4'])
+    expect(chunk.code).toMatch(/^CHUNK-\d{6}$/)
+    expect(chunk.tokenCount).toBe(estimateTokens('1. 概要\n応答は速いこと。\n対象A'))
+
+    // 本文は resource_* から再生成される（二重管理しない。§9.2）
+    const text = getChunkText(db, chunk.chunkUid)
+    expect(text).toBe('# 1. 概要\n応答は速いこと。\n- 対象A')
+
+    expect(listChunks(db, doc.intermediateDocumentUid)).toHaveLength(1)
+
+    deleteChunk(db, chunk.chunkUid)
+    expect(listChunks(db, doc.intermediateDocumentUid)).toHaveLength(0)
+    expect(() => getChunkText(db, chunk.chunkUid)).toThrowError(/見つかりません/)
+  })
+})
