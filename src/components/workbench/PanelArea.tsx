@@ -3,6 +3,7 @@
  */
 import { useWorkbenchStore, type PanelTab } from '../../stores/workbench-store'
 import { JobsListView } from '../views/JobsListView'
+import { LlmLogsPanel } from '../views/LlmViews'
 
 const TABS: { id: PanelTab; label: string }[] = [
   { id: 'problems', label: 'Problems' },
@@ -40,10 +41,12 @@ export function PanelArea(): React.JSX.Element {
       <div className="wb-panel-body">
         {tab === 'jobs' ? (
           <JobsListView />
+        ) : tab === 'llm' ? (
+          <LlmLogsPanel />
         ) : (
           <div className="d2d-empty">
-            {TABS.find((t) => t.id === tab)?.label} は対応機能の実装時に接続します（Problems/Validation: P8〜P9、LLM
-            Logs: P6、Search: P11）
+            {TABS.find((t) => t.id === tab)?.label} は対応機能の実装時に接続します（Problems/Validation: P8〜P9、Search:
+            P11）
           </div>
         )}
       </div>

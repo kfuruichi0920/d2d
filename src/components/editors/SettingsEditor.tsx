@@ -8,12 +8,15 @@ import { invoke } from '../../services/backend'
 import { useJobsStore } from '../../stores/jobs-store'
 import { useWorkbenchStore } from '../../stores/workbench-store'
 import { COLOR_THEMES, DISPLAY_MODES } from '../../theme/theme'
+import { LlmSettingsSection } from '../views/LlmViews'
+import { useProjectStore } from '../../stores/project-store'
 
 export function SettingsEditor(): React.JSX.Element {
   const theme = useWorkbenchStore((s) => s.theme)
   const setTheme = useWorkbenchStore((s) => s.setTheme)
   const notify = useJobsStore((s) => s.notify)
 
+  const hasProject = useProjectStore((s) => s.project !== null)
   const [secretKeys, setSecretKeys] = useState<string[]>([])
   const [newKeyName, setNewKeyName] = useState('openai_api_key')
   const [newKeyValue, setNewKeyValue] = useState('')
@@ -112,6 +115,13 @@ export function SettingsEditor(): React.JSX.Element {
           暗号化保存
         </button>
       </div>
+
+      {hasProject && <LlmSettingsSection />}
+      {!hasProject && (
+        <p style={{ color: 'var(--d2d-fg-muted)', marginTop: 20 }}>
+          LLM Provider 設定はプロジェクトを開くと表示されます（外部送信可否はプロジェクト単位のため）。
+        </p>
+      )}
     </div>
   )
 }

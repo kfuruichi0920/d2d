@@ -1,5 +1,6 @@
 import { test, expect, _electron as electron, type ElectronApplication, type Page } from '@playwright/test'
 import { execFileSync } from 'node:child_process'
+import { createServer } from 'node:http'
 import { rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -181,6 +182,82 @@ test('原本取込→Word抽出→レビュー→②正本確定の全経路（P
   ).toBeVisible()
 
   rmSync(docxPath, { force: true })
+})
+
+test('LLM 実行（モック Ollama）→ ログビューまでの全経路（P6）', async () => {
+  // モック Ollama サーバを起動（Backend の fetch が接続する）
+  const mock = createServer((req, res) => {
+    let data = ''
+    req.on('data', (c) => (data += c))
+    req.on('end', () => {
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(
+        JSON.stringify({
+          message: { content: 'モックLLM応答: OK' },
+          prompt_eval_count: 15,
+          eval_count: 5
+        })
+      )
+    })
+  })
+  await new Promise<void>((resolve) => mock.listen(0, '127.0.0.1', resolve))
+  const port = (mock.address() as { port: number }).port
+
+  try {
+    // Provider を ollama（ローカル扱い）+ モック endpoint に設定
+    await page.evaluate(
+      async ([endpoint]) => {
+        await window.api.invoke('settings.set', { key: 'llm.provider', value: 'ollama' })
+        await window.api.invoke('settings.set', { key: 'llm.ollama.endpoint', value: endpoint })
+        await window.api.invoke('settings.set', { key: 'llm.ollama.model', value: 'mock-model' })
+      },
+      [`http://127.0.0.1:${port}`]
+    )
+
+    // 送信前確認（LLM-040）: preview はローカル・警告なしで送信内容を返す
+    const preview = await page.evaluate(
+      async () =>
+        await window.api.invoke<{ external: boolean; maskedMessages: { content: string }[] }>('llm.preview', {
+          messages: [{ role: 'user', content: 'テスト送信 sk-abcdefghijklmnop1234' }]
+        })
+    )
+    expect(preview).toMatchObject({ ok: true, result: { external: false } })
+    if (preview.ok) {
+      expect(preview.result.maskedMessages[0]!.content).not.toContain('sk-abcdefghijklmnop1234')
+    }
+
+    // LLM 実行ジョブ → 完了待ち
+    const run = await page.evaluate(async () => {
+      const enq = await window.api.invoke<{ jobId: string }>('llm.run', {
+        messages: [{ role: 'user', content: 'こんにちは' }],
+        processName: 'e2e-test'
+      })
+      if (!enq.ok) return enq
+      for (let i = 0; i < 60; i++) {
+        const got = await window.api.invoke<{ status: string; output: { llmRunUid: string } }>('job.get', {
+          jobId: enq.result.jobId
+        })
+        if (got.ok && ['success', 'failed', 'aborted'].includes(got.result.status)) return got
+        await new Promise((r) => setTimeout(r, 250))
+      }
+      return { ok: false as const, error: { error_code: 'internal', message: 'timeout', detail: '', retryable: false } }
+    })
+    expect(run).toMatchObject({ ok: true, result: { status: 'success' } })
+
+    // Panel の LLM Logs に実行が表示される（UI-018）
+    await page.getByTestId('status-jobs').click()
+    await page.getByTestId('panel-tab-llm').click()
+    await expect(page.getByTestId('llm-logs-list')).toContainText('e2e-test')
+    await expect(page.getByTestId('llm-logs-list')).toContainText('ollama/mock-model')
+    await expect(page.getByTestId('llm-logs-list')).toContainText('in:15 out:5')
+
+    // ログビューアで応答本文を確認（LLM-011/015）
+    await page.getByTestId('llm-logs-list').locator('.d2d-list-row').first().click()
+    await expect(page.getByTestId('llm-run-viewer')).toBeVisible()
+    await expect(page.getByTestId('llm-result-text')).toContainText('モックLLM応答: OK')
+  } finally {
+    mock.close()
+  }
 })
 
 test('スクリーンショットを保存する', async () => {

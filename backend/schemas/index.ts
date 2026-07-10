@@ -6,13 +6,15 @@ import Ajv, { type ValidateFunction } from 'ajv'
 import addFormats from 'ajv-formats'
 import { BackendError } from '../api/errors'
 import projectD2dSchema from './project-d2d.schema.json'
+import llmCandidateSchema from './llm-candidate.schema.json'
 
 const ajv = new Ajv({ allErrors: true, strict: true })
 addFormats(ajv)
 
 ajv.addSchema(projectD2dSchema)
+ajv.addSchema(llmCandidateSchema)
 
-export type SchemaId = 'd2d://schemas/project-d2d'
+export type SchemaId = 'd2d://schemas/project-d2d' | 'd2d://schemas/llm-candidate-set'
 
 /** スキーマ検証し、違反があれば validation エラー契約で例外を投げる */
 export function validateSchema<T>(schemaId: SchemaId, data: unknown, subject: string): T {

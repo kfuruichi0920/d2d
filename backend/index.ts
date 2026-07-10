@@ -22,6 +22,9 @@ import { callMain, handleBridgeMessage, initMainBridge } from './main-bridge'
 import { runWorker } from './workers/worker-runner'
 import { requireProject, type ProjectInfo } from './project/project-service'
 import { registerDocumentApi } from './api/documents'
+import { registerLlmApi } from './api/llm'
+import { runLlm } from './llm/llm-service'
+import type { ChatMessage } from './llm/providers'
 import { getSourceDocument, importSourceDocument } from './import/import-service'
 import { storeExtractionResult, type ExtractionOutput } from './extract/store-extraction'
 import { BackendError } from './api/errors'
@@ -136,6 +139,29 @@ function main(): void {
     }
   })
 
+  // LLM 実行ジョブ（P6、NFR-003。UI をブロックせず、キャンセル可能）
+  jobs.registerExecutor('llm.run', async (params, ctx) => {
+    const { messages, processName, jsonMode } = params as {
+      messages: ChatMessage[]
+      processName: string
+      jsonMode?: boolean
+    }
+    const { db, info } = requireProject()
+    ctx.reportProgress(10, 'LLM へ送信中')
+    const result = await runLlm(
+      db,
+      settings,
+      { projectUid: info.projectUid, rootPath: info.rootPath },
+      { processName, messages, jsonMode, signal: ctx.signal }
+    )
+    ctx.log('info', `LLM 実行完了: ${result.code}`, {
+      inputTokens: result.inputTokens,
+      outputTokens: result.outputTokens,
+      durationMs: result.durationMs
+    })
+    return { status: 'success', output: result }
+  })
+
   // プロジェクト open/close に応じてジョブログ出力先を切り替える
   eventBus.on('project.opened', (_event, payload) => {
     const info = payload as ProjectInfo
@@ -150,6 +176,7 @@ function main(): void {
   registerJobApi(router, jobs)
   registerFeatureApi(router)
   registerDocumentApi(router, jobs)
+  registerLlmApi(router, jobs, settings)
 
   // Backend 内イベントを Renderer へ転送する（CORE-030〜032）
   eventBus.onAny((event, payload) => {
