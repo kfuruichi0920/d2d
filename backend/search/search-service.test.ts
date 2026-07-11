@@ -51,9 +51,15 @@ describe('P11 MeCab + FTS5 検索', () => {
     expect(response.indexCount).toBe(1)
   })
 
+  it('MeCab設定済みでも利用フラグのデフォルトは無効', () => {
+    text('既定無効', 'MeCabを起動しない')
+    const rebuilt = rebuildSearchIndex(db, projectUid, { mecabPath: process.execPath })
+    expect(rebuilt.tokenizer).toBe('unicode')
+    expect(rebuilt.warning).toBeUndefined()
+  })
   it('存在しないMeCabパスではUnicodeフォールバックを使う', () => {
     text('診断要求', '故障を診断する')
-    const rebuilt = rebuildSearchIndex(db, projectUid, { mecabPath: 'Z:\\missing\\mecab.exe' })
+    const rebuilt = rebuildSearchIndex(db, projectUid, { useMecab: true, mecabPath: 'Z:\\missing\\mecab.exe' })
     expect(rebuilt.tokenizer).toBe('unicode')
     expect(rebuilt.warning).toContain('MeCab が見つかりません')
   })

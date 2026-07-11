@@ -4,6 +4,7 @@ import type { Database } from 'better-sqlite3'
 import { BackendError } from '../api/errors'
 
 export interface SearchSettings {
+  useMecab?: boolean
   mecabPath?: string
   dictionaryPath?: string
   userDictionaryPaths?: string[]
@@ -55,6 +56,10 @@ export class JapaneseTokenizer {
   readonly mode: 'mecab' | 'unicode'
   readonly warning?: string
   constructor(private readonly settings: SearchSettings) {
+    if (!settings.useMecab) {
+      this.mode = 'unicode'
+      return
+    }
     const path = settings.mecabPath?.trim()
     this.mode = path && existsSync(path) ? 'mecab' : 'unicode'
     if (path && !existsSync(path)) this.warning = `MeCab が見つかりません: ${path}`

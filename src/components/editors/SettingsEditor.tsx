@@ -10,6 +10,7 @@ import { useWorkbenchStore } from '../../stores/workbench-store'
 import { COLOR_THEMES, DISPLAY_MODES } from '../../theme/theme'
 import { LlmSettingsSection } from '../views/LlmViews'
 import { useProjectStore } from '../../stores/project-store'
+import { SearchEngineSettingsSection } from '../views/SearchSettingsView'
 
 export function SettingsEditor(): React.JSX.Element {
   const theme = useWorkbenchStore((s) => s.theme)
@@ -116,6 +117,7 @@ export function SettingsEditor(): React.JSX.Element {
         </button>
       </div>
 
+      {hasProject && <SearchEngineSettingsSection />}
       {hasProject && <LlmSettingsSection />}
       {!hasProject && (
         <p style={{ color: 'var(--d2d-fg-muted)', marginTop: 20 }}>
