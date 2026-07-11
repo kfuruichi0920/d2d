@@ -9,6 +9,7 @@ node_modules/
 
 # Python
 workers/python/__pycache__/
+workers/python/**/__pycache__/
 workers/python/.venv/
 workers/python/dist/
 workers/python/build/
@@ -27,6 +28,7 @@ archives/
 coverage/
 playwright-report/
 test-results/
+.pytest_cache/
 
 # OS
 .DS_Store

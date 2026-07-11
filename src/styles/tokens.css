@@ -1,0 +1,66 @@
+/**
+ * D2D デザイントークン（P3-3、UI-001/002/027）。
+ *
+ * カラーテーマ: Serendie Design System の 5 テーマ（konjo/asagi/sumire/tsutsuji/kurikawa）を
+ * data-panda-theme 属性で切り替え、アクセント系は --sd-system-* を参照する。
+ * 表示モード: data-d2d-mode="light|dark"。Serendie v1 はダーク変種が konjo-dark のみのため、
+ * IDE クローム（surface/border/fg）は D2D 側トークンで両モードを定義し、
+ * アクセント・状態色は Serendie トークンへ委譲する。
+ * コンポーネントに固定色を直書きしない（sdd_ui_design §2.4）。
+ */
+
+:root {
+  /* アクセント（Serendie トークンへ委譲） */
+  --d2d-accent: var(--sd-system-color-impression-primary, #0a6dd1);
+  --d2d-accent-container: var(--sd-system-color-impression-primaryContainer, #d6e8fa);
+  --d2d-on-accent: var(--sd-system-color-impression-onPrimary, #ffffff);
+
+  /* 状態色（Serendie impression 系） */
+  --d2d-error: var(--sd-system-color-impression-negative, #d43c3c);
+  --d2d-warning: var(--sd-system-color-impression-notice, #b7860c);
+  --d2d-success: var(--sd-system-color-impression-positive, #2c8c4d);
+
+  /* レビュー状態色（sdd_ui_design §2.4: 全ビューで同一表現） */
+  --d2d-review-unconfirmed: var(--d2d-warning);
+  --d2d-review-confirmed: var(--d2d-success);
+  --d2d-review-needsfix: var(--d2d-error);
+  --d2d-review-rejected: var(--d2d-fg-muted);
+  --d2d-review-candidate: var(--d2d-accent);
+
+  /* 寸法（IDE 風コンパクト、UI-008） */
+  --d2d-titlebar-height: 32px;
+  --d2d-pipeline-height: 40px;
+  --d2d-activitybar-width: 44px;
+  --d2d-statusbar-height: 24px;
+  --d2d-tab-height: 32px;
+  --d2d-font-size: 12.5px;
+  --d2d-radius: 4px;
+}
+
+/* 表示モード: dark（既定） */
+:root[data-d2d-mode='dark'] {
+  color-scheme: dark;
+  --d2d-bg: #1b1d21;
+  --d2d-surface: #232529;
+  --d2d-surface-raised: #2a2d33;
+  --d2d-surface-hover: #33363d;
+  --d2d-fg: #d6d8dc;
+  --d2d-fg-muted: #8b8f98;
+  --d2d-border: #3a3d45;
+  --d2d-shadow: rgba(0, 0, 0, 0.5);
+  --d2d-selection-bg: color-mix(in srgb, var(--d2d-accent) 28%, transparent);
+}
+
+/* 表示モード: light */
+:root[data-d2d-mode='light'] {
+  color-scheme: light;
+  --d2d-bg: #f5f6f8;
+  --d2d-surface: #ffffff;
+  --d2d-surface-raised: #eef0f3;
+  --d2d-surface-hover: #e3e6ea;
+  --d2d-fg: #24272c;
+  --d2d-fg-muted: #6b7078;
+  --d2d-border: #d3d7dd;
+  --d2d-shadow: rgba(0, 0, 0, 0.18);
+  --d2d-selection-bg: color-mix(in srgb, var(--d2d-accent) 18%, transparent);
+}

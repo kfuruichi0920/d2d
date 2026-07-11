@@ -1,0 +1,288 @@
+/**
+ * ③中間データ API（P7）。統合・編集・チャンク・LLM 候補（正規化/図表説明）。
+ */
+import type { ApiRouter } from './router'
+import { BackendError } from './errors'
+import type { JobManager } from '../jobs/job-manager'
+import { requireProject } from '../project/project-service'
+import { eventBus } from '../events/event-bus'
+import { generateMarkdown, type MarkdownVariant } from '../extract/markdown-gen'
+import {
+  createChunk,
+  createIntermediateDocument,
+  deleteChunk,
+  editElementText,
+  getChunkText,
+  listChunks,
+  mergeElements,
+  splitElement,
+  type IntermediateStructure
+} from '../intermediate/intermediate-service'
+import { listArtifactSettings, listDevPhases, saveArtifactSetting, saveDevPhase } from '../project/project-settings'
+
+function asRecord(params: unknown): Record<string, unknown> {
+  if (typeof params !== 'object' || params === null) {
+    throw new BackendError('validation', 'パラメータオブジェクトが必要です', String(params))
+  }
+  return params as Record<string, unknown>
+}
+
+function requireString(params: Record<string, unknown>, key: string): string {
+  const value = params[key]
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new BackendError('validation', `${key} は必須の文字列です`, '')
+  }
+  return value
+}
+
+/**
+ * 成果物種別・開発フェーズ設定を解決する。
+ * 未設定プロジェクトでは既定値（統合設計書 / DD）を自動作成して通知する（MVP 運用）。
+ */
+function resolveArtifactAndPhase(
+  db: ReturnType<typeof requireProject>['db'],
+  projectUid: string,
+  artifactTypeId?: string,
+  devPhaseId?: string
+): { artifactTypeId: string; devPhaseId: string } {
+  let artifacts = listArtifactSettings(db, projectUid).filter((a) => a.is_active === 1)
+  if (artifacts.length === 0) {
+    saveArtifactSetting(db, projectUid, { artifactName: '統合設計書', artifactTypeId: 'design_doc' })
+    artifacts = listArtifactSettings(db, projectUid)
+    eventBus.emit('artifact.updated', { kind: 'default-artifact-created' })
+  }
+  let phases = listDevPhases(db, projectUid).filter((p) => p.is_active === 1)
+  if (phases.length === 0) {
+    saveDevPhase(db, projectUid, { devPhaseId: 'DD', devPhaseName: '詳細設計' })
+    phases = listDevPhases(db, projectUid)
+  }
+
+  const artifact = artifactTypeId ?? artifacts[0]!.artifact_type_id
+  const phase = devPhaseId ?? phases[0]!.dev_phase_id
+  if (!artifacts.some((a) => a.artifact_type_id === artifact)) {
+    throw new BackendError(
+      'validation',
+      `未定義の成果物種別です: ${artifact}`,
+      'プロジェクト設定で成果物を定義してください（CORE-012）'
+    )
+  }
+  if (!phases.some((p) => p.dev_phase_id === phase)) {
+    throw new BackendError(
+      'validation',
+      `未定義の開発フェーズです: ${phase}`,
+      'プロジェクト設定で開発フェーズを定義してください（CORE-012）'
+    )
+  }
+  return { artifactTypeId: artifact, devPhaseId: phase }
+}
+
+export function registerIntermediateApi(router: ApiRouter, jobs: JobManager): void {
+  /** ②（承認済み）→③ 統合生成（P7-1） */
+  router.register('intermediate.create', (params) => {
+    const p = asRecord(params)
+    const { db, info } = requireProject()
+    const uids = Array.isArray(p.extractedDocumentUids) ? (p.extractedDocumentUids as string[]) : []
+    const resolved = resolveArtifactAndPhase(
+      db,
+      info.projectUid,
+      p.artifactTypeId === undefined ? undefined : String(p.artifactTypeId),
+      p.devPhaseId === undefined ? undefined : String(p.devPhaseId)
+    )
+    return createIntermediateDocument(db, info.projectUid, {
+      extractedDocumentUids: uids,
+      title: p.title === undefined ? undefined : String(p.title),
+      ...resolved
+    })
+  })
+
+  router.register('intermediate.list', () => {
+    const { db, info } = requireProject()
+    return db
+      .prepare(
+        `SELECT e.uid, e.code, e.title, e.status, d.artifact_type_id, d.dev_phase_id, d.intermediate_status, d.generated_at,
+                (SELECT COUNT(*) FROM intermediate_item i WHERE i.intermediate_document_uid = d.uid) AS item_count
+           FROM intermediate_document d JOIN entity_registry e ON e.uid = d.uid
+          WHERE e.project_uid = ? AND e.status <> 'deleted'
+          ORDER BY d.generated_at DESC`
+      )
+      .all(info.projectUid)
+  })
+
+  router.register('intermediate.get', (params) => {
+    const p = asRecord(params)
+    const uid = requireString(p, 'uid')
+    const { db } = requireProject()
+    const doc = db
+      .prepare(
+        `SELECT e.uid, e.code, e.title, e.status, d.artifact_type_id, d.dev_phase_id, d.intermediate_status, d.structure_json
+           FROM intermediate_document d JOIN entity_registry e ON e.uid = d.uid WHERE d.uid = ?`
+      )
+      .get(uid) as { structure_json: string } | undefined
+    if (!doc) {
+      throw new BackendError('not_found', `中間文書が見つかりません: ${uid}`, '')
+    }
+    const structure = JSON.parse(doc.structure_json) as IntermediateStructure
+    const statusByUid = new Map<string, string>(
+      (
+        db
+          .prepare(
+            `SELECT i.resource_uid AS uid, e.status FROM intermediate_item i JOIN entity_registry e ON e.uid = i.resource_uid
+              WHERE i.intermediate_document_uid = ?`
+          )
+          .all(uid) as { uid: string; status: string }[]
+      ).map((r) => [r.uid, r.status])
+    )
+    return {
+      ...doc,
+      structure_json: undefined,
+      metadata: structure.metadata,
+      sources: structure.sources,
+      elements: structure.elements.map((e) => ({
+        ...e,
+        review: e.resource_uid ? { status: statusByUid.get(e.resource_uid) ?? 'draft' } : undefined
+      }))
+    }
+  })
+
+  router.register('intermediate.getMarkdown', (params) => {
+    const p = asRecord(params)
+    const uid = requireString(p, 'uid')
+    const variant = (p.variant === 'clean' ? 'clean' : 'review') as MarkdownVariant
+    const { db } = requireProject()
+    const doc = db.prepare(`SELECT structure_json FROM intermediate_document WHERE uid = ?`).get(uid) as
+      { structure_json: string } | undefined
+    if (!doc) {
+      throw new BackendError('not_found', `中間文書が見つかりません: ${uid}`, '')
+    }
+    const structure = JSON.parse(doc.structure_json) as IntermediateStructure
+    return { markdown: generateMarkdown(structure.elements, variant), variant }
+  })
+
+  // ---- P7-2: 編集・マージ・分割 ----
+
+  router.register('intermediate.editElementText', (params) => {
+    const p = asRecord(params)
+    const { db, info } = requireProject()
+    return editElementText(
+      db,
+      info.projectUid,
+      requireString(p, 'uid'),
+      requireString(p, 'elementId'),
+      requireString(p, 'newText')
+    )
+  })
+
+  router.register('intermediate.mergeElements', (params) => {
+    const p = asRecord(params)
+    const { db, info } = requireProject()
+    const ids = Array.isArray(p.elementIds) ? (p.elementIds as string[]) : []
+    if (ids.length !== 2) {
+      throw new BackendError('validation', 'マージ対象は 2 要素を指定してください', '')
+    }
+    return mergeElements(db, info.projectUid, requireString(p, 'uid'), [ids[0]!, ids[1]!])
+  })
+
+  router.register('intermediate.splitElement', (params) => {
+    const p = asRecord(params)
+    const { db, info } = requireProject()
+    const texts = Array.isArray(p.texts) ? (p.texts as string[]) : []
+    if (texts.length !== 2) {
+      throw new BackendError('validation', '分割後の 2 本文を指定してください', '')
+    }
+    return splitElement(db, info.projectUid, requireString(p, 'uid'), requireString(p, 'elementId'), [
+      texts[0]!,
+      texts[1]!
+    ])
+  })
+
+  /** ③正本確定（intermediate.updated 発行） */
+  router.register('intermediate.approve', (params) => {
+    const p = asRecord(params)
+    const uid = requireString(p, 'uid')
+    const { db } = requireProject()
+    const ts = new Date().toISOString()
+    const txn = db.transaction(() => {
+      const doc = db
+        .prepare(`UPDATE entity_registry SET status = 'approved', updated_by = 'user', updated_at = ? WHERE uid = ?`)
+        .run(ts, uid)
+      if (doc.changes === 0) {
+        throw new BackendError('not_found', `中間文書が見つかりません: ${uid}`, '')
+      }
+      db.prepare(`UPDATE intermediate_document SET intermediate_status = 'ready' WHERE uid = ?`).run(uid)
+      return db
+        .prepare(
+          `UPDATE entity_registry SET status = 'approved', updated_by = 'user', updated_at = ?
+            WHERE status <> 'rejected'
+              AND uid IN (SELECT resource_uid FROM intermediate_item WHERE intermediate_document_uid = ?)`
+        )
+        .run(ts, uid).changes
+    })
+    const approvedCount = txn()
+    eventBus.emit('intermediate.updated', { intermediateDocumentUid: uid, kind: 'approved', approvedCount })
+    return { approved: true, approvedCount }
+  })
+
+  // ---- P7-5: チャンク（MID-030〜034） ----
+
+  router.register('chunk.create', (params) => {
+    const p = asRecord(params)
+    const { db, info } = requireProject()
+    return createChunk(
+      db,
+      info.projectUid,
+      requireString(p, 'intermediateDocumentUid'),
+      Array.isArray(p.elementIds) ? (p.elementIds as string[]) : [],
+      p.promptTemplateUid === undefined ? undefined : String(p.promptTemplateUid)
+    )
+  })
+
+  router.register('chunk.list', (params) => {
+    const p = asRecord(params)
+    const { db } = requireProject()
+    return listChunks(db, requireString(p, 'intermediateDocumentUid'))
+  })
+
+  router.register('chunk.getText', (params) => {
+    const p = asRecord(params)
+    const { db } = requireProject()
+    return { text: getChunkText(db, requireString(p, 'uid')) }
+  })
+
+  router.register('chunk.delete', (params) => {
+    const p = asRecord(params)
+    const { db } = requireProject()
+    deleteChunk(db, requireString(p, 'uid'))
+    return { deleted: true }
+  })
+
+  // ---- P7-4/P7-6: LLM 候補（正規化テキスト・図表説明） ----
+
+  /**
+   * テキスト候補生成ジョブを開始する（purpose: normalize=正規化 / describe=図表説明）。
+   * LLM 出力は候補であり、採用（adoptTextCandidate）まで③正本を変更しない（MID-013/026）。
+   */
+  router.register('intermediate.generateTextCandidate', (params) => {
+    const p = asRecord(params)
+    requireProject()
+    const purpose = p.purpose === 'describe' ? 'describe' : 'normalize'
+    return jobs.enqueue('intermediate.textCandidate', {
+      uid: requireString(p, 'uid'),
+      elementId: requireString(p, 'elementId'),
+      purpose
+    })
+  })
+
+  /** 候補の採用: 新リソース + basis_kind=normalized + llm_run 参照で③へ反映（MID-014/027） */
+  router.register('intermediate.adoptTextCandidate', (params) => {
+    const p = asRecord(params)
+    const { db, info } = requireProject()
+    return editElementText(
+      db,
+      info.projectUid,
+      requireString(p, 'uid'),
+      requireString(p, 'elementId'),
+      requireString(p, 'newText'),
+      { llmRunUid: requireString(p, 'llmRunUid') }
+    )
+  })
+}
