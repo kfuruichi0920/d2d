@@ -8,12 +8,14 @@ export function SearchEngineSettingsSection(): React.JSX.Element {
   const [message, setMessage] = useState('')
 
   useEffect(() => {
-    void invoke<Record<string, unknown>>('settings.getProjectSettings').then((result) => {
-      if (!result.ok) return
-      setMecabPath(String(result.result['search.mecabPath'] ?? ''))
-      setDictionaryPath(String(result.result['search.dictionaryPath'] ?? ''))
-      const paths = result.result['search.userDictionaryPaths']
-      setUserDictionaries(Array.isArray(paths) ? paths.join('\n') : '')
+    void Promise.all([
+      invoke<unknown>('settings.get', { key: 'search.mecabPath' }),
+      invoke<unknown>('settings.get', { key: 'search.dictionaryPath' }),
+      invoke<unknown>('settings.get', { key: 'search.userDictionaryPaths' })
+    ]).then(([mecab, dictionary, users]) => {
+      if (mecab.ok) setMecabPath(typeof mecab.result === 'string' ? mecab.result : '')
+      if (dictionary.ok) setDictionaryPath(typeof dictionary.result === 'string' ? dictionary.result : '')
+      if (users.ok) setUserDictionaries(Array.isArray(users.result) ? users.result.join('\n') : '')
     })
   }, [])
 
@@ -31,7 +33,7 @@ export function SearchEngineSettingsSection(): React.JSX.Element {
       ]
     ]
     for (const [key, value] of values) {
-      const result = await invoke('settings.setProjectSetting', { key, value })
+      const result = await invoke('settings.set', { key, value })
       if (!result.ok) {
         setMessage(result.error.message)
         return

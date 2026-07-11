@@ -341,7 +341,7 @@ function main(): void {
   registerTraceApi(router)
   registerEditApi(router, settings)
   registerDataApi(router, jobs)
-  registerSearchApi(router)
+  registerSearchApi(router, settings)
   registerDbToTextHook()
 
   // Backend 内イベントを Renderer へ転送する（CORE-030〜032）

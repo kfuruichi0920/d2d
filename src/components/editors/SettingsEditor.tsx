@@ -117,7 +117,7 @@ export function SettingsEditor(): React.JSX.Element {
         </button>
       </div>
 
-      {hasProject && <SearchEngineSettingsSection />}
+      <SearchEngineSettingsSection />
       {hasProject && <LlmSettingsSection />}
       {!hasProject && (
         <p style={{ color: 'var(--d2d-fg-muted)', marginTop: 20 }}>
