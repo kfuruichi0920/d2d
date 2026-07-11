@@ -11,9 +11,11 @@ import {
   adoptCandidates,
   createDesignElement,
   createTraceLink,
+  createVerificationFor,
   listDesignElements,
   listTraceLinks,
   RELATION_TYPES,
+  setVerificationDetail,
   type RelationType,
   type TraceLinkAttributes
 } from '../design/design-service'
@@ -98,6 +100,30 @@ export function registerDesignApi(router: ApiRouter, jobs: JobManager): void {
       category: p.category === undefined ? undefined : (String(p.category) as DesignCategory),
       status: p.status === undefined ? undefined : String(p.status)
     })
+  })
+
+  /** 検証項目の作成 + verifies 紐づけ（P10-5、EDIT-040/041） */
+  router.register('design.createVerification', (params) => {
+    const p = asRecord(params)
+    const { db, info } = requireProject()
+    return createVerificationFor(
+      db,
+      info.projectUid,
+      requireString(p, 'targetUid'),
+      p.title === undefined ? undefined : String(p.title)
+    )
+  })
+
+  /** 検証条件・手順・期待結果の保存（EDIT-042） */
+  router.register('design.setVerificationDetail', (params) => {
+    const p = asRecord(params)
+    const { db } = requireProject()
+    setVerificationDetail(db, requireString(p, 'uid'), {
+      condition: String(p.condition ?? ''),
+      procedure: String(p.procedure ?? ''),
+      expected: String(p.expected ?? '')
+    })
+    return { saved: true }
   })
 
   // ---- 関係（P8-2） ----

@@ -19,7 +19,7 @@ import {
   type ProjectFileContent,
   type ProjectPaths
 } from './layout'
-import { INITIAL_SCHEMA_VERSION } from '../db/schema/initial-schema'
+
 import { eventBus } from '../events/event-bus'
 
 export interface ProjectInfo {
@@ -86,10 +86,12 @@ export function createProject(input: CreateProjectInput): ProjectInfo {
     createdBy: 'user'
   })
 
+  // マイグレーション適用後の実際の schema_version を反映する
+  const schemaVersion = getProjectRow(db).schema_version
   const content: ProjectFileContent = {
     d2d_version: '1',
     project_uid: projectUid,
-    schema_version: INITIAL_SCHEMA_VERSION,
+    schema_version: schemaVersion,
     created_at: new Date().toISOString()
   }
   writeProjectFile(rootPath, content)
@@ -103,7 +105,7 @@ export function createProject(input: CreateProjectInput): ProjectInfo {
       name: input.name,
       description: input.description ?? null,
       rootPath,
-      schemaVersion: INITIAL_SCHEMA_VERSION,
+      schemaVersion,
       code
     }
   }

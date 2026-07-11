@@ -26,6 +26,7 @@ import { registerLlmApi } from './api/llm'
 import { registerIntermediateApi } from './api/intermediate'
 import { registerDesignApi } from './api/design'
 import { registerTraceApi } from './api/trace'
+import { registerEditApi } from './api/edit'
 import { getChunkText } from './intermediate/intermediate-service'
 import { validateCandidateOutput } from './llm/candidate-validation'
 import { runLlm } from './llm/llm-service'
@@ -320,6 +321,7 @@ function main(): void {
   registerIntermediateApi(router, jobs)
   registerDesignApi(router, jobs)
   registerTraceApi(router)
+  registerEditApi(router, settings)
 
   // Backend 内イベントを Renderer へ転送する（CORE-030〜032）
   eventBus.onAny((event, payload) => {

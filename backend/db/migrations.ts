@@ -25,7 +25,36 @@ export interface Migration {
  * 初期スキーマ（1.0.0）は createDatabase で適用するため含めない。
  * スキーマ変更時はここへ追加し、§10.4 の変更種別に応じて桁を上げる。
  */
-export const MIGRATIONS: Migration[] = []
+export const MIGRATIONS: Migration[] = [
+  {
+    // TBD-04 決定: resource_table_cell を別テーブルへ分割（互換的な機能追加 → 第2桁更新）
+    // セル ID（uid）は行内で安定に保持し、セル単位の設計根拠（EDIT-024/025）は
+    // trace_link.evidence_span からこの uid を参照して利用する。
+    // 注: entity_registry.entity_type の CHECK 制約更新（テーブル再構築）は破壊的変更を
+    // 避けるため見送り、セル行は entity_registry へ登録しない（登録は将来の 2.0.0 で検討）。
+    version: '1.1.0',
+    description: 'resource_table_cell 別テーブルの追加（TBD-04）',
+    apply(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS resource_table_cell (
+          uid TEXT PRIMARY KEY,
+          table_uid TEXT NOT NULL,
+          row_no INTEGER NOT NULL CHECK (row_no >= 0),
+          col_no INTEGER NOT NULL CHECK (col_no >= 0),
+          cell_text TEXT NOT NULL DEFAULT '',
+          colspan INTEGER NOT NULL DEFAULT 1 CHECK (colspan >= 1),
+          is_header INTEGER NOT NULL DEFAULT 0 CHECK (is_header IN (0, 1)),
+          UNIQUE (table_uid, row_no, col_no),
+          FOREIGN KEY (table_uid) REFERENCES resource_table(uid) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_resource_table_cell_table ON resource_table_cell(table_uid, row_no, col_no);
+      `)
+    }
+  }
+]
+
+/** 最新の schema_version（新規 DB 作成時にもマイグレーションを適用して到達させる） */
+export const LATEST_SCHEMA_VERSION = MIGRATIONS.at(-1)?.version ?? INITIAL_SCHEMA_VERSION
 
 export function compareVersion(a: string, b: string): number {
   const pa = a.split('.').map(Number)

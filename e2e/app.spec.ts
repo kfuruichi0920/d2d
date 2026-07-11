@@ -444,6 +444,91 @@ test('トレースクエリ→グラフ→マトリクス→整合性検査（P9
   await expect(page.getByTestId('notifications')).toContainText('クエリ結果を出力しました')
 })
 
+test('編集機能: 用語集・状態遷移・表編集・検証編集（P10）', async () => {
+  if (
+    !(await page
+      .getByTestId('documents-tree')
+      .isVisible()
+      .catch(() => false))
+  ) {
+    await page.getByTestId('activity-explorer').click()
+  }
+
+  // --- 用語集（P10-6）: 登録→承認→③ Markdown でハイライト（EDIT-050/054/056） ---
+  await page.getByTestId('open-glossary').click()
+  await expect(page.getByTestId('glossary-editor')).toBeVisible()
+  await page.getByTestId('glossary-term-input').fill('対象項目')
+  await page.getByTestId('glossary-def-input').fill('検討の対象とする項目')
+  await page.getByTestId('glossary-add').click()
+  await expect(page.getByTestId('glossary-term-GLOSS-000001')).toBeVisible()
+  await page.getByTestId('approve-GLOSS-000001').click()
+
+  // ③から候補抽出（EDIT-051/055）
+  await page.getByTestId('glossary-extract').click()
+  await expect(page.getByTestId('glossary-candidates')).toBeVisible()
+
+  // ③ Markdown プレビューに用語ハイライトが出る
+  await page.getByTestId('intermediate-doc-IMDOC-000001').click()
+  await expect(page.getByTestId('intermediate-editor')).toBeVisible()
+  await expect(page.getByTestId('intermediate-markdown').locator('mark.d2d-term').first()).toHaveText('対象項目')
+
+  // --- 表編集（P10-2）: セル修正→保存→Markdown へ反映（EDIT-022） ---
+  await page.getByTestId('intermediate-grid').getByText('table', { exact: true }).click()
+  await page.getByTestId('edit-table-button').click()
+  await expect(page.getByTestId('table-cell-editor')).toBeVisible()
+  await page.getByTestId('cell-1-1').fill('150ms以内')
+  await page.getByTestId('table-save').click()
+  await expect(page.getByTestId('intermediate-markdown')).toContainText('150ms以内')
+
+  // --- 状態遷移（P10-4）: 作成→状態/イベント/遷移追加→検出→シミュレーション ---
+  await page.getByTestId('add-state-machine').click()
+  await expect(page.getByTestId('state-machine-editor')).toBeVisible()
+  await page.getByTestId('new-state-input').fill('運転')
+  await page.getByTestId('add-state').click()
+  // 追加直後は遷移が無いので未到達として検出される（EDIT-035）
+  await expect(page.getByTestId('state-problems')).toContainText('到達できない状態です: 運転')
+
+  await page.getByTestId('new-event-input').fill('start')
+  await page.getByTestId('add-event').click()
+  await page.getByTestId('tr-from').selectOption('初期状態')
+  await page.getByTestId('tr-event').selectOption('start')
+  await page.getByTestId('tr-to').selectOption('運転')
+  await page.getByTestId('add-transition').click()
+  await expect(page.getByTestId('state-diagram')).toBeVisible()
+
+  // 簡易シミュレーション（EDIT-034）
+  await page.getByTestId('sim-input').fill('start')
+  await page.getByTestId('sim-run').click()
+  await expect(page.getByTestId('sim-result')).toContainText('最終状態: 運転')
+
+  // --- 検証編集（P10-5）: REQ に検証項目を紐づけ → 検証未対応の解消（EDIT-040/041） ---
+  await page.getByTestId('design-el-REQ-000001').click()
+  await expect(page.getByTestId('design-element-viewer')).toBeVisible()
+  await page.getByTestId('create-verification').click()
+  await expect(page.getByTestId('design-element-viewer')).toContainText('verifies')
+
+  // VERIF の検証詳細（EDIT-042）
+  await page.getByTestId('design-el-VERIF-000001').click()
+  await expect(page.getByTestId('verification-form')).toBeVisible()
+  await page.getByTestId('verif-condition').fill('通常負荷時')
+  await page.getByTestId('verif-expected').fill('100ms以内に応答する')
+  await page.getByTestId('verif-save').click()
+
+  // Problems から「検証未対応: REQ-000001」が消える
+  await page.getByTestId('status-jobs').click()
+  await page.getByTestId('panel-tab-problems').click()
+  await expect(page.getByTestId('panel')).not.toContainText('検証（verifies）が未対応の要求です: REQ-000001')
+
+  // --- モデルエディタ（P10-3 骨格）: jar 未設定の警告 + STRUCT 保存（FORM-002） ---
+  await page.getByTestId('open-model-editor').click()
+  await expect(page.getByTestId('model-editor')).toBeVisible()
+  await page.getByTestId('model-render').click()
+  await expect(page.getByTestId('notifications')).toContainText('レンダリングできません')
+  await page.getByTestId('add-mapping').click()
+  await page.getByTestId('model-save').click()
+  await expect(page.getByTestId('design-el-STRUCT-000001')).toBeVisible()
+})
+
 test('スクリーンショットを保存する', async () => {
   await page.screenshot({ path: 'test-results/workbench.png' })
 })

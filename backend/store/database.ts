@@ -52,6 +52,8 @@ export function createDatabase(dbFilePath: string, options: CreateDatabaseOption
     )
 
     seedRelationRules(db)
+    // 新規 DB も最新 schema_version までマイグレーションを適用する
+    runMigrations(db, dbFilePath)
     return db
   } catch (err) {
     db.close()

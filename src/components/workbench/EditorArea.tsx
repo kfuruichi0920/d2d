@@ -13,6 +13,8 @@ import { IntermediateDocumentEditor } from '../editors/IntermediateDocumentEdito
 import { CandidateSetReviewEditor } from '../editors/CandidateSetReviewEditor'
 import { DesignElementViewer } from '../views/DesignModelViews'
 import { BasisChainEditor, TraceGraphEditor, TraceMatrixEditor } from '../views/TraceViews'
+import { GlossaryEditor } from '../editors/GlossaryEditor'
+import { ModelPlaygroundEditor } from '../editors/ModelPlaygroundEditor'
 
 /** Resource URI → Editor Provider の解決（§10.2。P7 以降で Provider を追加する） */
 function resolveEditor(uri: string): React.JSX.Element {
@@ -34,6 +36,8 @@ function resolveEditor(uri: string): React.JSX.Element {
     return <TraceMatrixEditor initialRow={row ?? 'FUNC'} initialCol={col ?? 'REQ'} />
   }
   if (uri === 'trace://list-link') return <BasisChainEditor />
+  if (uri.startsWith('glossary://')) return <GlossaryEditor />
+  if (uri === 'model://playground') return <ModelPlaygroundEditor />
   return <div className="d2d-empty">この Resource（{uri}）の Editor Provider は未実装です。</div>
 }
 

@@ -4,7 +4,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ColumnDef } from '@tanstack/react-table'
-import { invoke } from '../../services/backend'
+import { invoke, onBackendEvent } from '../../services/backend'
 import { useEditorStore } from '../../stores/editor-store'
 import { useJobsStore } from '../../stores/jobs-store'
 import { useProjectStore } from '../../stores/project-store'
@@ -19,6 +19,7 @@ interface IntermediateElement {
   level?: number
   section_path?: string
   image?: string
+  rows?: { text: string }[][]
   resource_uid?: string
   review?: { status: string }
 }
@@ -48,21 +49,30 @@ export function IntermediateDocumentEditor({ uid }: { uid: string }): React.JSX.
   const [markdown, setMarkdown] = useState('')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [editText, setEditText] = useState<string | null>(null)
+  const [editCells, setEditCells] = useState<string[][] | null>(null)
   const [candidate, setCandidate] = useState<TextCandidate | null>(null)
   const [generating, setGenerating] = useState(false)
+  const [terms, setTerms] = useState<{ term: string; definition: string | null }[]>([])
   const notify = useJobsStore((s) => s.notify)
 
   const load = useCallback(async () => {
-    const [docRes, mdRes] = await Promise.all([
+    const [docRes, mdRes, termsRes] = await Promise.all([
       invoke<IntermediateDoc>('intermediate.get', { uid }),
-      invoke<{ markdown: string }>('intermediate.getMarkdown', { uid, variant: 'review' })
+      invoke<{ markdown: string }>('intermediate.getMarkdown', { uid, variant: 'review' }),
+      invoke<{ term_text: string; definition: string | null }[]>('glossary.list', { approvedOnly: true })
     ])
     if (docRes.ok) setDoc(docRes.result)
     if (mdRes.ok) setMarkdown(mdRes.result.markdown)
+    // 承認済み用語を Markdown ハイライトへ渡す（EDIT-054/056）
+    if (termsRes.ok) setTerms(termsRes.result.map((t) => ({ term: t.term_text, definition: t.definition })))
   }, [uid])
 
   useEffect(() => {
     void load()
+    // 用語承認等で開いたままのタブにもハイライトを反映する（EDIT-056）
+    return onBackendEvent((event) => {
+      if (event === 'glossary.updated') void load()
+    })
   }, [load])
 
   const selected = doc?.elements.find((e) => e.id === selectedId) ?? null
@@ -323,6 +333,16 @@ export function IntermediateDocumentEditor({ uid }: { uid: string }): React.JSX.
               {generating ? '生成中…' : 'LLM説明候補'}
             </button>
           )}
+          {selected.type === 'table' && (
+            <button
+              type="button"
+              className="d2d-btn small"
+              onClick={() => setEditCells((selected.rows ?? []).map((row) => row.map((cell) => cell.text)))}
+              data-testid="edit-table-button"
+            >
+              表を編集
+            </button>
+          )}
         </div>
       )}
 
@@ -344,6 +364,75 @@ export function IntermediateDocumentEditor({ uid }: { uid: string }): React.JSX.
               保存（新IDで反映）
             </button>
             <button type="button" className="d2d-btn small" onClick={() => setEditText(null)}>
+              キャンセル
+            </button>
+          </div>
+        </div>
+      )}
+
+      {editCells && selected && (
+        <div
+          style={{ padding: '6px 12px', borderBottom: '1px solid var(--d2d-border)' }}
+          data-testid="table-cell-editor"
+        >
+          <div style={{ fontWeight: 700, fontSize: 12, marginBottom: 4 }}>
+            表グリッド編集（EDIT-022。保存でセルIDを付与した新リソースへ反映）
+          </div>
+          <table style={{ borderCollapse: 'collapse' }}>
+            <tbody>
+              {editCells.map((row, rowNo) => (
+                <tr key={rowNo}>
+                  {row.map((cell, colNo) => (
+                    <td key={colNo} style={{ border: '1px solid var(--d2d-border)', padding: 2 }}>
+                      <input
+                        value={cell}
+                        style={{ width: 130 }}
+                        data-testid={`cell-${rowNo}-${colNo}`}
+                        onChange={(e) =>
+                          setEditCells((prev) =>
+                            prev!.map((r, i) => (i === rowNo ? r.map((c, j) => (j === colNo ? e.target.value : c)) : r))
+                          )
+                        }
+                      />
+                    </td>
+                  ))}
+                  <td>
+                    <button
+                      type="button"
+                      className="d2d-btn small"
+                      title="この行の右に列を追加"
+                      onClick={() => setEditCells((prev) => prev!.map((r, i) => (i === rowNo ? [...r, ''] : r)))}
+                    >
+                      +列
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
+            <button
+              type="button"
+              className="d2d-btn small"
+              onClick={() => setEditCells((prev) => [...prev!, prev![0]!.map(() => '')])}
+            >
+              +行
+            </button>
+            <button
+              type="button"
+              className="d2d-btn primary small"
+              data-testid="table-save"
+              onClick={() =>
+                void call(
+                  'table.editIntermediateTable',
+                  { elementId: selected.id, cells: editCells },
+                  '表を編集しました（セルIDを付与）'
+                ).then((ok) => ok && setEditCells(null))
+              }
+            >
+              保存
+            </button>
+            <button type="button" className="d2d-btn small" onClick={() => setEditCells(null)}>
               キャンセル
             </button>
           </div>
@@ -407,7 +496,7 @@ export function IntermediateDocumentEditor({ uid }: { uid: string }): React.JSX.
           style={{ flex: 1, minWidth: 0, overflow: 'auto', borderLeft: '1px solid var(--d2d-border)' }}
           data-testid="intermediate-markdown"
         >
-          <MarkdownPreview markdown={markdown} />
+          <MarkdownPreview markdown={markdown} terms={terms} />
         </div>
       </div>
     </div>

@@ -64,6 +64,9 @@ export interface DesignElementRow {
   owner_uid: string | null
   description: string | null
   updated_at: string
+  entity_type: string
+  /** VERIF の検証条件・手順・期待結果（EDIT-042。resource_text.context_json） */
+  verification_json: string | null
 }
 
 export function listDesignElements(
@@ -83,13 +86,82 @@ export function listDesignElements(
   }
   return db
     .prepare(
-      `SELECT e.uid, e.code, e.design_category, e.title, e.status, e.owner_uid, e.updated_at, t.text_body AS description
+      `SELECT e.uid, e.code, e.design_category, e.title, e.status, e.owner_uid, e.updated_at, e.entity_type,
+              t.text_body AS description, t.context_json AS verification_json
          FROM entity_registry e
          LEFT JOIN resource_text t ON t.uid = e.uid
         WHERE ${conditions.join(' AND ')}
         ORDER BY e.design_category, e.code`
     )
     .all(...params) as DesignElementRow[]
+}
+
+// ---- P10-5: 検証編集（EDIT-040〜042） ----
+
+export interface VerificationDetail {
+  condition: string
+  procedure: string
+  expected: string
+}
+
+/** VERIF 要素の検証条件・手順・期待結果を保存する（resource_text.context_json） */
+export function setVerificationDetail(db: Database, uid: string, detail: VerificationDetail): void {
+  const element = db
+    .prepare(`SELECT design_category FROM entity_registry WHERE uid = ? AND status <> 'deleted'`)
+    .get(uid) as { design_category: string | null } | undefined
+  if (!element) {
+    throw new BackendError('not_found', `設計要素が見つかりません: ${uid}`, '')
+  }
+  if (element.design_category !== 'VERIF') {
+    throw new BackendError(
+      'validation',
+      '検証詳細は VERIF 分類の要素にのみ設定できます',
+      `category=${element.design_category}`
+    )
+  }
+  const result = db.prepare(`UPDATE resource_text SET context_json = ? WHERE uid = ?`).run(JSON.stringify(detail), uid)
+  if (result.changes === 0) {
+    throw new BackendError('not_found', `検証要素の本文リソースが見つかりません: ${uid}`, '')
+  }
+  db.prepare(`UPDATE entity_registry SET updated_at = ?, updated_by = 'user' WHERE uid = ?`).run(nowIso(), uid)
+}
+
+/**
+ * 対象要素（REQ/CST/FUNC 等）に対する検証項目を作成し、verifies で紐づける（EDIT-040/041）。
+ * 同一トランザクションで要素作成とリンクを行う。
+ */
+export function createVerificationFor(
+  db: Database,
+  projectUid: string,
+  targetUid: string,
+  title?: string
+): { uid: string; code: string; linkUid: string } {
+  const target = db
+    .prepare(`SELECT code, title, design_category FROM entity_registry WHERE uid = ? AND status <> 'deleted'`)
+    .get(targetUid) as { code: string; title: string | null; design_category: string | null } | undefined
+  if (!target) {
+    throw new BackendError('not_found', `検証対象が見つかりません: ${targetUid}`, '')
+  }
+  const txn = db.transaction(() => {
+    const verif = createDesignElement(db, projectUid, {
+      category: 'VERIF',
+      title: title ?? `${target.title ?? target.code} の検証`,
+      createdBy: 'user'
+    })
+    db.prepare(`UPDATE entity_registry SET status = 'approved', updated_at = ? WHERE uid = ?`).run(nowIso(), verif.uid)
+    const link = createTraceLink(db, projectUid, {
+      fromUid: verif.uid,
+      toUid: targetUid,
+      relationType: 'verifies',
+      createdBy: 'human',
+      reviewStatus: 'approved'
+    })
+    return { ...verif, linkUid: link.uid }
+  })
+  const result = txn()
+  eventBus.emit('design_model.updated', { kind: 'verification-created', uid: result.uid })
+  eventBus.emit('relation.updated', { count: 1 })
+  return result
 }
 
 // ---- P8-2: 関係管理（relation_rule_master 検査） ----

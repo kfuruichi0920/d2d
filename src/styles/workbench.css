@@ -479,3 +479,17 @@
   background: var(--d2d-accent);
   transition: width 0.2s;
 }
+
+/* 用語ハイライト（P10-6、EDIT-054/056） */
+mark.d2d-term {
+  background: color-mix(in srgb, var(--d2d-warning) 30%, transparent);
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
+  cursor: help;
+}
+.d2d-markdown a[data-design-code] {
+  color: var(--d2d-accent);
+  text-decoration: underline;
+  cursor: pointer;
+}
