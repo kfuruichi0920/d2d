@@ -19,8 +19,8 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "rebuild:electron": "electron-rebuild -f -w better-sqlite3",
-    "rebuild:node": "npm rebuild better-sqlite3",
-    "licenses:report": "node scripts/check-licenses.mjs"
+    "licenses:report": "node scripts/check-licenses.mjs",
+    "postinstall": "npm run rebuild:electron"
   },
   "dependencies": {
     "@serendie/design-token": "^1.4.6",
