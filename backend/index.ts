@@ -27,6 +27,8 @@ import { registerIntermediateApi } from './api/intermediate'
 import { registerDesignApi } from './api/design'
 import { registerTraceApi } from './api/trace'
 import { registerEditApi } from './api/edit'
+import { registerDataApi, registerDbToTextHook } from './api/data'
+import { createArchive } from './export/archive-service'
 import { getChunkText } from './intermediate/intermediate-service'
 import { validateCandidateOutput } from './llm/candidate-validation'
 import { runLlm } from './llm/llm-service'
@@ -303,6 +305,21 @@ function main(): void {
     }
   })
 
+  // ZIP アーカイブ生成ジョブ（P12-3、DATA-030。blob 量に応じて長時間化するためジョブ化）
+  jobs.registerExecutor('archive.create', async (params, ctx) => {
+    const { name } = (params as { name?: string }) ?? {}
+    const { db, info } = requireProject()
+    const result = createArchive(db, info.projectUid, info.rootPath, {
+      name,
+      onProgress: (percent, message) => ctx.reportProgress(percent, message)
+    })
+    ctx.log('info', `アーカイブを作成しました: ${result.fileName}`, {
+      size: result.size,
+      fileCount: result.fileCount
+    })
+    return { status: 'success', output: result }
+  })
+
   // プロジェクト open/close に応じてジョブログ出力先を切り替える
   eventBus.on('project.opened', (_event, payload) => {
     const info = payload as ProjectInfo
@@ -322,6 +339,8 @@ function main(): void {
   registerDesignApi(router, jobs)
   registerTraceApi(router)
   registerEditApi(router, settings)
+  registerDataApi(router, jobs)
+  registerDbToTextHook()
 
   // Backend 内イベントを Renderer へ転送する（CORE-030〜032）
   eventBus.onAny((event, payload) => {

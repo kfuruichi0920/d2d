@@ -529,6 +529,61 @@ test('編集機能: 用語集・状態遷移・表編集・検証編集（P10）
   await expect(page.getByTestId('design-el-STRUCT-000001')).toBeVisible()
 })
 
+test('DB to Text・ZIPアーカイブ差分・ストア閲覧・Git参照（P12）', async () => {
+  // History Activity（M5 の入口）
+  if (
+    !(await page
+      .getByTestId('history-sidebar')
+      .isVisible()
+      .catch(() => false))
+  ) {
+    await page.getByTestId('activity-history').click()
+  }
+  await expect(page.getByTestId('history-sidebar')).toBeVisible()
+
+  // --- DB to Text 出力（P12-1、DATA-020〜023） ---
+  await page.getByTestId('export-db-to-text').click()
+  await expect(page.getByTestId('notifications')).toContainText('DB to Text を出力しました')
+
+  // --- SQLite dump（P12-2） ---
+  await page.getByTestId('export-sqlite-dump').click()
+  await expect(page.getByTestId('notifications')).toContainText('SQLite dump を出力しました')
+
+  // --- ZIP アーカイブ作成（P12-3、ジョブ実行 → archive.created でリスト更新） ---
+  await page.getByTestId('archive-create').click()
+  await expect(page.getByTestId('archives-list').locator('.d2d-list-row').first()).toBeVisible({ timeout: 30_000 })
+
+  // --- 差分インポート（P12-4）: アーカイブ後に用語を追加してから比較する ---
+  const added = await page.evaluate(
+    async () => await window.api.invoke('glossary.addTerm', { term: 'アーカイブ後追加用語' })
+  )
+  expect(added).toMatchObject({ ok: true })
+  await page.getByTestId('archives-list').locator('button', { hasText: '差分' }).first().click()
+  await expect(page.getByTestId('archive-diff-editor')).toBeVisible()
+  // entity_registry に追加分が現れる（左=アーカイブ / 右=現在）
+  const registryRow = page.getByTestId('diff-row-entity_registry.jsonl')
+  await expect(registryRow).toBeVisible()
+  await registryRow.click()
+  await expect(page.getByTestId('diff-editor')).toBeVisible()
+
+  // --- ストア閲覧（P12-7、UI-020） ---
+  if (
+    !(await page
+      .getByTestId('history-sidebar')
+      .isVisible()
+      .catch(() => false))
+  ) {
+    await page.getByTestId('activity-history').click()
+  }
+  await page.getByTestId('open-store-browser').click()
+  await expect(page.getByTestId('store-browser')).toBeVisible()
+  await page.getByTestId('store-table-entity_registry').click()
+  await expect(page.getByTestId('store-rows')).toContainText('REQ-000001')
+
+  // --- Git 履歴（P12-5）: 一時プロジェクトは非リポジトリ → 案内表示（GIT-007） ---
+  await expect(page.getByTestId('git-not-repo')).toContainText('Git リポジトリではありません')
+})
+
 test('スクリーンショットを保存する', async () => {
   await page.screenshot({ path: 'test-results/workbench.png' })
 })
