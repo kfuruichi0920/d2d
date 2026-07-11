@@ -11,6 +11,7 @@ import { ReviewQueueView } from '../views/ReviewQueueView'
 import { DocumentsTree } from '../views/DocumentsTree'
 import { TraceSideBar } from '../views/TraceViews'
 import { HistorySideBar } from '../views/HistoryViews'
+import { SearchSideBar } from '../views/SearchViews'
 
 const TITLES: Record<Activity, string> = {
   explorer: 'Explorer',
@@ -36,11 +37,8 @@ export function PrimarySideBar(): React.JSX.Element {
         {activity === 'trace' && <TraceSideBar />}
         {activity === 'settings' && <SettingsShortcutView />}
         {activity === 'history' && <HistorySideBar />}
-        {['search', 'reports'].includes(activity) && (
-          <div className="d2d-empty">
-            {TITLES[activity]} は{activity === 'search' ? ' P11（検索）' : ' P13（レポート）'}で実装予定
-          </div>
-        )}
+        {activity === 'search' && <SearchSideBar />}
+        {activity === 'reports' && <div className="d2d-empty">{TITLES[activity]} は P13（レポート）で実装予定</div>}
       </div>
     </aside>
   )

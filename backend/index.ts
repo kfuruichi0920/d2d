@@ -28,6 +28,7 @@ import { registerDesignApi } from './api/design'
 import { registerTraceApi } from './api/trace'
 import { registerEditApi } from './api/edit'
 import { registerDataApi, registerDbToTextHook } from './api/data'
+import { registerSearchApi } from './api/search'
 import { createArchive } from './export/archive-service'
 import { getChunkText } from './intermediate/intermediate-service'
 import { validateCandidateOutput } from './llm/candidate-validation'
@@ -340,6 +341,7 @@ function main(): void {
   registerTraceApi(router)
   registerEditApi(router, settings)
   registerDataApi(router, jobs)
+  registerSearchApi(router, settings)
   registerDbToTextHook()
 
   // Backend 内イベントを Renderer へ転送する（CORE-030〜032）
