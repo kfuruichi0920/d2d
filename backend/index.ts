@@ -30,6 +30,8 @@ import { registerEditApi } from './api/edit'
 import { registerDataApi, registerDbToTextHook } from './api/data'
 import { registerSearchApi } from './api/search'
 import { createArchive } from './export/archive-service'
+import { registerReportApi, toReportOptions } from './api/report'
+import { buildReportMarkdown, generateReport } from './report/report-service'
 import { getChunkText } from './intermediate/intermediate-service'
 import { validateCandidateOutput } from './llm/candidate-validation'
 import { runLlm } from './llm/llm-service'
@@ -321,6 +323,48 @@ function main(): void {
     return { status: 'success', output: result }
   })
 
+  // レポート生成ジョブ（P13、EXP-001〜006、sdd_ui_design §「長時間処理の非同期化」）
+  jobs.registerExecutor('report.generate', async (params, ctx) => {
+    const p = (params as Record<string, unknown>) ?? {}
+    const { db, info } = requireProject()
+    const options = toReportOptions(p)
+
+    // LLM 要約候補の組み込み（EXP 任意機能）。失敗してもレポート本体は出力する
+    if (p.llmSummary === true) {
+      ctx.reportProgress(20, 'LLM 要約候補を生成中')
+      try {
+        const built = buildReportMarkdown(db, info.projectUid, options)
+        const result = await runLlm(
+          db,
+          settings,
+          { projectUid: info.projectUid, rootPath: info.rootPath },
+          {
+            processName: 'report-summary',
+            messages: [
+              {
+                role: 'system',
+                content:
+                  'あなたは設計文書の要約AIです。与えられた設計レポートの要点を日本語で3〜5行に要約してください。要約だけを出力してください。'
+              },
+              { role: 'user', content: built.markdown.slice(0, 20_000) }
+            ],
+            signal: ctx.signal
+          }
+        )
+        options.summaryText = result.content.trim()
+      } catch (error) {
+        ctx.log('warn', 'LLM 要約の生成に失敗したため、要約なしで出力します', {
+          error: error instanceof Error ? error.message : String(error)
+        })
+      }
+    }
+
+    ctx.reportProgress(60, 'レポートを構築中')
+    const result = generateReport(db, info.projectUid, info.rootPath, options)
+    ctx.log('info', `レポートを出力しました: ${result.fileName}`, result.stats)
+    return { status: 'success', output: result }
+  })
+
   // プロジェクト open/close に応じてジョブログ出力先を切り替える
   eventBus.on('project.opened', (_event, payload) => {
     const info = payload as ProjectInfo
@@ -341,6 +385,7 @@ function main(): void {
   registerTraceApi(router)
   registerEditApi(router, settings)
   registerDataApi(router, jobs)
+  registerReportApi(router, jobs)
   registerSearchApi(router, settings)
   registerDbToTextHook()
 

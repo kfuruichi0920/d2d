@@ -16,7 +16,7 @@ describe('P11 MeCab + FTS5 検索', () => {
   })
   afterEach(() => db.close())
 
-  function text(title: string, body: string, status: 'draft' | 'deleted' = 'draft') {
+  function text(title: string, body: string, status: 'draft' | 'deleted' = 'draft'): { uid: string; code: string } {
     const entity = registerEntity(db, { projectUid, entityType: 'resource_text', title, status })
     db.prepare(`INSERT INTO resource_text (uid, text_body, text_role, language) VALUES (?, ?, 'body', 'ja')`).run(
       entity.uid,
