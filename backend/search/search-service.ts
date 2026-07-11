@@ -97,7 +97,11 @@ function resourceUri(db: Database, type: string, uid: string): string {
   return `design://${uid}`
 }
 
-export function rebuildSearchIndex(db: Database, projectUid: string, settings: SearchSettings) {
+export function rebuildSearchIndex(
+  db: Database,
+  projectUid: string,
+  settings: SearchSettings
+): { count: number; tokenizer: 'mecab' | 'unicode'; warning: string | undefined } {
   const tokenizer = new JapaneseTokenizer(settings)
   const docs = collectDocuments(db, projectUid)
   db.transaction(() => {

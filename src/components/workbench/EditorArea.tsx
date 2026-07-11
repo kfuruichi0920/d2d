@@ -16,6 +16,7 @@ import { BasisChainEditor, TraceGraphEditor, TraceMatrixEditor } from '../views/
 import { GlossaryEditor } from '../editors/GlossaryEditor'
 import { ModelPlaygroundEditor } from '../editors/ModelPlaygroundEditor'
 import { ArchiveDiffEditor, GitCommitViewer, StoreBrowserEditor } from '../views/HistoryViews'
+import { ReportPreviewEditor } from '../views/ReportViews'
 
 /** Resource URI → Editor Provider の解決（§10.2。P7 以降で Provider を追加する） */
 function resolveEditor(uri: string): React.JSX.Element {
@@ -42,6 +43,7 @@ function resolveEditor(uri: string): React.JSX.Element {
   if (uri === 'diff://archive') return <ArchiveDiffEditor />
   if (uri.startsWith('diff://git/')) return <GitCommitViewer hash={uri.slice('diff://git/'.length)} />
   if (uri === 'store://tables') return <StoreBrowserEditor />
+  if (uri.startsWith('report://')) return <ReportPreviewEditor fileName={uri.slice('report://'.length)} />
   return <div className="d2d-empty">この Resource（{uri}）の Editor Provider は未実装です。</div>
 }
 

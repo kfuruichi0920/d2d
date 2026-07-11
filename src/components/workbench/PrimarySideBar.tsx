@@ -12,6 +12,7 @@ import { DocumentsTree } from '../views/DocumentsTree'
 import { TraceSideBar } from '../views/TraceViews'
 import { HistorySideBar } from '../views/HistoryViews'
 import { SearchSideBar } from '../views/SearchViews'
+import { ReportSideBar } from '../views/ReportViews'
 
 const TITLES: Record<Activity, string> = {
   explorer: 'Explorer',
@@ -38,7 +39,7 @@ export function PrimarySideBar(): React.JSX.Element {
         {activity === 'settings' && <SettingsShortcutView />}
         {activity === 'history' && <HistorySideBar />}
         {activity === 'search' && <SearchSideBar />}
-        {activity === 'reports' && <div className="d2d-empty">{TITLES[activity]} は P13（レポート）で実装予定</div>}
+        {activity === 'reports' && <ReportSideBar />}
       </div>
     </aside>
   )
