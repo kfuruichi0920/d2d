@@ -88,6 +88,7 @@ export function SettingsEditor(): React.JSX.Element {
 
       <AppSettingsStorageNotice />
       <PlantUmlSettingsSection />
+      <SearchEngineSettingsSection />
 
       <h2 style={{ fontSize: 14, marginTop: 20 }}>APIキー等の機密情報（CORE-044/045）</h2>
       <p style={{ color: 'var(--d2d-fg-muted)', fontSize: 11.5 }}>
@@ -122,7 +123,6 @@ export function SettingsEditor(): React.JSX.Element {
         </button>
       </div>
 
-      <SearchEngineSettingsSection />
       {hasProject && <LlmSettingsSection />}
       {!hasProject && (
         <p style={{ color: 'var(--d2d-fg-muted)', marginTop: 20 }}>
