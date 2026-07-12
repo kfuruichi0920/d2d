@@ -493,3 +493,48 @@ mark.d2d-term {
   text-decoration: underline;
   cursor: pointer;
 }
+/* 抽出レビュー（P5-6、EXT-020〜024） */
+.extraction-review-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--d2d-border);
+}
+.extraction-structure-preview {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  border-left: 1px solid var(--d2d-border);
+  padding: 8px 14px;
+  scroll-behavior: smooth;
+}
+.extraction-preview-item {
+  border: 1px solid transparent;
+  border-left: 3px solid var(--d2d-border);
+  border-radius: var(--d2d-radius);
+  margin: 5px 0;
+  padding: 7px 10px;
+  transition:
+    background 0.12s,
+    border-color 0.12s;
+}
+.extraction-preview-item > header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--d2d-fg-muted);
+  font-size: 11px;
+}
+.extraction-preview-item.selected {
+  background: color-mix(in srgb, var(--d2d-selection-bg) 70%, transparent);
+  border-color: color-mix(in srgb, var(--d2d-accent) 45%, var(--d2d-border));
+}
+.extraction-preview-item.active {
+  border-left-color: var(--d2d-accent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--d2d-accent) 35%, transparent);
+}
+.d2d-grid-row:focus-visible {
+  outline: 2px solid var(--d2d-accent) !important;
+  outline-offset: -2px;
+}

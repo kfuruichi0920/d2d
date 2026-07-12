@@ -8,6 +8,9 @@ import { requireProject } from '../project/project-service'
 import { getSourceDocument, listSourceDocuments } from '../import/import-service'
 import { generateMarkdown, type MarkdownVariant } from '../extract/markdown-gen'
 import { eventBus } from '../events/event-bus'
+import { existsSync, readFileSync } from 'node:fs'
+import { extname, resolve, sep } from 'node:path'
+import { updateExtractedItemStatuses } from '../extract/review-service'
 
 function asRecord(params: unknown): Record<string, unknown> {
   if (typeof params !== 'object' || params === null) {
@@ -24,6 +27,13 @@ function requireString(params: Record<string, unknown>, key: string): string {
   return value
 }
 
+function requireStringArray(params: Record<string, unknown>, key: string): string[] {
+  const value = params[key]
+  if (!Array.isArray(value) || value.some((item) => typeof item !== 'string' || item.length === 0)) {
+    throw new BackendError('validation', `${key} は文字列配列で指定してください`, '')
+  }
+  return value as string[]
+}
 export function registerDocumentApi(router: ApiRouter, jobs: JobManager): void {
   // ---- ①原本（P4） ----
 
@@ -131,22 +141,52 @@ export function registerDocumentApi(router: ApiRouter, jobs: JobManager): void {
     return { markdown: generateMarkdown(structure.elements, variant), variant }
   })
 
-  /** 抽出要素へのレビュー状態付与（EXT-021/022） */
+  /** 抽出要素へのレビュー状態付与（単一／複数共通、EXT-021/022/024） */
   router.register('extracted.updateItemStatus', (params) => {
     const p = asRecord(params)
-    const resourceUid = requireString(p, 'resourceUid')
-    const status = requireString(p, 'status')
-    if (!['draft', 'review', 'approved', 'rejected'].includes(status)) {
-      throw new BackendError('validation', `不正なレビュー状態です: ${status}`, '')
-    }
     const { db } = requireProject()
-    const result = db
-      .prepare(`UPDATE entity_registry SET status = ?, updated_by = 'user', updated_at = ? WHERE uid = ?`)
-      .run(status, new Date().toISOString(), resourceUid)
-    if (result.changes === 0) {
-      throw new BackendError('not_found', `要素が見つかりません: ${resourceUid}`, '')
+    const result = updateExtractedItemStatuses(
+      db,
+      requireString(p, 'extractedDocumentUid'),
+      [requireString(p, 'resourceUid')],
+      requireString(p, 'status')
+    )
+    return { updated: result.updatedCount === 1 }
+  })
+
+  router.register('extracted.updateItemStatuses', (params) => {
+    const p = asRecord(params)
+    const { db } = requireProject()
+    return updateExtractedItemStatuses(
+      db,
+      requireString(p, 'extractedDocumentUid'),
+      requireStringArray(p, 'resourceUids'),
+      requireString(p, 'status')
+    )
+  })
+
+  /** resource_figure の正規化済み画像をプレビュー用 data URL で返す（EXT-020/023）。 */
+  router.register('extracted.getFigurePreview', (params) => {
+    const resourceUid = requireString(asRecord(params), 'resourceUid')
+    const { db, paths } = requireProject()
+    const row = db.prepare(`SELECT image_uri FROM resource_figure WHERE uid = ?`).get(resourceUid) as
+      { image_uri: string } | undefined
+    if (!row) throw new BackendError('not_found', `図要素が見つかりません: ${resourceUid}`, '')
+    const root = resolve(paths.root)
+    const filePath = resolve(root, row.image_uri)
+    if (filePath !== root && !filePath.startsWith(`${root}${sep}`)) {
+      throw new BackendError('validation', 'プロジェクト外の画像は表示できません', row.image_uri)
     }
-    return { updated: true }
+    if (!existsSync(filePath)) throw new BackendError('io', '図ファイルが見つかりません', row.image_uri)
+    const mime =
+      extname(filePath).toLowerCase() === '.svg'
+        ? 'image/svg+xml'
+        : extname(filePath).toLowerCase() === '.jpg' || extname(filePath).toLowerCase() === '.jpeg'
+          ? 'image/jpeg'
+          : extname(filePath).toLowerCase() === '.gif'
+            ? 'image/gif'
+            : 'image/png'
+    return { dataUrl: `data:${mime};base64,${readFileSync(filePath).toString('base64')}` }
   })
 
   /** 抽出結果の採用確定 → ②正本化（棄却済み以外を approved に。EXT-024 / §8.2） */

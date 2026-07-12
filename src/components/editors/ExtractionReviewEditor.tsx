@@ -1,24 +1,33 @@
 /**
- * Extraction Review Editor（P5-6、V-02、EXT-020〜024、sdd_ui_design §7.1/§8.1）。
- * 要素一覧（左）と Markdown プレビュー（右）の対照表示 + レビュー判断操作。
- * 採用確定で②正本化（approved）し extraction.completed を発行する。
+ * Extraction Review Editor（P5-6、V-02、EXT-020〜024、UI-026、sdd_ui_design §7.1/§8.1）。
+ * 形式非依存の抽出要素一覧・複数選択・構造プレビュー・レビュー判断操作を提供する。
  */
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ColumnDef } from '@tanstack/react-table'
 import { invoke } from '../../services/backend'
 import { useJobsStore } from '../../stores/jobs-store'
 import { useProjectStore } from '../../stores/project-store'
+import { useSelectionStore, type ExtractedItemSelection } from '../../stores/selection-store'
 import { VirtualDataGrid } from '../common/VirtualDataGrid'
-import { MarkdownPreview } from '../common/MarkdownPreview'
 import { reviewStateFromEntityStatus, ReviewStatusBadge } from '../common/review'
+
+interface TableCell {
+  text: string
+  colspan?: number
+  v_merge?: string
+}
 
 interface ReviewElement {
   id: string
   type: string
   text?: string
+  caption?: string | null
   level?: number
   section_path?: string
   image?: string
+  rows?: TableCell[][]
+  row_count?: number
+  column_count?: number
   resource_uid?: string
   review?: { status: string; code: string }
 }
@@ -32,99 +41,298 @@ interface ExtractedDoc {
   elements: ReviewElement[]
 }
 
+type ReviewStatus = 'draft' | 'approved' | 'review' | 'rejected'
+
+const STATUS_CYCLE: ReviewStatus[] = ['draft', 'approved', 'review', 'rejected']
+const TYPE_LABELS: Record<string, string> = {
+  heading: '見出し',
+  paragraph: '段落',
+  list_item: 'リスト',
+  table: '表',
+  figure: '図',
+  caption: 'キャプション'
+}
+
+function FigurePreview({ element }: { element: ReviewElement }): React.JSX.Element {
+  const [dataUrl, setDataUrl] = useState<string | null>(null)
+  const [error, setError] = useState(false)
+
+  useEffect(() => {
+    if (!element.resource_uid) return
+    void invoke<{ dataUrl: string }>('extracted.getFigurePreview', { resourceUid: element.resource_uid }).then(
+      (result) => {
+        if (result.ok) setDataUrl(result.result.dataUrl)
+        else setError(true)
+      }
+    )
+  }, [element.resource_uid])
+
+  if (error) return <div className="d2d-empty">図を読み込めません: {element.image}</div>
+  if (!dataUrl) return <div className="d2d-empty">図を読込中…</div>
+  return (
+    <figure style={{ margin: '8px 0' }}>
+      <img
+        src={dataUrl}
+        alt={element.caption ?? element.image ?? '抽出図'}
+        style={{ maxWidth: '100%', maxHeight: 420 }}
+      />
+      {(element.caption || element.image) && (
+        <figcaption style={{ color: 'var(--d2d-fg-muted)', fontSize: 11.5 }}>
+          {element.caption ?? element.image}
+        </figcaption>
+      )}
+    </figure>
+  )
+}
+
+function ElementBody({ element }: { element: ReviewElement }): React.JSX.Element {
+  if (element.type === 'figure') return <FigurePreview element={element} />
+  if (element.type === 'table') {
+    return (
+      <table style={{ borderCollapse: 'collapse', marginTop: 6 }}>
+        <tbody>
+          {(element.rows ?? []).map((row, rowIndex) => (
+            <tr key={rowIndex}>
+              {row.map((cell, cellIndex) => (
+                <td
+                  key={cellIndex}
+                  colSpan={cell.colspan}
+                  style={{ border: '1px solid var(--d2d-border)', padding: '3px 6px' }}
+                >
+                  {cell.text}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    )
+  }
+  if (element.type === 'heading') {
+    const Heading = `h${Math.min(Math.max(element.level ?? 2, 1), 6)}` as keyof React.JSX.IntrinsicElements
+    return <Heading style={{ margin: '5px 0' }}>{element.text}</Heading>
+  }
+  if (element.type === 'list_item') return <li style={{ marginLeft: 20 }}>{element.text}</li>
+  return <p style={{ margin: '5px 0', whiteSpace: 'pre-wrap' }}>{element.text ?? element.caption ?? ''}</p>
+}
+
 export function ExtractionReviewEditor({ uid }: { uid: string }): React.JSX.Element {
   const [doc, setDoc] = useState<ExtractedDoc | null>(null)
-  const [markdown, setMarkdown] = useState('')
-  const [selectedId, setSelectedId] = useState<string | null>(null)
-  const notify = useJobsStore((s) => s.notify)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [activeId, setActiveId] = useState<string | null>(null)
+  const [anchorId, setAnchorId] = useState<string | null>(null)
+  const previewRefs = useRef(new Map<string, HTMLElement>())
+  const notify = useJobsStore((state) => state.notify)
+  const setExtractedItems = useSelectionStore((state) => state.setExtractedItems)
+  const clearExtractedItems = useSelectionStore((state) => state.clearExtractedItems)
 
   const load = useCallback(async () => {
-    const [docRes, mdRes] = await Promise.all([
-      invoke<ExtractedDoc>('extracted.get', { uid }),
-      invoke<{ markdown: string }>('extracted.getMarkdown', { uid, variant: 'review' })
-    ])
-    if (docRes.ok) setDoc(docRes.result)
-    if (mdRes.ok) setMarkdown(mdRes.result.markdown)
+    const result = await invoke<ExtractedDoc>('extracted.get', { uid })
+    if (!result.ok) return
+    setDoc(result.result)
+    const firstId = result.result.elements[0]?.id ?? null
+    setSelectedIds((current) => (current.size > 0 || !firstId ? current : new Set([firstId])))
+    setActiveId((current) => current ?? firstId)
+    setAnchorId((current) => current ?? firstId)
   }, [uid])
 
   useEffect(() => {
     void load()
   }, [load])
 
-  const selected = doc?.elements.find((e) => e.id === selectedId) ?? null
+  useEffect(() => {
+    if (!doc) return
+    const selected = doc.elements
+      .map((element, index): ExtractedItemSelection | null =>
+        selectedIds.has(element.id)
+          ? {
+              documentUid: uid,
+              id: element.id,
+              index,
+              type: element.type,
+              resourceUid: element.resource_uid ?? null,
+              text: element.text ?? element.caption ?? null,
+              image: element.image ?? null,
+              sectionPath: element.section_path ?? null,
+              status: element.review?.status ?? 'draft',
+              level: element.level ?? null,
+              rowCount: element.row_count ?? null,
+              columnCount: element.column_count ?? null
+            }
+          : null
+      )
+      .filter((item): item is ExtractedItemSelection => item !== null)
+    setExtractedItems(selected)
+  }, [doc, selectedIds, setExtractedItems, uid])
 
-  const setStatus = async (element: ReviewElement, status: string): Promise<void> => {
-    if (!element.resource_uid) return
-    const res = await invoke('extracted.updateItemStatus', { resourceUid: element.resource_uid, status })
-    if (res.ok) {
-      await load()
+  useEffect(() => () => clearExtractedItems(), [clearExtractedItems])
+
+  useEffect(() => {
+    if (!activeId) return
+    previewRefs.current.get(activeId)?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  }, [activeId])
+
+  const selectedElements = useMemo(
+    () => doc?.elements.filter((element) => selectedIds.has(element.id)) ?? [],
+    [doc, selectedIds]
+  )
+
+  const selectRange = (targetId: string, additive: boolean): void => {
+    if (!doc) return
+    const anchorIndex = Math.max(
+      0,
+      doc.elements.findIndex((element) => element.id === (anchorId ?? targetId))
+    )
+    const targetIndex = doc.elements.findIndex((element) => element.id === targetId)
+    const [start, end] = anchorIndex <= targetIndex ? [anchorIndex, targetIndex] : [targetIndex, anchorIndex]
+    const next = additive ? new Set(selectedIds) : new Set<string>()
+    for (let index = start; index <= end; index++) next.add(doc.elements[index]!.id)
+    setSelectedIds(next)
+  }
+
+  const selectElement = (element: ReviewElement, event: React.MouseEvent<HTMLTableRowElement>): void => {
+    if (event.shiftKey) {
+      selectRange(element.id, event.ctrlKey || event.metaKey)
+    } else if (event.ctrlKey || event.metaKey) {
+      const next = new Set(selectedIds)
+      if (next.has(element.id)) next.delete(element.id)
+      else next.add(element.id)
+      setSelectedIds(next)
+      setAnchorId(element.id)
     } else {
-      notify('error', 'レビュー状態を更新できませんでした', res.error.message)
+      setSelectedIds(new Set([element.id]))
+      setAnchorId(element.id)
     }
+    setActiveId(element.id)
+  }
+
+  const onRowKeyDown = (element: ReviewElement, event: React.KeyboardEvent<HTMLTableRowElement>): void => {
+    if (!doc) return
+    const index = doc.elements.findIndex((item) => item.id === element.id)
+    if (event.key === ' ' && (event.ctrlKey || event.metaKey)) {
+      event.preventDefault()
+      const next = new Set(selectedIds)
+      if (next.has(element.id)) next.delete(element.id)
+      else next.add(element.id)
+      setSelectedIds(next)
+      setActiveId(element.id)
+      setAnchorId(element.id)
+      return
+    }
+    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return
+    event.preventDefault()
+    const nextIndex = Math.min(Math.max(index + (event.key === 'ArrowDown' ? 1 : -1), 0), doc.elements.length - 1)
+    const nextElement = doc.elements[nextIndex]!
+    if (event.shiftKey) selectRange(nextElement.id, event.ctrlKey || event.metaKey)
+    else {
+      setSelectedIds(new Set([nextElement.id]))
+      setAnchorId(nextElement.id)
+    }
+    setActiveId(nextElement.id)
+    requestAnimationFrame(() => {
+      document.querySelector<HTMLElement>(`[data-row-id="${CSS.escape(nextElement.id)}"]`)?.focus()
+    })
+  }
+
+  const updateStatus = async (elements: ReviewElement[], status: ReviewStatus): Promise<void> => {
+    const resourceUids = elements.flatMap((element) => (element.resource_uid ? [element.resource_uid] : []))
+    if (resourceUids.length === 0) return
+    const result = await invoke<{ updatedCount: number }>('extracted.updateItemStatuses', {
+      extractedDocumentUid: uid,
+      resourceUids,
+      status
+    })
+    if (result.ok) await load()
+    else notify('error', 'レビュー状態を更新できませんでした', result.error.message)
+  }
+
+  const cycleStatus = (element: ReviewElement): void => {
+    const current = (element.review?.status ?? 'draft') as ReviewStatus
+    const next = STATUS_CYCLE[(STATUS_CYCLE.indexOf(current) + 1) % STATUS_CYCLE.length] ?? 'draft'
+    void updateStatus([element], next)
   }
 
   const approveAll = async (): Promise<void> => {
-    const res = await invoke<{ approvedCount: number }>('extracted.approve', { uid })
-    if (res.ok) {
-      notify('info', `②抽出データを正本確定しました（${res.result.approvedCount} 要素）`)
+    const result = await invoke<{ approvedCount: number }>('extracted.approve', { uid })
+    if (result.ok) {
+      notify('info', `②抽出データを正本確定しました（${result.result.approvedCount} 要素）`)
       await load()
       void useProjectStore.getState().refreshStats()
-    } else {
-      notify('error', '確定できませんでした', res.error.message)
-    }
+    } else notify('error', '確定できませんでした', result.error.message)
   }
 
-  const columns = useMemo<ColumnDef<ReviewElement, unknown>[]>(
-    () => [
-      {
-        header: '状態',
-        accessorKey: 'review',
-        size: 70,
-        cell: ({ row }) => (
+  const columns: ColumnDef<ReviewElement, unknown>[] = [
+    {
+      header: '状態',
+      accessorKey: 'review',
+      size: 86,
+      cell: ({ row }) => (
+        <button
+          type="button"
+          className="d2d-btn small"
+          title="クリックで状態を切替"
+          data-testid={`cycle-status-${row.original.id}`}
+          onClick={(event) => {
+            event.stopPropagation()
+            cycleStatus(row.original)
+          }}
+        >
           <ReviewStatusBadge status={reviewStateFromEntityStatus(row.original.review?.status ?? 'draft')} />
-        )
-      },
-      { header: '種別', accessorKey: 'type', size: 80 },
-      {
-        header: '内容',
-        accessorFn: (e) => e.text ?? e.image ?? '',
-        cell: ({ getValue }) => <span>{String(getValue())}</span>
-      },
-      { header: '章節', accessorKey: 'section_path', size: 140 }
-    ],
-    []
-  )
+        </button>
+      )
+    },
+    {
+      header: '種別',
+      accessorKey: 'type',
+      size: 90,
+      cell: ({ row }) => <span className="d2d-badge">{TYPE_LABELS[row.original.type] ?? row.original.type}</span>
+    },
+    {
+      header: '内容',
+      accessorFn: (element) => element.text ?? element.caption ?? element.image ?? '',
+      cell: ({ getValue }) => <span>{String(getValue())}</span>
+    },
+    { header: '章節', accessorKey: 'section_path', size: 140 }
+  ]
 
   if (!doc) return <div className="d2d-empty">読込中…</div>
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }} data-testid="extraction-review-editor">
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 10,
-          padding: '6px 12px',
-          borderBottom: '1px solid var(--d2d-border)'
-        }}
-      >
+      <div className="extraction-review-toolbar">
         <h1 style={{ fontSize: 14, margin: 0 }}>{doc.title ?? doc.code}</h1>
         <ReviewStatusBadge status={reviewStateFromEntityStatus(doc.status)} />
-        <span style={{ color: 'var(--d2d-fg-muted)' }}>{doc.elements.length} 要素</span>
+        <span style={{ color: 'var(--d2d-fg-muted)' }}>
+          {doc.elements.length} 要素 / {selectedElements.length} 選択
+        </span>
         <span style={{ flex: 1 }} />
-        {selected && (
-          <>
-            <button type="button" className="d2d-btn small" onClick={() => void setStatus(selected, 'approved')}>
-              確認済にする
-            </button>
-            <button type="button" className="d2d-btn small" onClick={() => void setStatus(selected, 'review')}>
-              要修正
-            </button>
-            <button type="button" className="d2d-btn small" onClick={() => void setStatus(selected, 'rejected')}>
-              棄却
-            </button>
-          </>
-        )}
+        <button
+          type="button"
+          className="d2d-btn small"
+          disabled={selectedElements.length === 0}
+          onClick={() => void updateStatus(selectedElements, 'approved')}
+          data-testid="selected-confirm"
+        >
+          確認済みにする
+        </button>
+        <button
+          type="button"
+          className="d2d-btn small"
+          disabled={selectedElements.length === 0}
+          onClick={() => void updateStatus(selectedElements, 'review')}
+          data-testid="selected-needsfix"
+        >
+          要修正
+        </button>
+        <button
+          type="button"
+          className="d2d-btn small"
+          disabled={selectedElements.length === 0}
+          onClick={() => void updateStatus(selectedElements, 'rejected')}
+          data-testid="selected-reject"
+        >
+          棄却
+        </button>
         <button
           type="button"
           className="d2d-btn primary"
@@ -140,16 +348,41 @@ export function ExtractionReviewEditor({ uid }: { uid: string }): React.JSX.Elem
           <VirtualDataGrid<ReviewElement>
             columns={columns}
             data={doc.elements}
-            getRowId={(e) => e.id}
-            onRowClick={(e) => setSelectedId(e.id)}
+            getRowId={(element) => element.id}
+            onRowClick={selectElement}
+            onRowKeyDown={onRowKeyDown}
+            selectedRowIds={selectedIds}
+            activeRowId={activeId}
             testId="element-grid"
           />
         </div>
-        <div
-          style={{ flex: 1, minWidth: 0, overflow: 'auto', borderLeft: '1px solid var(--d2d-border)' }}
-          data-testid="review-markdown"
-        >
-          <MarkdownPreview markdown={markdown} />
+        <div className="extraction-structure-preview" data-testid="review-markdown">
+          {doc.elements.map((element) => {
+            const selected = selectedIds.has(element.id)
+            return (
+              <article
+                key={element.id}
+                ref={(node) => {
+                  if (node) previewRefs.current.set(element.id, node)
+                  else previewRefs.current.delete(element.id)
+                }}
+                data-testid={`preview-item-${element.id}`}
+                className={`extraction-preview-item${selected ? ' selected' : ''}${activeId === element.id ? ' active' : ''}`}
+                onClick={() => {
+                  setSelectedIds(new Set([element.id]))
+                  setActiveId(element.id)
+                  setAnchorId(element.id)
+                }}
+              >
+                <header>
+                  <span className="d2d-badge">{TYPE_LABELS[element.type] ?? element.type}</span>
+                  <code>{element.id}</code>
+                  {element.section_path && <span>{element.section_path}</span>}
+                </header>
+                <ElementBody element={element} />
+              </article>
+            )
+          })}
         </div>
       </div>
     </div>

@@ -4,6 +4,7 @@
  */
 import { useEditorStore } from '../../stores/editor-store'
 import { useWorkbenchStore, type SecondaryTab } from '../../stores/workbench-store'
+import { useSelectionStore } from '../../stores/selection-store'
 
 const TABS: { id: SecondaryTab; label: string }[] = [
   { id: 'properties', label: 'Properties' },
@@ -17,6 +18,7 @@ export function SecondarySideBar(): React.JSX.Element {
   const tab = useWorkbenchStore((s) => s.secondaryTab)
   const setTab = useWorkbenchStore((s) => s.setSecondaryTab)
   const activeUri = useEditorStore((s) => s.activeUri)
+  const extractedItems = useSelectionStore((s) => s.extractedItems)
 
   return (
     <aside className="wb-secondary" data-testid="secondary-sidebar">
@@ -35,7 +37,42 @@ export function SecondarySideBar(): React.JSX.Element {
       </div>
       <div className="wb-sidebar-body">
         {tab === 'properties' ? (
-          activeUri ? (
+          activeUri?.startsWith('extracted://') && extractedItems.length > 0 ? (
+            <dl className="d2d-kv" data-testid="extracted-item-properties">
+              <dt>選択数</dt>
+              <dd>{extractedItems.length}</dd>
+              {extractedItems.length === 1 && (
+                <>
+                  <dt>要素ID</dt>
+                  <dd>{extractedItems[0]!.id}</dd>
+                  <dt>Resource UID</dt>
+                  <dd>{extractedItems[0]!.resourceUid ?? '—'}</dd>
+                  <dt>種別</dt>
+                  <dd>{extractedItems[0]!.type}</dd>
+                  <dt>状態</dt>
+                  <dd>{extractedItems[0]!.status}</dd>
+                  <dt>章節</dt>
+                  <dd>{extractedItems[0]!.sectionPath ?? '—'}</dd>
+                  <dt>本文／画像</dt>
+                  <dd>{extractedItems[0]!.text ?? extractedItems[0]!.image ?? '—'}</dd>
+                  {extractedItems[0]!.level !== null && (
+                    <>
+                      <dt>レベル</dt>
+                      <dd>{extractedItems[0]!.level}</dd>
+                    </>
+                  )}
+                  {extractedItems[0]!.rowCount !== null && (
+                    <>
+                      <dt>表サイズ</dt>
+                      <dd>
+                        {extractedItems[0]!.rowCount} × {extractedItems[0]!.columnCount}
+                      </dd>
+                    </>
+                  )}
+                </>
+              )}
+            </dl>
+          ) : activeUri ? (
             <dl className="d2d-kv">
               <dt>Resource</dt>
               <dd>{activeUri}</dd>

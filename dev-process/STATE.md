@@ -15,7 +15,7 @@
 | フェーズ | 内容                                                                               | コミット        |
 | -------- | ---------------------------------------------------------------------------------- | --------------- |
 | P0〜P3   | 骨格 / DB スキーマ 35 表 + 台帳 / ジョブ・設定・イベント / Workbench UI            | 〜P3 各コミット |
-| P4/P5    | 原本取込 → Word 抽出 → ②候補 → レビュー → 正本化（E2E で全経路）                   | —               |
+| P4/P5    | 原本取込 → Word 抽出 → ②候補 → 共通複数選択レビュー/構造プレビュー → 正本化        | —               |
 | P6       | LLM 基盤（4 Provider、マスキング、外部送信ブロック、preview→run 2段階）            | —               |
 | P7       | ②→③統合・編集・マージ/分割（新リソース + based_on）・チャンク                      | —               |
 | P8       | ③→④候補生成 → 候補セットレビュー → 採用（同一 Txn・全 ROLLBACK）                   | —               |
@@ -38,6 +38,8 @@
   safeStorage は Main 専用 → backend からは main-bridge（逆方向 RPC）経由。
 - **API キー等の秘密情報は平文で保存・ログ出力しない**（settings-service が強制）。
 - スキーマ変更は `backend/db/migrations.ts` に追記（バックアップ → DDL → 版数更新）。現在 1.1.0。
+- ②抽出レビューの選択・状態更新・構造プレビュー・Properties は `ReviewElement` 共通契約で実装し、
+  Word 固有にしない。今後の Excel / PowerPoint / PDF / Visio / テキスト系も同じ操作体系へ接続する。
 - Python ワーカーは stdin/stdout とも UTF-8 ラップ必須（CP932 化け）。pytest はシステム Python
   （miniconda）で実行（PATH 先頭の venv に pip が無い）。
 - prettier は docs/ と tasks/ を対象外（.prettierignore）。

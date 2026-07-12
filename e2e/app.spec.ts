@@ -208,13 +208,41 @@ test('原本取込→Word抽出→レビュー→②正本確定の全経路（P
   await expect(page.getByTestId('extracted-doc-EXDOC-000001')).toBeVisible({ timeout: 60_000 })
   await expect(page.getByTestId('stage-extracted')).toContainText('1')
 
-  // 抽出レビュー Editor（P5-6）: 要素一覧 + Markdown 対照表示
+  // 抽出レビュー Editor（P5-6）: 共通要素一覧 + 構造プレビュー + Selection/Properties
+  await page.getByTestId('stage-extracted').click()
   await page.getByTestId('extracted-doc-EXDOC-000001').click()
   await expect(page.getByTestId('extraction-review-editor')).toBeVisible()
-  await expect(page.getByTestId('element-grid')).toContainText('1. 概要')
-  await expect(page.getByTestId('element-grid')).toContainText('heading')
+  const elementGrid = page.getByTestId('element-grid')
+  const rows = elementGrid.locator('tbody tr.d2d-grid-row')
+  await expect(elementGrid).toContainText('1. 概要')
+  await expect(elementGrid).toContainText('見出し')
   await expect(page.getByTestId('review-markdown')).toContainText('1.1 対象範囲')
   await expect(page.getByTestId('review-markdown')).toContainText('100ms以内')
+  await expect(page.getByTestId('review-markdown').getByRole('img')).toBeVisible()
+  await expect(page.getByTestId('preview-item-e1')).toHaveClass(/selected/)
+
+  // キーボード選択: ↓で次要素へ移動し、プレビューとPropertiesを同期する。
+  await rows.first().focus()
+  await page.keyboard.press('ArrowDown')
+  await expect(rows.nth(1)).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByTestId('preview-item-e2')).toHaveClass(/active/)
+  await expect(page.getByTestId('extracted-item-properties')).toContainText('e2')
+  await expect(page.getByTestId('extracted-item-properties')).toContainText('paragraph')
+
+  // Ctrlで非連続複数選択し、選択中要素だけを一括で要修正にする。
+  await rows.nth(3).click({ modifiers: ['Control'] })
+  await expect(page.getByTestId('extraction-review-editor')).toContainText('2 選択')
+  await page.getByTestId('selected-needsfix').click()
+  await expect(rows.nth(1).locator('.review-needsfix')).toBeVisible()
+  await expect(rows.nth(3).locator('.review-needsfix')).toBeVisible()
+
+  // Shiftで連続範囲を選択できる。
+  await rows.nth(5).click({ modifiers: ['Shift'] })
+  await expect(page.getByTestId('extraction-review-editor')).toContainText('3 選択')
+
+  // 状態セルはクリックごとにサイクリック更新する（未確認→確認済）。
+  await page.getByTestId('cycle-status-e1').click()
+  await expect(rows.first().locator('.review-confirmed')).toBeVisible()
 
   // 採用確定 → ②正本化（extraction.completed）
   await page.getByTestId('approve-all-button').click()

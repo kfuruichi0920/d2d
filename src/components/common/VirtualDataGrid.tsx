@@ -20,7 +20,10 @@ export interface VirtualDataGridProps<T> {
   data: T[]
   rowHeight?: number
   height?: number | string
-  onRowClick?: (row: T) => void
+  onRowClick?: (row: T, event: React.MouseEvent<HTMLTableRowElement>) => void
+  onRowKeyDown?: (row: T, event: React.KeyboardEvent<HTMLTableRowElement>) => void
+  selectedRowIds?: ReadonlySet<string>
+  activeRowId?: string | null
   getRowId?: (row: T, index: number) => string
   testId?: string
 }
@@ -31,6 +34,9 @@ export function VirtualDataGrid<T>({
   rowHeight = 26,
   height = '100%',
   onRowClick,
+  onRowKeyDown,
+  selectedRowIds,
+  activeRowId,
   getRowId,
   testId
 }: VirtualDataGridProps<T>): React.JSX.Element {
@@ -100,8 +106,22 @@ export function VirtualDataGrid<T>({
             return (
               <tr
                 key={row.id}
-                onClick={() => onRowClick?.(row.original)}
-                style={{ height: rowHeight, cursor: onRowClick ? 'pointer' : 'default' }}
+                onClick={(event) => onRowClick?.(row.original, event)}
+                onKeyDown={(event) => onRowKeyDown?.(row.original, event)}
+                tabIndex={onRowKeyDown ? 0 : undefined}
+                aria-selected={selectedRowIds?.has(row.id) ?? false}
+                data-row-id={row.id}
+                style={{
+                  height: rowHeight,
+                  cursor: onRowClick ? 'pointer' : 'default',
+                  background: selectedRowIds?.has(row.id)
+                    ? row.id === activeRowId
+                      ? 'var(--d2d-selection-bg)'
+                      : 'color-mix(in srgb, var(--d2d-selection-bg) 65%, transparent)'
+                    : undefined,
+                  outline: row.id === activeRowId ? '1px solid var(--d2d-accent)' : undefined,
+                  outlineOffset: -1
+                }}
                 className="d2d-grid-row"
               >
                 {row.getVisibleCells().map((cell) => (
