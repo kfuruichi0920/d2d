@@ -330,6 +330,23 @@ test('②→③統合・編集・確定（P7）', async () => {
   expect(
     approvedIntermediate.ok && approvedIntermediate.result.elements.every((item) => item.review?.status !== 'draft')
   ).toBe(true)
+
+  // 成果物単位のチャンク編集: 確認済み行を選択し、追加プロンプト付きで作成する
+  await page.getByTestId('activity-explorer').click()
+  if (
+    !(await page
+      .getByTestId('documents-tree')
+      .isVisible()
+      .catch(() => false))
+  ) {
+    await page.getByTestId('activity-explorer').click()
+  }
+  await page.getByTestId('chunks-IMDOC-000001').click()
+  await expect(page.getByTestId('chunk-editor')).toBeVisible()
+  await page.getByTestId('chunk-source-i1').click()
+  await page.getByLabel('追加プロンプト').fill('安全性の観点を優先すること')
+  await page.getByRole('button', { name: 'チャンク作成' }).click()
+  await expect(page.getByTestId('chunk-editor')).toContainText('1項目')
 })
 
 test('LLM 実行（モック Ollama）→ ログビューまでの全経路（P6）', async () => {

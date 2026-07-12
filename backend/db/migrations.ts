@@ -63,6 +63,16 @@ export const MIGRATIONS: Migration[] = [
         `CREATE INDEX IF NOT EXISTS idx_project_artifact_setting_phase ON project_artifact_setting(project_uid, dev_phase_id, sort_order);`
       )
     }
+  },
+  {
+    // P7-5 / MID-032: チャンクごとの補足プロンプトをDB正本として保持する。
+    version: '1.3.0',
+    description: 'チャンク追加プロンプトの追加（MID-032）',
+    apply(db) {
+      const columns = db.prepare('PRAGMA table_info(chunk)').all() as { name: string }[]
+      if (!columns.some((column) => column.name === 'additional_prompt'))
+        db.exec("ALTER TABLE chunk ADD COLUMN additional_prompt TEXT NOT NULL DEFAULT '';")
+    }
   }
 ]
 

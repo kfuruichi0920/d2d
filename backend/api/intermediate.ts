@@ -18,8 +18,10 @@ import {
   deleteChunk,
   editElementText,
   ensureIntermediateItemTraceLinks,
+  getChunk,
   getChunkText,
   listChunks,
+  updateChunk,
   mergeElements,
   splitElement,
   type IntermediateStructure
@@ -136,15 +138,15 @@ export function registerIntermediateApi(router: ApiRouter, jobs: JobManager): vo
       throw new BackendError('not_found', `中間文書が見つかりません: ${uid}`, '')
     }
     const structure = JSON.parse(doc.structure_json) as IntermediateStructure
-    const statusByUid = new Map<string, string>(
+    const itemByResource = new Map<string, { uid: string; status: string }>(
       (
         db
           .prepare(
-            `SELECT i.resource_uid AS uid, e.status FROM intermediate_item i JOIN entity_registry e ON e.uid = i.uid
+            `SELECT i.resource_uid AS resource_uid, i.uid, e.status FROM intermediate_item i JOIN entity_registry e ON e.uid = i.uid
               WHERE i.intermediate_document_uid = ?`
           )
-          .all(uid) as { uid: string; status: string }[]
-      ).map((r) => [r.uid, r.status])
+          .all(uid) as { resource_uid: string; uid: string; status: string }[]
+      ).map((r) => [r.resource_uid, { uid: r.uid, status: r.status }])
     )
     const sourceResourcesByResource = new Map<string, string[]>()
     const itemLinks = db
@@ -164,7 +166,8 @@ export function registerIntermediateApi(router: ApiRouter, jobs: JobManager): vo
       sources: structure.sources,
       elements: structure.elements.map((e) => ({
         ...e,
-        review: e.resource_uid ? { status: statusByUid.get(e.resource_uid) ?? 'draft' } : undefined,
+        intermediate_item_uid: e.resource_uid ? itemByResource.get(e.resource_uid)?.uid : undefined,
+        review: e.resource_uid ? { status: itemByResource.get(e.resource_uid)?.status ?? 'draft' } : undefined,
         source_resource_uids: e.resource_uid ? [...new Set(sourceResourcesByResource.get(e.resource_uid) ?? [])] : []
       }))
     }
@@ -349,7 +352,8 @@ export function registerIntermediateApi(router: ApiRouter, jobs: JobManager): vo
       info.projectUid,
       requireString(p, 'intermediateDocumentUid'),
       Array.isArray(p.elementIds) ? (p.elementIds as string[]) : [],
-      p.promptTemplateUid === undefined ? undefined : String(p.promptTemplateUid)
+      p.promptTemplateUid === undefined ? undefined : String(p.promptTemplateUid),
+      p.additionalPrompt === undefined ? '' : String(p.additionalPrompt)
     )
   })
 
@@ -359,6 +363,24 @@ export function registerIntermediateApi(router: ApiRouter, jobs: JobManager): vo
     return listChunks(db, requireString(p, 'intermediateDocumentUid'))
   })
 
+  router.register('chunk.get', (params) => {
+    const p = asRecord(params)
+    const { db } = requireProject()
+    return getChunk(db, requireString(p, 'uid'))
+  })
+
+  router.register('chunk.update', (params) => {
+    const p = asRecord(params)
+    const { db, info } = requireProject()
+    updateChunk(
+      db,
+      info.projectUid,
+      requireString(p, 'uid'),
+      Array.isArray(p.intermediateItemUids) ? p.intermediateItemUids.map(String) : [],
+      p.additionalPrompt === undefined ? '' : String(p.additionalPrompt)
+    )
+    return { updated: true }
+  })
   router.register('chunk.getText', (params) => {
     const p = asRecord(params)
     const { db } = requireProject()

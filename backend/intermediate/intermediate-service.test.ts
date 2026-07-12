@@ -14,11 +14,13 @@ import {
   deleteChunk,
   editElementText,
   estimateTokens,
+  getChunk,
   getChunkText,
   insertExtractedItems,
   reorderIntermediateItems,
   changeIntermediateHierarchy,
   updateIntermediateItemStatuses,
+  updateChunk,
   listChunks,
   mergeElements,
   splitElement,
@@ -322,7 +324,17 @@ describe('③中間データ（P7）', () => {
       artifactTypeId: 'design_doc',
       devPhaseId: 'DD'
     })
-    const chunk = createChunk(db, projectUid, doc.intermediateDocumentUid, ['i1', 'i2', 'i4'])
+    db.prepare(
+      "UPDATE entity_registry SET status='approved' WHERE uid IN (SELECT uid FROM intermediate_item WHERE intermediate_document_uid=?)"
+    ).run(doc.intermediateDocumentUid)
+    const chunk = createChunk(
+      db,
+      projectUid,
+      doc.intermediateDocumentUid,
+      ['i1', 'i2', 'i4'],
+      undefined,
+      '安全性を重視すること'
+    )
     expect(chunk.code).toMatch(/^CHUNK-\d{6}$/)
     expect(chunk.tokenCount).toBe(estimateTokens('1. 概要\n応答は速いこと。\n対象A'))
 
@@ -331,6 +343,22 @@ describe('③中間データ（P7）', () => {
     expect(text).toBe('# 1. 概要\n応答は速いこと。\n- 対象A')
 
     expect(listChunks(db, doc.intermediateDocumentUid)).toHaveLength(1)
+    expect((getChunk(db, chunk.chunkUid) as { additional_prompt: string }).additional_prompt).toBe(
+      '安全性を重視すること'
+    )
+    const itemUids = (getChunk(db, chunk.chunkUid) as { items: { intermediate_item_uid: string }[] }).items.map(
+      (item) => item.intermediate_item_uid
+    )
+    expect(
+      (
+        db
+          .prepare("SELECT COUNT(*) AS count FROM trace_link WHERE from_uid=? AND relation_type='based_on'")
+          .get(chunk.chunkUid) as { count: number }
+      ).count
+    ).toBe(3)
+    updateChunk(db, projectUid, chunk.chunkUid, itemUids.slice(0, 2), '更新後プロンプト')
+    expect((getChunk(db, chunk.chunkUid) as { items: unknown[]; additional_prompt: string }).items).toHaveLength(2)
+    expect((getChunk(db, chunk.chunkUid) as { additional_prompt: string }).additional_prompt).toBe('更新後プロンプト')
 
     deleteChunk(db, chunk.chunkUid)
     expect(listChunks(db, doc.intermediateDocumentUid)).toHaveLength(0)

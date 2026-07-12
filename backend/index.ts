@@ -256,6 +256,11 @@ function main(): void {
 
     ctx.reportProgress(10, '入力チャンクを構築中')
     const chunkText = getChunkText(db, chunkUid)
+    const chunkPrompt =
+      (
+        db.prepare('SELECT additional_prompt FROM chunk WHERE uid=?').get(chunkUid) as
+          { additional_prompt: string } | undefined
+      )?.additional_prompt ?? ''
 
     const systemPrompt = [
       'あなたは設計文書から設計モデル候補を抽出するAIです。',
@@ -277,7 +282,7 @@ function main(): void {
         processName: 'design-candidates',
         messages: [
           { role: 'system', content: systemPrompt },
-          { role: 'user', content: chunkText }
+          { role: 'user', content: chunkPrompt ? chunkText + '\n\n追加指示:\n' + chunkPrompt : chunkText }
         ],
         jsonMode: true,
         inputRefUid: chunkUid,

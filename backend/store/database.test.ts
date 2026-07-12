@@ -74,7 +74,7 @@ describe('createDatabase / openDatabase（P1-1）', () => {
     }
     expect(tables).toContain('fts_entity_text')
 
-    expect(getSchemaVersion(db)).toBe('1.2.0')
+    expect(getSchemaVersion(db)).toBe('1.3.0')
     expect(getProjectRow(db).name).toBe('テスト')
     checkIntegrity(db) // 例外が出ないこと
   })
@@ -113,7 +113,7 @@ describe('createDatabase / openDatabase（P1-1）', () => {
     closeDatabase(created)
 
     db = openDatabase(path)
-    expect(getSchemaVersion(db)).toBe('1.2.0')
+    expect(getSchemaVersion(db)).toBe('1.3.0')
   })
 
   it('存在しない DB を開くと not_found エラーになる', () => {

@@ -561,7 +561,8 @@ export function createChunk(
   projectUid: string,
   docUid: string,
   elementIds: string[],
-  promptTemplateUid?: string
+  promptTemplateUid?: string,
+  additionalPrompt = ''
 ): { chunkUid: string; code: string; tokenCount: number } {
   if (elementIds.length === 0) {
     throw new BackendError('validation', 'チャンクへ含める要素を選択してください', '')
@@ -584,8 +585,8 @@ export function createChunk(
       createdBy: 'user'
     })
     db.prepare(
-      `INSERT INTO chunk (uid, intermediate_document_uid, prompt_template_uid, token_count) VALUES (?, ?, ?, ?)`
-    ).run(chunk.uid, docUid, promptTemplateUid ?? null, estimateTokens(text))
+      `INSERT INTO chunk (uid, intermediate_document_uid, prompt_template_uid, additional_prompt, token_count) VALUES (?, ?, ?, ?, ?)`
+    ).run(chunk.uid, docUid, promptTemplateUid ?? null, additionalPrompt, estimateTokens(text))
 
     // chunk_item: intermediate_item を順序付きで対応付ける（本文は重複保持しない。§9.2）
     selected.forEach((element, i) => {
@@ -602,6 +603,10 @@ export function createChunk(
         itemRow.uid,
         i
       )
+      const trace = registerEntity(db, { projectUid, entityType: 'trace_link', createdBy: 'human' })
+      db.prepare(
+        "INSERT INTO trace_link (uid, from_uid, to_uid, relation_type, basis_kind, created_by, review_status) VALUES (?, ?, ?, 'based_on', 'normalized', 'human', 'approved')"
+      ).run(trace.uid, chunk.uid, itemRow.uid)
     })
 
     return { chunkUid: chunk.uid, code: chunk.code, tokenCount: estimateTokens(text) }
@@ -610,17 +615,87 @@ export function createChunk(
 }
 
 export function listChunks(db: Database, docUid: string): unknown[] {
-  return db
+  const rows = db
     .prepare(
-      `SELECT e.uid, e.code, e.title, c.token_count, c.prompt_template_uid, c.created_at,
-              (SELECT COUNT(*) FROM chunk_item ci WHERE ci.chunk_uid = c.uid) AS item_count
+      `SELECT e.uid, e.code, e.title, c.token_count, c.prompt_template_uid, c.additional_prompt, c.created_at,
+              (SELECT COUNT(*) FROM chunk_item ci WHERE ci.chunk_uid = c.uid) AS item_count,
+              (SELECT json_group_array(ci.intermediate_item_uid) FROM chunk_item ci WHERE ci.chunk_uid = c.uid) AS item_uids_json
          FROM chunk c JOIN entity_registry e ON e.uid = c.uid
         WHERE c.intermediate_document_uid = ? AND e.status <> 'deleted'
         ORDER BY c.created_at DESC`
     )
-    .all(docUid)
+    .all(docUid) as Array<Record<string, unknown> & { item_uids_json: string }>
+  return rows.map(({ item_uids_json, ...row }) => ({
+    ...row,
+    item_uids: JSON.parse(item_uids_json) as string[]
+  }))
 }
 
+export function getChunk(db: Database, chunkUid: string): unknown {
+  const chunk = db
+    .prepare(
+      `SELECT e.uid, e.code, e.title, c.intermediate_document_uid, c.prompt_template_uid, c.additional_prompt, c.token_count
+       FROM chunk c JOIN entity_registry e ON e.uid=c.uid WHERE c.uid=? AND e.status <> 'deleted'`
+    )
+    .get(chunkUid)
+  if (!chunk) throw new BackendError('not_found', `チャンクが見つかりません: ${chunkUid}`, '')
+  const items = db
+    .prepare(
+      `SELECT ci.intermediate_item_uid, ci.sort_order, ii.resource_uid
+       FROM chunk_item ci JOIN intermediate_item ii ON ii.uid=ci.intermediate_item_uid
+      WHERE ci.chunk_uid=? ORDER BY ci.sort_order`
+    )
+    .all(chunkUid)
+  return { ...(chunk as object), items }
+}
+
+export function updateChunk(
+  db: Database,
+  projectUid: string,
+  chunkUid: string,
+  intermediateItemUids: string[],
+  additionalPrompt: string
+): void {
+  const unique = [...new Set(intermediateItemUids)]
+  if (unique.length === 0) throw new BackendError('validation', 'チャンクへ含める成果物項目を選択してください', '')
+  const rows = db
+    .prepare(
+      `SELECT i.uid, e.status FROM intermediate_item i JOIN entity_registry e ON e.uid=i.uid
+      WHERE i.uid IN (${unique.map(() => '?').join(',')})
+        AND i.intermediate_document_uid=(SELECT intermediate_document_uid FROM chunk WHERE uid=?)`
+    )
+    .all(...unique, chunkUid) as { uid: string; status: string }[]
+  if (rows.length !== unique.length || rows.some((row) => row.status !== 'approved'))
+    throw new BackendError('validation', '同じ成果物の確認済み項目だけをチャンクへ設定できます', '')
+  const txn = db.transaction(() => {
+    const oldItems = db.prepare(`SELECT uid FROM chunk_item WHERE chunk_uid=?`).all(chunkUid) as { uid: string }[]
+    const oldLinks = db
+      .prepare(`SELECT uid FROM trace_link WHERE from_uid=? AND relation_type='based_on'`)
+      .all(chunkUid) as { uid: string }[]
+    for (const row of [...oldItems, ...oldLinks]) db.prepare(`DELETE FROM entity_registry WHERE uid=?`).run(row.uid)
+    unique.forEach((itemUid, sortOrder) => {
+      const item = registerEntity(db, { projectUid, entityType: 'chunk_item', createdBy: 'user' })
+      db.prepare(`INSERT INTO chunk_item (uid, chunk_uid, intermediate_item_uid, sort_order) VALUES (?, ?, ?, ?)`).run(
+        item.uid,
+        chunkUid,
+        itemUid,
+        sortOrder
+      )
+      const trace = registerEntity(db, { projectUid, entityType: 'trace_link', createdBy: 'human' })
+      db.prepare(
+        `INSERT INTO trace_link (uid, from_uid, to_uid, relation_type, basis_kind, created_by, review_status) VALUES (?, ?, ?, 'based_on', 'normalized', 'human', 'approved')`
+      ).run(trace.uid, chunkUid, itemUid)
+    })
+    const text = getChunkText(db, chunkUid)
+    db.prepare(`UPDATE chunk SET additional_prompt=?, token_count=? WHERE uid=?`).run(
+      additionalPrompt,
+      estimateTokens(text),
+      chunkUid
+    )
+  })
+  txn()
+  eventBus.emit('intermediate.updated', { kind: 'chunk-updated', chunkUid })
+}
 /** チャンクの LLM 入力テキストを resource_* から再生成する（本文の二重管理をしない） */
 export function getChunkText(db: Database, chunkUid: string): string {
   const rows = db

@@ -212,6 +212,21 @@ export function DocumentsTree(): React.JSX.Element {
                         )}
                       </small>
                     </span>
+                    {doc && (
+                      <button
+                        type="button"
+                        className="d2d-btn small"
+                        data-testid={`chunks-${doc.code}`}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          openResource(`chunk://${doc.uid}`, `チャンク: ${doc.title ?? artifact.artifact_name}`, {
+                            preview: false
+                          })
+                        }}
+                      >
+                        チャンク
+                      </button>
+                    )}
                     <button
                       type="button"
                       className="d2d-btn small"

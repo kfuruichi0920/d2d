@@ -501,6 +501,7 @@ CREATE TABLE chunk (
     uid TEXT PRIMARY KEY,
     intermediate_document_uid TEXT NOT NULL,
     prompt_template_uid TEXT,
+    additional_prompt TEXT NOT NULL DEFAULT '',
     token_count INTEGER NOT NULL DEFAULT 0 CHECK (token_count >= 0),
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (uid) REFERENCES entity_registry(uid) ON DELETE CASCADE,
