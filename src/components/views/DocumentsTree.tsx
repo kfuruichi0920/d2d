@@ -202,9 +202,14 @@ export function DocumentsTree(): React.JSX.Element {
                     {doc && <ReviewStatusBadge status={reviewStateFromEntityStatus(doc.status)} />}
                     <span style={{ flex: 1 }}>
                       {artifact.artifact_name}
-                      <small style={{ display: 'block', color: 'var(--d2d-fg-muted)' }}>
-                        {sourceIds.map((id) => extracted.find((x) => x.uid === id)?.title ?? id).join(' / ') ||
-                          '統合元未選択'}
+                      <small style={{ display: 'flex', flexDirection: 'column', color: 'var(--d2d-fg-muted)' }}>
+                        {sourceIds.length === 0 ? (
+                          <span>統合元未選択</span>
+                        ) : (
+                          sourceIds.map((id) => (
+                            <span key={id}>↳ {extracted.find((x) => x.uid === id)?.title ?? id}</span>
+                          ))
+                        )}
                       </small>
                     </span>
                     <button

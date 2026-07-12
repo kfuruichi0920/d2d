@@ -319,6 +319,17 @@ test('②→③統合・編集・確定（P7）', async () => {
   // ③正本確定 → intermediate.updated
   await page.getByTestId('intermediate-approve').click()
   await expect(page.getByTestId('intermediate-approve')).toContainText('正本確定済み')
+  const approvedIntermediate = await page.evaluate(async () =>
+    window.api.invoke<{ elements: { review?: { status: string } }[] }>('intermediate.get', {
+      uid: (await window.api.invoke<{ uid: string }[]>('intermediate.list')).ok
+        ? ((await window.api.invoke<{ uid: string }[]>('intermediate.list')) as { ok: true; result: { uid: string }[] })
+            .result[0]!.uid
+        : ''
+    })
+  )
+  expect(
+    approvedIntermediate.ok && approvedIntermediate.result.elements.every((item) => item.review?.status !== 'draft')
+  ).toBe(true)
 })
 
 test('LLM 実行（モック Ollama）→ ログビューまでの全経路（P6）', async () => {

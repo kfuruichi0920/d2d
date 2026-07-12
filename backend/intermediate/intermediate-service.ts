@@ -63,11 +63,46 @@ function itemTypeOf(element: IntermediateElement): string {
   }
 }
 
-function addIntermediateItem(db: Database, projectUid: string, docUid: string, element: IntermediateElement): void {
+function addIntermediateItem(db: Database, projectUid: string, docUid: string, element: IntermediateElement): string {
   const item = registerEntity(db, { projectUid, entityType: 'intermediate_item', createdBy: 'user' })
   db.prepare(
     `INSERT INTO intermediate_item (uid, intermediate_document_uid, item_type, resource_uid) VALUES (?, ?, ?, ?)`
   ).run(item.uid, docUid, itemTypeOf(element), element.resource_uid)
+  return item.uid
+}
+
+/** intermediate_item → extracted_item のアイテム単位 based_on を正本として登録する。 */
+function addItemBasedOnLinks(
+  db: Database,
+  projectUid: string,
+  intermediateItemUid: string,
+  extractedItemUids: string[]
+): void {
+  const insert = db.prepare(
+    `INSERT INTO trace_link (uid, from_uid, to_uid, relation_type, basis_kind, created_by, review_status) VALUES (?, ?, ?, 'based_on', 'extracted', 'rule', 'approved')`
+  )
+  for (const extractedItemUid of [...new Set(extractedItemUids)]) {
+    const link = registerEntity(db, { projectUid, entityType: 'trace_link', createdBy: 'rule' })
+    insert.run(link.uid, intermediateItemUid, extractedItemUid)
+  }
+}
+
+function extractedItemUidsForResource(db: Database, resourceUid: string): string[] {
+  return (
+    db.prepare(`SELECT uid FROM extracted_item WHERE resource_uid = ?`).all(resourceUid) as { uid: string }[]
+  ).map((row) => row.uid)
+}
+
+/** 編集前の intermediate_item に張られたアイテム由来を退避する。 */
+function sourceExtractedItemUids(db: Database, docUid: string, resourceUids: string[]): string[] {
+  if (resourceUids.length === 0) return []
+  return (
+    db
+      .prepare(
+        `SELECT DISTINCT t.to_uid AS uid FROM intermediate_item i JOIN trace_link t ON t.from_uid=i.uid AND t.relation_type='based_on' JOIN extracted_item x ON x.uid=t.to_uid WHERE i.intermediate_document_uid=? AND i.resource_uid IN (${resourceUids.map(() => '?').join(',')})`
+      )
+      .all(docUid, ...resourceUids) as { uid: string }[]
+  ).map((row) => row.uid)
 }
 
 /** intermediate_item（対応行）を物理削除する。リソース本体と②の対応は残る */
@@ -96,6 +131,31 @@ function addDerivationLink(
     `INSERT INTO trace_link (uid, from_uid, to_uid, relation_type, basis_kind, transform_note, created_by, review_status, llm_run_uid)
      VALUES (?, ?, ?, 'based_on', ?, ?, ?, 'approved', ?)`
   ).run(link.uid, fromUid, toUid, basisKind, transformNote, llmRunUid ? 'llm' : 'human', llmRunUid ?? null)
+}
+
+/** 既存③データへアイテム単位 based_on を補完する（resource由来リンクを再帰探索）。 */
+export function ensureIntermediateItemTraceLinks(db: Database, projectUid: string, docUid: string): number {
+  const items = db
+    .prepare(
+      `SELECT i.uid,i.resource_uid FROM intermediate_item i WHERE i.intermediate_document_uid=? AND NOT EXISTS (SELECT 1 FROM trace_link t JOIN extracted_item x ON x.uid=t.to_uid WHERE t.from_uid=i.uid AND t.relation_type='based_on')`
+    )
+    .all(docUid) as { uid: string; resource_uid: string }[]
+  let added = 0
+  for (const item of items) {
+    const sources = db
+      .prepare(
+        `WITH RECURSIVE ancestry(uid) AS (SELECT ? UNION SELECT t.to_uid FROM trace_link t JOIN ancestry a ON t.from_uid=a.uid WHERE t.relation_type='based_on') SELECT DISTINCT x.uid FROM ancestry a JOIN extracted_item x ON x.resource_uid=a.uid`
+      )
+      .all(item.resource_uid) as { uid: string }[]
+    addItemBasedOnLinks(
+      db,
+      projectUid,
+      item.uid,
+      sources.map((source) => source.uid)
+    )
+    added += sources.length
+  }
+  return added
 }
 
 // ---- P7-1: 統合生成 ----
@@ -179,7 +239,9 @@ export function createIntermediateDocument(
     ).run(doc.uid, null, input.artifactTypeId, input.devPhaseId, JSON.stringify(structure))
 
     for (const element of elements) {
-      addIntermediateItem(db, projectUid, doc.uid, element)
+      const itemUid = addIntermediateItem(db, projectUid, doc.uid, element)
+      if (element.resource_uid)
+        addItemBasedOnLinks(db, projectUid, itemUid, extractedItemUidsForResource(db, element.resource_uid))
     }
 
     // ③→② の根拠リンクを sources と同期して自動生成する（§2.11）
@@ -240,7 +302,11 @@ export function insertExtractedItems(
       0,
       ...inserted
     )
-    for (const element of inserted) addIntermediateItem(db, projectUid, docUid, element)
+    for (const element of inserted) {
+      const itemUid = addIntermediateItem(db, projectUid, docUid, element)
+      if (element.resource_uid)
+        addItemBasedOnLinks(db, projectUid, itemUid, extractedItemUidsForResource(db, element.resource_uid))
+    }
     saveStructure(db, docUid, structure)
     return { inserted: inserted.length }
   })
@@ -371,11 +437,13 @@ export function editElementText(
       options?.llmRunUid
     )
 
+    const sourceItemUids = sourceExtractedItemUids(db, docUid, [oldResourceUid])
     removeIntermediateItems(db, docUid, [oldResourceUid])
     // 編集後はテキスト要素（paragraph 系はそのまま、caption/heading もテキスト実体として保持）
     element.text = newText
     element.resource_uid = created.uid
-    addIntermediateItem(db, projectUid, docUid, element)
+    const newItemUid = addIntermediateItem(db, projectUid, docUid, element)
+    addItemBasedOnLinks(db, projectUid, newItemUid, sourceItemUids)
     saveStructure(db, docUid, structure)
     return { newResourceUid: created.uid }
   })
@@ -415,6 +483,7 @@ export function mergeElements(
     const created = newTextResource(ctx, mergedText, mergedText, 'user')
     addDerivationLink(db, projectUid, created.uid, elementA.resource_uid!, 'human_approved', 'merge')
     addDerivationLink(db, projectUid, created.uid, elementB.resource_uid!, 'human_approved', 'merge')
+    const sourceItemUids = sourceExtractedItemUids(db, docUid, [elementA.resource_uid!, elementB.resource_uid!])
     removeIntermediateItems(db, docUid, [elementA.resource_uid!, elementB.resource_uid!])
 
     const merged: IntermediateElement = {
@@ -425,7 +494,8 @@ export function mergeElements(
       resource_uid: created.uid
     }
     structure.elements.splice(first, 2, merged)
-    addIntermediateItem(db, projectUid, docUid, merged)
+    const mergedItemUid = addIntermediateItem(db, projectUid, docUid, merged)
+    addItemBasedOnLinks(db, projectUid, mergedItemUid, sourceItemUids)
     saveStructure(db, docUid, structure)
     return { newElementId: merged.id, newResourceUid: created.uid }
   })
@@ -461,13 +531,16 @@ export function splitElement(
     const createdB = newTextResource(ctx, texts[1], texts[1], 'user')
     addDerivationLink(db, projectUid, createdA.uid, element.resource_uid, 'human_approved', 'split')
     addDerivationLink(db, projectUid, createdB.uid, element.resource_uid, 'human_approved', 'split')
+    const sourceItemUids = sourceExtractedItemUids(db, docUid, [element.resource_uid])
     removeIntermediateItems(db, docUid, [element.resource_uid])
 
     const partA: IntermediateElement = { ...element, id: `${element.id}a`, text: texts[0], resource_uid: createdA.uid }
     const partB: IntermediateElement = { ...element, id: `${element.id}b`, text: texts[1], resource_uid: createdB.uid }
     structure.elements.splice(index, 1, partA, partB)
-    addIntermediateItem(db, projectUid, docUid, partA)
-    addIntermediateItem(db, projectUid, docUid, partB)
+    const itemAUid = addIntermediateItem(db, projectUid, docUid, partA)
+    const itemBUid = addIntermediateItem(db, projectUid, docUid, partB)
+    addItemBasedOnLinks(db, projectUid, itemAUid, sourceItemUids)
+    addItemBasedOnLinks(db, projectUid, itemBUid, sourceItemUids)
     saveStructure(db, docUid, structure)
     return { newElementIds: [partA.id, partB.id] as [string, string] }
   })

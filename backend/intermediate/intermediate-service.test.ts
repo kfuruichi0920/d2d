@@ -99,6 +99,14 @@ describe('③中間データ（P7）', () => {
         .get(result.intermediateDocumentUid) as { n: number }
     ).n
     expect(itemCount).toBe(4)
+    const itemLinkCount = (
+      db
+        .prepare(
+          `SELECT COUNT(*) AS n FROM trace_link t JOIN intermediate_item i ON i.uid=t.from_uid JOIN extracted_item x ON x.uid=t.to_uid WHERE i.intermediate_document_uid=? AND t.relation_type='based_on' AND t.basis_kind='extracted'`
+        )
+        .get(result.intermediateDocumentUid) as { n: number }
+    ).n
+    expect(itemLinkCount).toBe(4)
 
     // ③→② based_on（basis_kind=extracted）
     const link = db
@@ -154,6 +162,47 @@ describe('③中間データ（P7）', () => {
     expect(legacy.source_extracted_document_uid).toBeNull()
   })
 
+  it('複数の②抽出文書を統合元として保持し、各アイテムのbased_onを登録する', () => {
+    const src2 = join(dir, 'spec2.docx')
+    writeFileSync(src2, 'dummy2')
+    const imported2 = importSourceDocument(db, projectUid, root, src2)
+    const work2 = join(dir, 'work2')
+    mkdirSync(work2, { recursive: true })
+    const stored2 = storeExtractionResult(db, {
+      projectUid,
+      projectRoot: root,
+      sourceDocumentUid: imported2.sourceDocumentUid,
+      extraction: { ...EXTRACTION, metadata: { ...EXTRACTION.metadata, title: '別仕様書' } },
+      workDir: work2
+    })
+    db.prepare(`UPDATE entity_registry SET status='approved' WHERE uid=?`).run(stored2.extractedDocumentUid)
+    const doc = createIntermediateDocument(db, projectUid, {
+      extractedDocumentUids: [extractedUid, stored2.extractedDocumentUid],
+      artifactTypeId: 'design_doc',
+      devPhaseId: 'DD',
+      importItems: false
+    })
+    expect(structureOf(doc.intermediateDocumentUid).sources).toHaveLength(2)
+    const resource1 = (
+      db
+        .prepare(`SELECT resource_uid FROM extracted_item WHERE extracted_document_uid=? LIMIT 1`)
+        .get(extractedUid) as { resource_uid: string }
+    ).resource_uid
+    const resource2 = (
+      db
+        .prepare(`SELECT resource_uid FROM extracted_item WHERE extracted_document_uid=? LIMIT 1`)
+        .get(stored2.extractedDocumentUid) as { resource_uid: string }
+    ).resource_uid
+    insertExtractedItems(db, projectUid, doc.intermediateDocumentUid, [resource1, resource2], undefined, 'below')
+    const links = db
+      .prepare(
+        `SELECT t.from_uid,t.to_uid FROM trace_link t JOIN intermediate_item i ON i.uid=t.from_uid WHERE i.intermediate_document_uid=? AND t.basis_kind='extracted'`
+      )
+      .all(doc.intermediateDocumentUid) as { from_uid: string; to_uid: string }[]
+    expect(links).toHaveLength(2)
+    expect(new Set(links.map((link) => link.from_uid)).size).toBe(2)
+  })
+
   it('成果物設定の削除で関連する③中間データも物理削除する', () => {
     saveDevPhase(db, projectUid, { devPhaseId: 'DD', devPhaseName: '詳細設計' })
     const artifact = saveArtifactSetting(db, projectUid, {
@@ -204,6 +253,12 @@ describe('③中間データ（P7）', () => {
       .prepare(`SELECT basis_kind, transform_note FROM trace_link WHERE from_uid = ? AND to_uid = ?`)
       .get(edited.newResourceUid, oldResourceUid) as { basis_kind: string; transform_note: string }
     expect(link).toEqual({ basis_kind: 'human_approved', transform_note: 'edit' })
+    const itemBasis = db
+      .prepare(
+        `SELECT x.resource_uid FROM intermediate_item i JOIN trace_link t ON t.from_uid=i.uid AND t.relation_type='based_on' JOIN extracted_item x ON x.uid=t.to_uid WHERE i.intermediate_document_uid=? AND i.resource_uid=?`
+      )
+      .get(doc.intermediateDocumentUid, edited.newResourceUid) as { resource_uid: string }
+    expect(itemBasis.resource_uid).toBe(oldResourceUid)
 
     // 旧リソース自体は②の正本として残る
     const oldText = db.prepare(`SELECT text_body FROM resource_text WHERE uid = ?`).get(oldResourceUid) as {
