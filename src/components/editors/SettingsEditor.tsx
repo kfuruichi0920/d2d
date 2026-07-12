@@ -23,6 +23,7 @@ export function SettingsEditor(): React.JSX.Element {
   const [secretKeys, setSecretKeys] = useState<string[]>([])
   const [newKeyName, setNewKeyName] = useState('openai_api_key')
   const [newKeyValue, setNewKeyValue] = useState('')
+  const [revealedSecrets, setRevealedSecrets] = useState<Record<string, string>>({})
 
   const loadSecrets = async (): Promise<void> => {
     const res = await invoke<string[]>('settings.listSecretKeys')
@@ -45,9 +46,32 @@ export function SettingsEditor(): React.JSX.Element {
     }
   }
 
+  const toggleSecretVisibility = async (key: string): Promise<void> => {
+    if (revealedSecrets[key] !== undefined) {
+      setRevealedSecrets((current) => {
+        const next = { ...current }
+        delete next[key]
+        return next
+      })
+      return
+    }
+    const result = await invoke<string>('settings.getSecret', { key })
+    if (result.ok) {
+      setRevealedSecrets((current) => ({ ...current, [key]: result.result }))
+    } else {
+      notify('error', '秘密情報を表示できませんでした', result.error.message)
+    }
+  }
   const deleteSecret = async (key: string): Promise<void> => {
     const res = await invoke('settings.deleteSecret', { key })
-    if (res.ok) await loadSecrets()
+    if (res.ok) {
+      setRevealedSecrets((current) => {
+        const next = { ...current }
+        delete next[key]
+        return next
+      })
+      await loadSecrets()
+    }
   }
 
   const rowStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 8, margin: '6px 0' }
@@ -92,12 +116,25 @@ export function SettingsEditor(): React.JSX.Element {
 
       <h2 style={{ fontSize: 14, marginTop: 20 }}>APIキー等の機密情報（CORE-044/045）</h2>
       <p style={{ color: 'var(--d2d-fg-muted)', fontSize: 11.5 }}>
-        OS の資格情報保護機構（safeStorage）で暗号化して保存します。値の再表示はできません。
+        アプリ全体の秘密情報として safeStorage
+        で暗号化保存します。登録状態は起動後も復元し、「表示」を押した場合のみこのPC内で復号した値を表示します。
       </p>
       {secretKeys.map((key) => (
-        <div key={key} style={rowStyle}>
+        <div key={key} style={rowStyle} data-testid={`secret-row-${key}`}>
           <code style={{ flex: 1 }}>{key}</code>
           <span className="d2d-badge status-success">登録済み</span>
+          {revealedSecrets[key] !== undefined && (
+            <input
+              readOnly
+              value={revealedSecrets[key]}
+              aria-label={`${key} の値`}
+              data-testid={`secret-revealed-${key}`}
+              style={{ flex: 1 }}
+            />
+          )}
+          <button type="button" className="d2d-btn small" onClick={() => void toggleSecretVisibility(key)}>
+            {revealedSecrets[key] !== undefined ? '隠す' : '表示'}
+          </button>
           <button type="button" className="d2d-btn small" onClick={() => void deleteSecret(key)}>
             削除
           </button>

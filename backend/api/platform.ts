@@ -48,6 +48,9 @@ export function registerSettingsApi(router: ApiRouter, settings: SettingsService
   })
   router.register('settings.hasSecret', (params) => settings.hasSecret(requireString(asRecord(params), 'key')))
   router.register('settings.listSecretKeys', () => settings.listSecretKeys())
+  router.register('settings.getSecret', async (params) =>
+    settings.getSecretValue(requireString(asRecord(params), 'key'))
+  )
   router.register('settings.deleteSecret', (params) => {
     settings.deleteSecret(requireString(asRecord(params), 'key'))
     return { deleted: true }

@@ -6,11 +6,11 @@
 import { useEffect } from 'react'
 import { installKeybindings } from '../../services/command-registry'
 import { getCommandContext, registerBuiltinCommands } from '../../services/builtin-commands'
-import { onBackendEvent } from '../../services/backend'
+import { invoke, onBackendEvent } from '../../services/backend'
 import { useJobsStore, type JobRecord } from '../../stores/jobs-store'
 import { useProjectStore, type ProjectInfo } from '../../stores/project-store'
 import { useWorkbenchStore } from '../../stores/workbench-store'
-import { watchSystemTheme } from '../../theme/theme'
+import { COLOR_THEMES, DISPLAY_MODES, watchSystemTheme, type ThemeState } from '../../theme/theme'
 import { TitleBar } from './TitleBar'
 import { PipelineNavigator } from './PipelineNavigator'
 import { ActivityBar } from './ActivityBar'
@@ -36,6 +36,19 @@ export function WorkbenchShell(): React.JSX.Element {
       commandsRegistered = true
     }
     loadPersisted('global')
+    void Promise.all([
+      invoke<unknown>('settings.get', { key: 'theme.displayMode' }),
+      invoke<unknown>('settings.get', { key: 'theme.colorTheme' })
+    ]).then(([displayModeResult, colorThemeResult]) => {
+      const theme: Partial<ThemeState> = {}
+      if (displayModeResult.ok && DISPLAY_MODES.includes(displayModeResult.result as (typeof DISPLAY_MODES)[number])) {
+        theme.displayMode = displayModeResult.result as ThemeState['displayMode']
+      }
+      if (colorThemeResult.ok && COLOR_THEMES.includes(colorThemeResult.result as (typeof COLOR_THEMES)[number])) {
+        theme.colorTheme = colorThemeResult.result as ThemeState['colorTheme']
+      }
+      if (Object.keys(theme).length > 0) useWorkbenchStore.getState().setTheme(theme)
+    })
 
     const uninstallKeys = installKeybindings(getCommandContext)
     const unwatchTheme = watchSystemTheme(() => useWorkbenchStore.getState().theme)

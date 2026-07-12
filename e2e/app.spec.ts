@@ -62,6 +62,12 @@ test('コマンドパレットからテーマを切り替えられる（P3-2 / P
   await page.getByTestId('palette-input').fill('カラーテーマ: konjo')
   await page.keyboard.press('Enter')
   await expect(page.locator('html')).toHaveAttribute('data-panda-theme', 'konjo-dark')
+  await expect
+    .poll(async () => page.evaluate(async () => window.api.invoke('settings.get', { key: 'theme.displayMode' })))
+    .toMatchObject({ ok: true, result: 'dark' })
+  await expect
+    .poll(async () => page.evaluate(async () => window.api.invoke('settings.get', { key: 'theme.colorTheme' })))
+    .toMatchObject({ ok: true, result: 'konjo' })
 })
 
 test('作業モード切替とレイアウトプリセット（P3-7）', async () => {
@@ -123,9 +129,14 @@ test('設定エディタで機密情報を暗号化保存できる（P2-2 UI）'
   await page.getByTestId('secret-value-input').fill('sk-e2e-ui-secret')
   await page.getByTestId('secret-save').click()
   await expect(page.getByTestId('settings-editor')).toContainText('登録済み')
+  const secretRow = page.getByTestId('secret-row-openai_api_key')
+  await secretRow.getByRole('button', { name: '表示' }).click()
+  await expect(secretRow.getByTestId('secret-revealed-openai_api_key')).toHaveValue('sk-e2e-ui-secret')
+  await secretRow.getByRole('button', { name: '隠す' }).click()
+  await expect(secretRow.getByTestId('secret-revealed-openai_api_key')).toHaveCount(0)
 
   // 後始末
-  await page.getByRole('button', { name: '削除' }).first().click()
+  await secretRow.getByRole('button', { name: '削除' }).click()
 })
 
 test('設定エディタでPlantUMLレンダリング設定を保存・解除できる（P2-2 / P10-3 UI）', async () => {
@@ -137,6 +148,7 @@ test('設定エディタでPlantUMLレンダリング設定を保存・解除で
     'プロジェクト未読込でも保存・利用できます'
   )
   await expect(settings.getByTestId('app-settings-storage-path')).toContainText('settings.json')
+  await expect(settings.getByTestId('app-secrets-storage-path')).toContainText('secrets.json')
 
   await settings.getByTestId('setting-plantuml-jar-path').fill('C:/tools/plantuml.jar')
   await settings.getByTestId('setting-plantuml-java-path').fill('C:/tools/java.exe')

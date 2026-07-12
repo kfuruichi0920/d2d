@@ -5,14 +5,19 @@ import { invoke } from '../../services/backend'
 interface StorageInfo {
   scope: 'application'
   settingsPath: string
+  secretsPath: string
 }
 
 export function AppSettingsStorageNotice(): React.JSX.Element {
   const [settingsPath, setSettingsPath] = useState('')
+  const [secretsPath, setSecretsPath] = useState('')
 
   useEffect(() => {
     void invoke<StorageInfo>('settings.getStorageInfo').then((result) => {
-      if (result.ok) setSettingsPath(result.result.settingsPath)
+      if (result.ok) {
+        setSettingsPath(result.result.settingsPath)
+        setSecretsPath(result.result.secretsPath)
+      }
     })
   }, [])
 
@@ -23,10 +28,13 @@ export function AppSettingsStorageNotice(): React.JSX.Element {
     >
       <strong>アプリ全体設定</strong>
       <div style={{ color: 'var(--d2d-fg-muted)', marginTop: 4 }}>
-        PlantUML・検索エンジン設定は全プロジェクトで共通です。プロジェクト未読込でも保存・利用できます。
+        テーマ・PlantUML・検索エンジン設定は全プロジェクトで共通です。プロジェクト未読込でも保存・利用できます。
       </div>
       <div style={{ marginTop: 4 }}>
         保存先: <code data-testid="app-settings-storage-path">{settingsPath || '読込中…'}</code>
+      </div>
+      <div style={{ marginTop: 4 }}>
+        秘密情報の保存先: <code data-testid="app-secrets-storage-path">{secretsPath || '読込中…'}</code>
       </div>
     </aside>
   )
