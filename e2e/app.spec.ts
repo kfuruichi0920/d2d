@@ -132,6 +132,11 @@ test('設定エディタでPlantUMLレンダリング設定を保存・解除で
   // 直前の設定テストで開いたエディタを再利用し、同一 Resource の重複オープンを避ける。
   const settings = page.locator('[data-testid="settings-editor"]:visible')
   await expect(settings).toHaveCount(1)
+  await expect(settings.getByTestId('app-settings-storage-notice')).toContainText('アプリ全体設定')
+  await expect(settings.getByTestId('app-settings-storage-notice')).toContainText(
+    'プロジェクト未読込でも保存・利用できます'
+  )
+  await expect(settings.getByTestId('app-settings-storage-path')).toContainText('settings.json')
 
   await settings.getByTestId('setting-plantuml-jar-path').fill('C:/tools/plantuml.jar')
   await settings.getByTestId('setting-plantuml-java-path').fill('C:/tools/java.exe')

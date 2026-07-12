@@ -48,6 +48,10 @@ export class SettingsService {
 
   // ---- アプリ全体設定（CORE-040） ----
 
+  getStorageInfo(): { scope: 'application'; settingsPath: string } {
+    return { scope: 'application', settingsPath: this.settingsPath }
+  }
+
   getAll(): SettingsMap {
     return readJson(this.settingsPath)
   }

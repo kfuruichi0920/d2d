@@ -27,6 +27,7 @@ function requireString(params: Record<string, unknown>, key: string): string {
 }
 
 export function registerSettingsApi(router: ApiRouter, settings: SettingsService): void {
+  router.register('settings.getStorageInfo', () => settings.getStorageInfo())
   router.register('settings.getAll', () => settings.getAll())
   router.register('settings.get', (params) => settings.get(requireString(asRecord(params), 'key')))
   router.register('settings.set', (params) => {

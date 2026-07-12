@@ -12,6 +12,7 @@ import { LlmSettingsSection } from '../views/LlmViews'
 import { useProjectStore } from '../../stores/project-store'
 import { SearchEngineSettingsSection } from '../views/SearchSettingsView'
 import { PlantUmlSettingsSection } from '../views/PlantUmlSettingsView'
+import { AppSettingsStorageNotice } from '../views/AppSettingsStorageNotice'
 
 export function SettingsEditor(): React.JSX.Element {
   const theme = useWorkbenchStore((s) => s.theme)
@@ -85,6 +86,7 @@ export function SettingsEditor(): React.JSX.Element {
         </select>
       </div>
 
+      <AppSettingsStorageNotice />
       <PlantUmlSettingsSection />
 
       <h2 style={{ fontSize: 14, marginTop: 20 }}>APIキー等の機密情報（CORE-044/045）</h2>

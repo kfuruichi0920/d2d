@@ -33,6 +33,10 @@ describe('SettingsService（P2-2）', () => {
     expect(svc.get('theme')).toBeNull()
   })
 
+  it('アプリ全体設定の実保存先を返す（CORE-040）', () => {
+    expect(svc.getStorageInfo()).toEqual({ scope: 'application', settingsPath: join(dir, 'settings.json') })
+  })
+
   it('APIキーらしきキー名の平文保存を拒否する（CORE-045 / NFR-020）', () => {
     expect(() => svc.set('openai_api_key', 'sk-xxx')).toThrowError(/setSecret/)
     expect(() => svc.set('llmToken', 'xxx')).toThrowError(/setSecret/)
