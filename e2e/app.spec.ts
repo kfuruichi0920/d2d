@@ -128,6 +128,31 @@ test('設定エディタで機密情報を暗号化保存できる（P2-2 UI）'
   await page.getByRole('button', { name: '削除' }).first().click()
 })
 
+test('設定エディタでPlantUMLレンダリング設定を保存・解除できる（P2-2 / P10-3 UI）', async () => {
+  // 直前の設定テストで開いたエディタを再利用し、同一 Resource の重複オープンを避ける。
+  const settings = page.locator('[data-testid="settings-editor"]:visible')
+  await expect(settings).toHaveCount(1)
+
+  await settings.getByTestId('setting-plantuml-jar-path').fill('C:/tools/plantuml.jar')
+  await settings.getByTestId('setting-plantuml-java-path').fill('C:/tools/java.exe')
+  await settings.getByTestId('setting-plantuml-save').click()
+  await expect(page.getByTestId('notifications')).toContainText('PlantUML レンダリング設定を保存しました')
+
+  const jarSetting = await page.evaluate(async () =>
+    window.api.invoke<string>('settings.get', { key: 'plantuml.jarPath' })
+  )
+  const javaSetting = await page.evaluate(async () =>
+    window.api.invoke<string>('settings.get', { key: 'plantuml.javaPath' })
+  )
+  expect(jarSetting).toMatchObject({ ok: true, result: 'C:/tools/plantuml.jar' })
+  expect(javaSetting).toMatchObject({ ok: true, result: 'C:/tools/java.exe' })
+
+  // 後続の PlantUML 未設定時テストへ影響を残さない。
+  await page.getByTestId('setting-plantuml-jar-path').fill('')
+  await page.getByTestId('setting-plantuml-java-path').fill('')
+  await page.getByTestId('setting-plantuml-save').click()
+  await expect(page.getByTestId('notifications')).toContainText('PlantUML 設定を解除しました')
+})
 test('原本取込→Word抽出→レビュー→②正本確定の全経路（P4/P5）', async () => {
   // テスト用 docx を Python で生成
   const docxPath = join(tmpdir(), `d2d-e2e-spec-${Date.now()}.docx`)

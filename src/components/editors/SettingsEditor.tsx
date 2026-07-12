@@ -11,6 +11,7 @@ import { COLOR_THEMES, DISPLAY_MODES } from '../../theme/theme'
 import { LlmSettingsSection } from '../views/LlmViews'
 import { useProjectStore } from '../../stores/project-store'
 import { SearchEngineSettingsSection } from '../views/SearchSettingsView'
+import { PlantUmlSettingsSection } from '../views/PlantUmlSettingsView'
 
 export function SettingsEditor(): React.JSX.Element {
   const theme = useWorkbenchStore((s) => s.theme)
@@ -83,6 +84,8 @@ export function SettingsEditor(): React.JSX.Element {
           ))}
         </select>
       </div>
+
+      <PlantUmlSettingsSection />
 
       <h2 style={{ fontSize: 14, marginTop: 20 }}>APIキー等の機密情報（CORE-044/045）</h2>
       <p style={{ color: 'var(--d2d-fg-muted)', fontSize: 11.5 }}>

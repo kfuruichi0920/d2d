@@ -62,6 +62,7 @@
   Word 拡張（脚注・コメント・変更履歴・テキストボックス・数式）
 - プロジェクト横断 Undo/Redo（NFR-012）はエディタ内のみ。操作履歴ベース未実装
 - resource_table_cell の entity_registry CHECK 制約追加（テーブル再構築が必要 → 将来 2.0.0）
-- PlantUML レンダリングは `plantuml.jarPath` 設定時のみ動作（同梱は P14-5）
+- PlantUML レンダリング用の `plantuml.jarPath` / `plantuml.javaPath` は設定エディタから指定可能。
+  Java/Graphviz/PlantUML の同梱と自動解決は P14-5
 - アーカイブ差分の左右テキストは Backend プロセス内保持（再起動後は差分インポート再実行）
 - Word 抽出の LLM 補助（EXT の一部）、GC 系 Golden Case の拡充
