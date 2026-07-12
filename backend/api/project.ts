@@ -1,5 +1,6 @@
 import type { ApiRouter } from './router'
 import { BackendError } from './errors'
+import { eventBus } from '../events/event-bus'
 import { closeProject, createProject, currentProject, openProject, requireProject } from '../project/project-service'
 import {
   addArtifactRelation,
@@ -95,13 +96,15 @@ export function registerProjectApi(router: ApiRouter): void {
   router.register('project.saveArtifactSetting', (params) => {
     const p = asRecord(params)
     const { db, info } = requireProject()
-    return saveArtifactSetting(db, info.projectUid, {
+    const saved = saveArtifactSetting(db, info.projectUid, {
       uid: p.uid === undefined ? undefined : String(p.uid),
       artifactName: String(p.artifactName ?? ''),
       artifactTypeId: String(p.artifactTypeId ?? ''),
       sortOrder: p.sortOrder === undefined ? undefined : Number(p.sortOrder),
       isActive: p.isActive === undefined ? undefined : Boolean(p.isActive)
     } satisfies SaveArtifactSettingInput)
+    eventBus.emit('artifact.updated', { kind: 'artifact-setting' })
+    return saved
   })
 
   router.register('project.deactivateArtifactSetting', (params) => {
@@ -141,12 +144,14 @@ export function registerProjectApi(router: ApiRouter): void {
   router.register('project.saveDevPhase', (params) => {
     const p = asRecord(params)
     const { db, info } = requireProject()
-    return saveDevPhase(db, info.projectUid, {
+    const saved = saveDevPhase(db, info.projectUid, {
       uid: p.uid === undefined ? undefined : String(p.uid),
       devPhaseId: String(p.devPhaseId ?? ''),
       devPhaseName: String(p.devPhaseName ?? ''),
       sortOrder: p.sortOrder === undefined ? undefined : Number(p.sortOrder),
       isActive: p.isActive === undefined ? undefined : Boolean(p.isActive)
     } satisfies SaveDevPhaseInput)
+    eventBus.emit('artifact.updated', { kind: 'dev-phase-setting' })
+    return saved
   })
 }

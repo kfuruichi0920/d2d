@@ -293,7 +293,7 @@ PDFのbbox編集、LLM OCR、表OCR、テキスト補正は、D2D上のレビュ
 
 ### 2.11 中間文書の統合ソース保持方針
 
-③中間データは、複数の②抽出文書を統合して生成できる（SRS DATA-002、DATA-009）。統合対象は `intermediate_document.structure_json.sources[]` に、②抽出文書UID、統合順序、統合時の設定を保持する。`source_extracted_document_uid` カラムは代表（主）ソースの参照とする。
+③中間データは、複数の②抽出文書を統合して生成できる（SRS DATA-002、DATA-009）。統合対象の正本は `intermediate_document` → `extracted_document` の `trace_link`（`based_on`、`basis_kind=extracted`）とする。`structure_json.sources[]` は編集画面の統合元表示順を保持する構成情報であり、`source_extracted_document_uid` は旧データ互換用の任意列として新規データでは `NULL` とする。
 
 アプリは `structure_json.sources` の保存・更新と連動して、`intermediate_document` → `extracted_document` の `trace_link`（`based_on`、`basis_kind=extracted`）を自動生成・同期する。これにより、統合関係は文書構成JSONの保持内容と双方向トレーサビリティ分析の両方から辿れる。sources の削除時は対応する `based_on` リンクも削除候補として提示し、人間の確認後に反映する。
 ## 3. テーブル一覧
@@ -311,7 +311,7 @@ PDFのbbox編集、LLM OCR、表OCR、テキスト補正は、D2D上のレビュ
 | `source_location` | 原本内位置 | ページ、章節、セル範囲、座標 | `uid` | `entity_registry(uid)`, `source_document(uid)` | 根拠リンクで使う |
 | `extracted_document` | 抽出文書 | 抽出ステータス、構成JSON、抽出器情報、原本参照 | `uid` | `entity_registry(uid)`, `source_document(uid)` | source_documentから機械的に抽出した文書全体 |
 | `extracted_item` | 抽出要素 | item種別、原本位置、リソース参照 | `uid` | `entity_registry(uid)`, `extracted_document(uid)`, `source_document(uid)`, `source_location(uid)`, `entity_registry(uid)` | `extracted_document.structure_json` の個別要素。トレース対象は `resource_uid` |
-| `intermediate_document` | 中間文書 | 中間処理ステータス、構成JSON、成果物種別ID、開発フェーズID、代表生成元抽出文書 | `uid` | `entity_registry(uid)`, `extracted_document(uid)` | `artifact_type_id` と `dev_phase_id` はproject設定のIDをアプリ側で検証する。統合対象の②抽出文書群と統合順序は `structure_json.sources` に保持し、`based_on` の trace_link をアプリが自動同期する（§2.11） |
+| `intermediate_document` | 中間文書 | 中間処理ステータス、構成JSON、成果物種別ID、開発フェーズID | `uid` | `entity_registry(uid)`, `extracted_document(uid)` | `artifact_type_id` と `dev_phase_id` はproject設定のIDをアプリ側で検証する。統合対象の②抽出文書群と統合順序は `structure_json.sources` に保持し、`based_on` の trace_link をアプリが自動同期する（§2.11） |
 | `intermediate_item` | 中間要素 | item種別、中間文書参照、リソース参照 | `uid` | `entity_registry(uid)`, `intermediate_document(uid)`, `entity_registry(uid)` | `intermediate_document.structure_json` の個別要素。トレース対象は `resource_uid` |
 | `chunk` | チャンク | 中間文書参照、プロンプトテンプレート参照、推定トークン数、作成日時 | `uid` | `entity_registry(uid)`, `intermediate_document(uid)`, `prompt_template(uid)` | 中間文書をLLM入力・検索用に分割した単位 |
 | `chunk_item` | チャンク構成要素 | チャンク参照、中間要素参照、表示順 | `uid` | `entity_registry(uid)`, `chunk(uid)`, `intermediate_item(uid)` | 1つのチャンクに含まれる中間要素を順序付きで管理する |
@@ -429,7 +429,7 @@ PDFのbbox編集、LLM OCR、表OCR、テキスト補正は、D2D上のレビュ
 | `source_location` | `uid`, `source_document_uid`, `page_no_start`, `page_no_end`, `sheet_name`, `cell_start`, `cell_end`, `section_path`, `bbox_json`, `note` | 原本内位置 | `source_document_uid` は `source_document(uid)` |
 | `extracted_document` | `uid`, `source_document_uid`, `extraction_status`, `extractor_name`, `extractor_version`, `structure_json`, `raw_manifest_json`, `extracted_at` | 抽出文書 | `structure_json` は文書全体の構成。個別要素は `extracted_item` がリソース対応として参照 |
 | `extracted_item` | `uid`, `extracted_document_uid`, `source_document_uid`, `source_location_uid`, `item_type`, `resource_uid` | 抽出要素 | `item_type` は `resource_*` テーブル名。`resource_uid` がトレース対象 |
-| `intermediate_document` | `uid`, `source_extracted_document_uid`, `artifact_type_id`, `dev_phase_id`, `intermediate_status`, `processor_name`, `processor_version`, `structure_json`, `settings_json`, `generated_at` | 中間文書 | 正規化、補正、分類後の文書全体構成。成果物種別と開発フェーズを関連付ける。`source_extracted_document_uid` は代表ソースであり、統合対象の②抽出文書群と統合順序は `structure_json.sources` に保持する（§2.11） |
+| `intermediate_document` | `uid`, `source_extracted_document_uid`, `artifact_type_id`, `dev_phase_id`, `intermediate_status`, `processor_name`, `processor_version`, `structure_json`, `settings_json`, `generated_at` | 中間文書 | 正規化、補正、分類後の文書全体構成。成果物種別と開発フェーズを関連付ける。`source_extracted_document_uid` は旧データ互換用で新規データでは `NULL` とする。統合対象は `based_on`、表示順序は `structure_json.sources` で管理する（§2.11） |
 | `intermediate_item` | `uid`, `intermediate_document_uid`, `item_type`, `resource_uid` | 中間要素 | `item_type` は `resource_*` テーブル名。`resource_uid` がトレース対象 |
 | `chunk` | `uid`, `intermediate_document_uid`, `prompt_template_uid`, `token_count`, `created_at` | チャンク | `uid` はユーザー向けにはチャンクID。本文は持たず、中間要素との対応は `chunk_item` で管理する。`prompt_template_uid` は既定のプロンプトテンプレート参照（テンプレ） |
 | `chunk_item` | `uid`, `chunk_uid`, `intermediate_item_uid`, `sort_order`, `created_at` | チャンク構成要素 | チャンクに含まれる中間要素を順序付きで管理する |
@@ -1260,9 +1260,9 @@ CREATE TABLE intermediate_document (
     FOREIGN KEY (uid) REFERENCES entity_registry(uid) ON DELETE CASCADE,
     FOREIGN KEY (source_extracted_document_uid) REFERENCES extracted_document(uid) ON DELETE SET NULL
     -- artifact_type_id と dev_phase_id は entity_registry.project_uid のproject設定とアプリ側で照合する。
-    -- source_extracted_document_uid は代表（主）ソース。統合対象の②抽出文書群と統合順序は
-    -- structure_json.sources[] に保持し、アプリが intermediate_document → extracted_document の
-    -- trace_link（based_on、basis_kind=extracted）を自動生成・同期する（§2.11）。
+    -- source_extracted_document_uid は旧データ互換用。新規データでは NULL とし、統合対象は
+    -- intermediate_document → extracted_document の trace_link（based_on、basis_kind=extracted）、
+    -- 編集画面の表示順は structure_json.sources[] で管理する（§2.11）。
 );
 
 CREATE TABLE intermediate_item (

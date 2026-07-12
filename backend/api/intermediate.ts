@@ -10,6 +10,10 @@ import { generateMarkdown, type MarkdownVariant } from '../extract/markdown-gen'
 import {
   createChunk,
   createIntermediateDocument,
+  insertExtractedItems,
+  reorderIntermediateItems,
+  changeIntermediateHierarchy,
+  updateIntermediateItemStatuses,
   deleteChunk,
   editElementText,
   getChunkText,
@@ -91,21 +95,26 @@ export function registerIntermediateApi(router: ApiRouter, jobs: JobManager): vo
     return createIntermediateDocument(db, info.projectUid, {
       extractedDocumentUids: uids,
       title: p.title === undefined ? undefined : String(p.title),
+      importItems: p.importItems === undefined ? undefined : Boolean(p.importItems),
       ...resolved
     })
   })
 
   router.register('intermediate.list', () => {
     const { db, info } = requireProject()
-    return db
+    const rows = db
       .prepare(
-        `SELECT e.uid, e.code, e.title, e.status, d.artifact_type_id, d.dev_phase_id, d.intermediate_status, d.generated_at,
+        `SELECT e.uid, e.code, e.title, e.status, d.artifact_type_id, d.dev_phase_id, d.intermediate_status, d.generated_at, d.structure_json,
                 (SELECT COUNT(*) FROM intermediate_item i WHERE i.intermediate_document_uid = d.uid) AS item_count
            FROM intermediate_document d JOIN entity_registry e ON e.uid = d.uid
           WHERE e.project_uid = ? AND e.status <> 'deleted'
           ORDER BY d.generated_at DESC`
       )
-      .all(info.projectUid)
+      .all(info.projectUid) as Array<Record<string, unknown> & { structure_json: string }>
+    return rows.map(({ structure_json, ...row }) => ({
+      ...row,
+      sources: (JSON.parse(structure_json) as IntermediateStructure).sources
+    }))
   })
 
   router.register('intermediate.get', (params) => {
@@ -126,7 +135,7 @@ export function registerIntermediateApi(router: ApiRouter, jobs: JobManager): vo
       (
         db
           .prepare(
-            `SELECT i.resource_uid AS uid, e.status FROM intermediate_item i JOIN entity_registry e ON e.uid = i.resource_uid
+            `SELECT i.resource_uid AS uid, e.status FROM intermediate_item i JOIN entity_registry e ON e.uid = i.uid
               WHERE i.intermediate_document_uid = ?`
           )
           .all(uid) as { uid: string; status: string }[]
@@ -141,6 +150,77 @@ export function registerIntermediateApi(router: ApiRouter, jobs: JobManager): vo
         ...e,
         review: e.resource_uid ? { status: statusByUid.get(e.resource_uid) ?? 'draft' } : undefined
       }))
+    }
+  })
+
+  router.register('intermediate.getSourceItems', (params) => {
+    const p = asRecord(params)
+    const uid = requireString(p, 'uid')
+    const { db } = requireProject()
+    const row = db.prepare(`SELECT structure_json FROM intermediate_document WHERE uid = ?`).get(uid) as
+      { structure_json: string } | undefined
+    if (!row) throw new BackendError('not_found', `中間文書が見つかりません: ${uid}`, '')
+    const structure = JSON.parse(row.structure_json) as IntermediateStructure
+    return structure.sources.flatMap((source) => {
+      const extracted = db
+        .prepare(
+          `SELECT e.title, x.structure_json FROM extracted_document x JOIN entity_registry e ON e.uid=x.uid WHERE x.uid=?`
+        )
+        .get(source.extracted_document_uid) as { title: string | null; structure_json: string } | undefined
+      if (!extracted) return []
+      const parsed = JSON.parse(extracted.structure_json) as { elements: IntermediateStructure['elements'] }
+      return parsed.elements.map((element) => ({
+        ...element,
+        source_document_uid: source.extracted_document_uid,
+        source_title: extracted.title
+      }))
+    })
+  })
+
+  router.register('intermediate.insertExtractedItems', (params) => {
+    const p = asRecord(params)
+    const { db, info } = requireProject()
+    return insertExtractedItems(
+      db,
+      info.projectUid,
+      requireString(p, 'uid'),
+      Array.isArray(p.resourceUids) ? (p.resourceUids as string[]) : [],
+      p.targetElementId === undefined ? undefined : String(p.targetElementId),
+      p.position === 'above' ? 'above' : 'below'
+    )
+  })
+  router.register('intermediate.reorderItems', (params) => {
+    const p = asRecord(params)
+    const { db } = requireProject()
+    reorderIntermediateItems(
+      db,
+      requireString(p, 'uid'),
+      Array.isArray(p.elementIds) ? (p.elementIds as string[]) : [],
+      p.direction === 'up' ? 'up' : 'down'
+    )
+    return { updated: true }
+  })
+  router.register('intermediate.changeHierarchy', (params) => {
+    const p = asRecord(params)
+    const { db } = requireProject()
+    changeIntermediateHierarchy(
+      db,
+      requireString(p, 'uid'),
+      Array.isArray(p.elementIds) ? (p.elementIds as string[]) : [],
+      Number(p.delta)
+    )
+    return { updated: true }
+  })
+  router.register('intermediate.updateItemStatuses', (params) => {
+    const p = asRecord(params)
+    const { db } = requireProject()
+    return {
+      updated: updateIntermediateItemStatuses(
+        db,
+        requireString(p, 'uid'),
+        Array.isArray(p.elementIds) ? (p.elementIds as string[]) : [],
+        requireString(p, 'status')
+      )
     }
   })
 

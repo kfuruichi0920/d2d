@@ -255,9 +255,23 @@ test('原本取込→Word抽出→レビュー→②正本確定の全経路（P
 })
 
 test('②→③統合・編集・確定（P7）', async () => {
-  // Explorer の「③へ統合」で intermediate_document を生成
-  await expect(page.getByTestId('compose-EXDOC-000001')).toBeVisible()
-  await page.getByTestId('compose-EXDOC-000001').click()
+  // プロジェクト設定でフェーズ・成果物を定義する
+  await page.keyboard.press('Control+Shift+P')
+  await page.getByTestId('palette-input').fill('プロジェクト設定を開く')
+  await page.keyboard.press('Enter')
+  await expect(page.getByTestId('project-settings-editor')).toBeVisible()
+  await page.getByTestId('artifact-name').fill('統合設計書')
+  await page.getByTestId('artifact-type').fill('design_doc')
+  await page.getByTestId('artifact-add').click()
+  await page.getByTestId('phase-name').fill('詳細設計')
+  await page.getByTestId('phase-id').fill('DD')
+  await page.getByTestId('phase-add').click()
+
+  // Explorer のフェーズ→成果物「取込」で統合元②を選択する
+  await expect(page.getByTestId('artifact-slot-DD-design_doc')).toBeVisible()
+  await page.getByTestId('artifact-slot-DD-design_doc').getByRole('button', { name: '取込' }).click()
+  await page.getByTestId('intermediate-source-dialog').getByRole('checkbox').check()
+  await page.getByTestId('intermediate-source-dialog').getByRole('button', { name: '選択して取込' }).click()
   await expect(page.getByTestId('intermediate-doc-IMDOC-000001')).toBeVisible({ timeout: 15_000 })
   await expect(page.getByTestId('stage-intermediate')).toContainText('1')
 
@@ -265,6 +279,14 @@ test('②→③統合・編集・確定（P7）', async () => {
   await page.getByTestId('intermediate-doc-IMDOC-000001').click()
   await expect(page.getByTestId('intermediate-editor')).toBeVisible()
   await expect(page.getByTestId('intermediate-editor')).toContainText('design_doc / DD')
+  // 空の成果物へ統合元要素を明示統合する
+  const sourceGrid = page.getByTestId('intermediate-source-grid')
+  await sourceGrid.getByRole('row').nth(1).click()
+  await sourceGrid
+    .getByRole('row')
+    .last()
+    .click({ modifiers: ['Shift'] })
+  await page.getByRole('button', { name: '選択②を最初に統合' }).click()
   await expect(page.getByTestId('intermediate-grid')).toContainText('1. 概要')
   await expect(page.getByTestId('intermediate-markdown')).toContainText('対象項目その1')
 

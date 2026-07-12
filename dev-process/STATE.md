@@ -8,7 +8,7 @@
 - 完了: P0〜P13（クリティカルパス完走、MS6 相当まで）
 - 残り: **P14**（性能・オフライン確認・残 TBD-06〜08・パッケージング・商用版）、
   **P5 の他形式抽出**（Excel / PowerPoint / PDF / Visio / テキスト系、EXT-014/015）
-- テスト規模: ユニット 134 件 / pytest 10 件 / E2E 15 件（すべて成功の状態で引き渡し）
+- テスト規模: ユニット 138 件 / pytest 10 件 / E2E 16 件（すべて成功の状態で引き渡し）
 
 ## フェーズ履歴（要点のみ）
 
@@ -17,7 +17,7 @@
 | P0〜P3   | 骨格 / DB スキーマ 35 表 + 台帳 / ジョブ・設定・イベント / Workbench UI            | 〜P3 各コミット |
 | P4/P5    | 原本取込 → Word 抽出 → ②候補 → 共通複数選択レビュー/構造プレビュー → 正本化        | —               |
 | P6       | LLM 基盤（4 Provider、マスキング、外部送信ブロック、preview→run 2段階）            | —               |
-| P7       | ②→③統合・編集・マージ/分割（新リソース + based_on）・チャンク                      | —               |
+| P7       | プロジェクト成果物/フェーズ設定、フェーズ→成果物取込、②/③/プレビュー3ペイン統合編集 | —               |
 | P8       | ③→④候補生成 → 候補セットレビュー → 採用（同一 Txn・全 ROLLBACK）                   | —               |
 | P9       | 再帰 CTE トレース・SVG グラフ・マトリクス・整合性検査 → Problems                   | —               |
 | P10      | 状態遷移 / 用語集 / 表編集 / 検証編集 / PlantUML。schema 1.1.0 初適用              | 81d96d1         |
@@ -44,6 +44,11 @@
   （miniconda）で実行（PATH 先頭の venv に pip が無い）。
 - prettier は docs/ と tasks/ を対象外（.prettierignore）。
 - LLM 外部送信はプロジェクト設定 `llm.externalSendAllowed`（既定 false）でブロックされる。
+- Settings はツール全体設定（`settings://tool`）とプロジェクト設定（`project-settings://current`）を分離する。
+  成果物・開発フェーズ・LLM外部送信可否は後者で管理する。
+- ③中間データの統合元正本は文書間 `based_on`。`structure_json.sources` は表示順、
+  `source_extracted_document_uid` は旧データ互換用で新規データでは NULL とする。
+- ③編集の移動は連続した intermediate_item 選択のみ許可し、Ctrlによる歯抜け選択は拒否する。
 
 ## E2E（Playwright）の注意
 

@@ -19,6 +19,7 @@ export function SecondarySideBar(): React.JSX.Element {
   const setTab = useWorkbenchStore((s) => s.setSecondaryTab)
   const activeUri = useEditorStore((s) => s.activeUri)
   const extractedItems = useSelectionStore((s) => s.extractedItems)
+  const workbenchItems = useSelectionStore((s) => s.workbenchItems)
 
   return (
     <aside className="wb-secondary" data-testid="secondary-sidebar">
@@ -37,7 +38,28 @@ export function SecondarySideBar(): React.JSX.Element {
       </div>
       <div className="wb-sidebar-body">
         {tab === 'properties' ? (
-          activeUri?.startsWith('extracted://') && extractedItems.length > 0 ? (
+          activeUri?.startsWith('intermediate://') && workbenchItems.length > 0 ? (
+            <dl className="d2d-kv" data-testid="intermediate-item-properties">
+              <dt>選択ペイン</dt>
+              <dd>{workbenchItems[0]!.pane === 'extracted' ? '統合元 extracted_item' : '成果物 intermediate_item'}</dd>
+              <dt>選択数</dt>
+              <dd>{workbenchItems.length}</dd>
+              {workbenchItems.length === 1 && (
+                <>
+                  <dt>要素ID</dt>
+                  <dd>{workbenchItems[0]!.id}</dd>
+                  <dt>Resource UID</dt>
+                  <dd>{workbenchItems[0]!.resourceUid ?? '—'}</dd>
+                  <dt>種別</dt>
+                  <dd>{workbenchItems[0]!.type}</dd>
+                  <dt>状態</dt>
+                  <dd>{workbenchItems[0]!.status}</dd>
+                  <dt>本文／画像</dt>
+                  <dd>{workbenchItems[0]!.text ?? '—'}</dd>
+                </>
+              )}
+            </dl>
+          ) : activeUri?.startsWith('extracted://') && extractedItems.length > 0 ? (
             <dl className="d2d-kv" data-testid="extracted-item-properties">
               <dt>選択数</dt>
               <dd>{extractedItems.length}</dd>

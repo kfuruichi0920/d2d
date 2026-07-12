@@ -4,6 +4,7 @@
 import { useEditorStore, type EditorGroup } from '../../stores/editor-store'
 import { DashboardEditor } from '../editors/DashboardEditor'
 import { SettingsEditor } from '../editors/SettingsEditor'
+import { ProjectSettingsEditor } from '../editors/ProjectSettingsEditor'
 import { JobLogEditor } from '../editors/JobLogEditor'
 import { WelcomeEditor } from '../editors/WelcomeEditor'
 import { ExtractionReviewEditor } from '../editors/ExtractionReviewEditor'
@@ -22,6 +23,7 @@ import { ReportPreviewEditor } from '../views/ReportViews'
 function resolveEditor(uri: string): React.JSX.Element {
   if (uri === 'project://current') return <DashboardEditor />
   if (uri.startsWith('settings://')) return <SettingsEditor />
+  if (uri.startsWith('project-settings://')) return <ProjectSettingsEditor />
   if (uri.startsWith('log://job/')) return <JobLogEditor jobId={uri.slice('log://job/'.length)} />
   if (uri.startsWith('log://llm/')) return <LlmRunViewer uid={uri.slice('log://llm/'.length)} />
   if (uri.startsWith('original://')) return <OriginalViewer uid={uri.slice('original://'.length)} />

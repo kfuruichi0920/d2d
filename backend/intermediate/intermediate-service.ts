@@ -105,6 +105,8 @@ export interface CreateIntermediateInput {
   title?: string
   artifactTypeId: string
   devPhaseId: string
+  /** false の場合は統合元だけを登録し、要素は編集画面から明示的に統合する */
+  importItems?: boolean
 }
 
 export interface CreateIntermediateResult {
@@ -157,7 +159,7 @@ export function createIntermediateDocument(
     // リソースは②と共有し（正規化）、編集時に初めて新リソースを作る（MID-005）
     const elements: IntermediateElement[] = []
     let seq = 0
-    for (const source of sources) {
+    for (const source of input.importItems === false ? [] : sources) {
       for (const element of source.structure.elements) {
         if (!element.resource_uid) continue
         elements.push({ ...element, id: `i${++seq}` })
@@ -174,7 +176,7 @@ export function createIntermediateDocument(
       `INSERT INTO intermediate_document
          (uid, source_extracted_document_uid, artifact_type_id, dev_phase_id, intermediate_status, processor_name, processor_version, structure_json)
        VALUES (?, ?, ?, ?, 'draft', 'd2d-composer', '0.1.0', ?)`
-    ).run(doc.uid, sources[0]!.uid, input.artifactTypeId, input.devPhaseId, JSON.stringify(structure))
+    ).run(doc.uid, null, input.artifactTypeId, input.devPhaseId, JSON.stringify(structure))
 
     for (const element of elements) {
       addIntermediateItem(db, projectUid, doc.uid, element)
@@ -200,6 +202,106 @@ export function createIntermediateDocument(
   const result = txn()
   eventBus.emit('intermediate.updated', { intermediateDocumentUid: result.intermediateDocumentUid, kind: 'created' })
   return result
+}
+
+/** 選択した②要素を、指定した③要素の前後へ統合する。文書 based_on は作成時に管理済み。 */
+export function insertExtractedItems(
+  db: Database,
+  projectUid: string,
+  docUid: string,
+  resourceUids: string[],
+  targetElementId: string | undefined,
+  position: 'above' | 'below'
+): { inserted: number } {
+  if (resourceUids.length === 0) throw new BackendError('validation', '統合する抽出要素を選択してください', '')
+  const txn = db.transaction(() => {
+    const structure = loadStructure(db, docUid)
+    const sourceRows = structure.sources
+      .map((source) => {
+        const row = db
+          .prepare(`SELECT structure_json FROM extracted_document WHERE uid = ?`)
+          .get(source.extracted_document_uid) as { structure_json: string } | undefined
+        return row ? (JSON.parse(row.structure_json) as { elements: IntermediateElement[] }).elements : []
+      })
+      .flat()
+    const byUid = new Map(sourceRows.filter((e) => e.resource_uid).map((e) => [e.resource_uid!, e]))
+    const selected = resourceUids
+      .map((resourceUid) => byUid.get(resourceUid))
+      .filter((e): e is IntermediateElement => Boolean(e))
+    if (selected.length !== resourceUids.length)
+      throw new BackendError('validation', '選択要素は登録済み統合元に含まれていません', '')
+    const target = targetElementId ? structure.elements.findIndex((e) => e.id === targetElementId) : -1
+    if (structure.elements.length > 0 && target < 0)
+      throw new BackendError('not_found', `統合位置が見つかりません: ${targetElementId}`, '')
+    let seq = structure.elements.reduce((max, e) => Math.max(max, Number(e.id.replace(/\D/g, '')) || 0), 0)
+    const inserted = selected.map((e) => ({ ...e, id: `i${++seq}` }))
+    structure.elements.splice(
+      structure.elements.length === 0 ? 0 : target + (position === 'below' ? 1 : 0),
+      0,
+      ...inserted
+    )
+    for (const element of inserted) addIntermediateItem(db, projectUid, docUid, element)
+    saveStructure(db, docUid, structure)
+    return { inserted: inserted.length }
+  })
+  const result = txn()
+  eventBus.emit('intermediate.updated', { intermediateDocumentUid: docUid, kind: 'items-inserted' })
+  return result
+}
+
+export function reorderIntermediateItems(
+  db: Database,
+  docUid: string,
+  elementIds: string[],
+  direction: 'up' | 'down'
+): void {
+  const structure = loadStructure(db, docUid)
+  const indexes = elementIds.map((id) => structure.elements.findIndex((e) => e.id === id)).sort((a, b) => a - b)
+  if (indexes.some((i) => i < 0) || indexes.some((v, i) => i > 0 && v !== indexes[i - 1]! + 1))
+    throw new BackendError(
+      'validation',
+      '移動は連続した要素だけを選択してください',
+      'Ctrlによる歯抜け選択は移動できません'
+    )
+  const first = indexes[0]!,
+    last = indexes[indexes.length - 1]!
+  if ((direction === 'up' && first === 0) || (direction === 'down' && last === structure.elements.length - 1)) return
+  const block = structure.elements.splice(first, indexes.length)
+  structure.elements.splice(direction === 'up' ? first - 1 : first + 1, 0, ...block)
+  saveStructure(db, docUid, structure)
+  eventBus.emit('intermediate.updated', { intermediateDocumentUid: docUid, kind: 'reordered' })
+}
+
+export function changeIntermediateHierarchy(db: Database, docUid: string, elementIds: string[], delta: number): void {
+  const structure = loadStructure(db, docUid)
+  for (const e of structure.elements) if (elementIds.includes(e.id)) e.level = Math.max(0, (e.level ?? 0) + delta)
+  saveStructure(db, docUid, structure)
+  eventBus.emit('intermediate.updated', { intermediateDocumentUid: docUid, kind: 'hierarchy-changed' })
+}
+
+export function updateIntermediateItemStatuses(
+  db: Database,
+  docUid: string,
+  elementIds: string[],
+  status: string
+): number {
+  if (!['approved', 'needs_fix', 'rejected'].includes(status))
+    throw new BackendError('validation', '不正なレビュー状態です', '')
+  const dbStatus = status === 'needs_fix' ? 'review' : status
+  const structure = loadStructure(db, docUid)
+  const resources = structure.elements
+    .filter((e) => elementIds.includes(e.id))
+    .map((e) => e.resource_uid)
+    .filter(Boolean)
+  if (resources.length === 0) return 0
+  const placeholders = resources.map(() => '?').join(',')
+  const result = db
+    .prepare(
+      `UPDATE entity_registry SET status=?, updated_at=?, updated_by='user' WHERE uid IN (SELECT uid FROM intermediate_item WHERE intermediate_document_uid=? AND resource_uid IN (${placeholders}))`
+    )
+    .run(dbStatus, nowIso(), docUid, ...resources)
+  eventBus.emit('intermediate.updated', { intermediateDocumentUid: docUid, kind: 'review-status' })
+  return result.changes
 }
 
 // ---- P7-2: 編集・マージ・分割（新 ID + 由来追跡） ----

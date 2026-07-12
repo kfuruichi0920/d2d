@@ -2,14 +2,14 @@
  * Intermediate Document Editor（P7-7、V-03、UI-012、EDIT-002〜008）。
  * ③中間データの文書風表示 + 要素編集（編集/マージ/分割/LLM候補）+ 正本確定。
  */
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ColumnDef } from '@tanstack/react-table'
 import { invoke, onBackendEvent } from '../../services/backend'
 import { useEditorStore } from '../../stores/editor-store'
 import { useJobsStore } from '../../stores/jobs-store'
 import { useProjectStore } from '../../stores/project-store'
+import { useSelectionStore } from '../../stores/selection-store'
 import { VirtualDataGrid } from '../common/VirtualDataGrid'
-import { MarkdownPreview } from '../common/MarkdownPreview'
 import { reviewStateFromEntityStatus, ReviewStatusBadge } from '../common/review'
 
 interface IntermediateElement {
@@ -44,27 +44,68 @@ interface TextCandidate {
   candidateText: string
 }
 
+function HighlightTerms({ text, terms }: { text: string; terms: string[] }): React.JSX.Element {
+  const active = terms.filter(Boolean).sort((a, b) => b.length - a.length)
+  if (active.length === 0) return <>{text}</>
+  const pattern = new RegExp(`(${active.map((term) => term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})`, 'g')
+  return (
+    <>
+      {text.split(pattern).map((part, index) =>
+        active.includes(part) ? (
+          <mark className="d2d-term" key={index}>
+            {part}
+          </mark>
+        ) : (
+          part
+        )
+      )}
+    </>
+  )
+}
+
+function FigureElement({ element }: { element: IntermediateElement }): React.JSX.Element {
+  const [src, setSrc] = useState<string | null>(null)
+  useEffect(() => {
+    if (element.resource_uid)
+      void invoke<{ dataUrl: string }>('extracted.getFigurePreview', { resourceUid: element.resource_uid }).then(
+        (r) => {
+          if (r.ok) setSrc(r.result.dataUrl)
+        }
+      )
+  }, [element.resource_uid])
+  return src ? (
+    <img src={src} alt={element.image ?? '図'} style={{ maxWidth: '100%', maxHeight: 420 }} />
+  ) : (
+    <div className="d2d-empty">図を読込中…</div>
+  )
+}
+
 export function IntermediateDocumentEditor({ uid }: { uid: string }): React.JSX.Element {
   const [doc, setDoc] = useState<IntermediateDoc | null>(null)
-  const [markdown, setMarkdown] = useState('')
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [activeId, setActiveId] = useState<string | null>(null)
+  const [sourceItems, setSourceItems] = useState<(IntermediateElement & { source_title?: string })[]>([])
+  const [sourceSelectedIds, setSourceSelectedIds] = useState<Set<string>>(new Set())
+  const [sourceActiveId, setSourceActiveId] = useState<string | null>(null)
+  const [lastSelectedPane, setLastSelectedPane] = useState<'source' | 'intermediate'>('intermediate')
+  const previewRefs = useRef(new Map<string, HTMLElement>())
   const [editText, setEditText] = useState<string | null>(null)
   const [editCells, setEditCells] = useState<string[][] | null>(null)
   const [candidate, setCandidate] = useState<TextCandidate | null>(null)
   const [generating, setGenerating] = useState(false)
-  const [terms, setTerms] = useState<{ term: string; definition: string | null }[]>([])
+  const [terms, setTerms] = useState<string[]>([])
   const notify = useJobsStore((s) => s.notify)
+  const setWorkbenchItems = useSelectionStore((s) => s.setWorkbenchItems)
 
   const load = useCallback(async () => {
     const [docRes, mdRes, termsRes] = await Promise.all([
       invoke<IntermediateDoc>('intermediate.get', { uid }),
-      invoke<{ markdown: string }>('intermediate.getMarkdown', { uid, variant: 'review' }),
-      invoke<{ term_text: string; definition: string | null }[]>('glossary.list', { approvedOnly: true })
+      invoke<(IntermediateElement & { source_title?: string })[]>('intermediate.getSourceItems', { uid }),
+      invoke<{ term_text: string }[]>('glossary.list', { approvedOnly: true })
     ])
     if (docRes.ok) setDoc(docRes.result)
-    if (mdRes.ok) setMarkdown(mdRes.result.markdown)
-    // 承認済み用語を Markdown ハイライトへ渡す（EDIT-054/056）
-    if (termsRes.ok) setTerms(termsRes.result.map((t) => ({ term: t.term_text, definition: t.definition })))
+    if (mdRes.ok) setSourceItems(mdRes.result)
+    if (termsRes.ok) setTerms(termsRes.result.map((term) => term.term_text))
   }, [uid])
 
   useEffect(() => {
@@ -75,8 +116,86 @@ export function IntermediateDocumentEditor({ uid }: { uid: string }): React.JSX.
     })
   }, [load])
 
-  const selected = doc?.elements.find((e) => e.id === selectedId) ?? null
-  const selectedIndex = doc?.elements.findIndex((e) => e.id === selectedId) ?? -1
+  useEffect(() => {
+    const items =
+      lastSelectedPane === 'source'
+        ? sourceItems
+            .filter((e) => sourceSelectedIds.has(e.id))
+            .map((e) => ({
+              pane: 'extracted' as const,
+              id: e.id,
+              type: e.type,
+              resourceUid: e.resource_uid ?? null,
+              text: e.text ?? e.image ?? null,
+              status: e.review?.status ?? 'approved',
+              sourceTitle: e.source_title
+            }))
+        : (doc?.elements ?? [])
+            .filter((e) => selectedIds.has(e.id))
+            .map((e) => ({
+              pane: 'intermediate' as const,
+              id: e.id,
+              type: e.type,
+              resourceUid: e.resource_uid ?? null,
+              text: e.text ?? e.image ?? null,
+              status: e.review?.status ?? 'draft'
+            }))
+    setWorkbenchItems(items)
+  }, [lastSelectedPane, sourceItems, sourceSelectedIds, doc, selectedIds, setWorkbenchItems])
+
+  const selected = doc?.elements.find((e) => e.id === activeId) ?? null
+  const selectedIndex = doc?.elements.findIndex((e) => e.id === activeId) ?? -1
+
+  const selectRows = <T extends { id: string }>(
+    items: T[],
+    item: T,
+    event: { ctrlKey: boolean; metaKey: boolean; shiftKey: boolean },
+    current: Set<string>,
+    anchor: string | null
+  ): Set<string> => {
+    if (event.shiftKey && anchor) {
+      const a = items.findIndex((x) => x.id === anchor),
+        b = items.findIndex((x) => x.id === item.id)
+      if (a >= 0 && b >= 0) return new Set(items.slice(Math.min(a, b), Math.max(a, b) + 1).map((x) => x.id))
+    }
+    if (event.ctrlKey || event.metaKey) {
+      const next = new Set(current)
+      if (next.has(item.id)) next.delete(item.id)
+      else next.add(item.id)
+      return next
+    }
+    return new Set([item.id])
+  }
+
+  useEffect(() => {
+    if (activeId) previewRefs.current.get(activeId)?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  }, [activeId])
+
+  const integrate = async (position: 'above' | 'below'): Promise<void> => {
+    if ((doc?.elements.length ?? 0) > 0 && (!activeId || selectedIds.size !== 1)) return
+    const resourceUids = sourceItems
+      .filter((x) => sourceSelectedIds.has(x.id))
+      .map((x) => x.resource_uid)
+      .filter((x): x is string => Boolean(x))
+    await call(
+      'intermediate.insertExtractedItems',
+      { resourceUids, targetElementId: activeId, position },
+      `${resourceUids.length}要素を統合しました`
+    )
+  }
+  const applyStatus = async (status: string): Promise<void> => {
+    await call(
+      'intermediate.updateItemStatuses',
+      { elementIds: [...selectedIds], status },
+      'レビュー状態を更新しました'
+    )
+  }
+  const move = async (direction: 'up' | 'down'): Promise<void> => {
+    await call('intermediate.reorderItems', { elementIds: [...selectedIds], direction }, '表示順を更新しました')
+  }
+  const hierarchy = async (delta: number): Promise<void> => {
+    await call('intermediate.changeHierarchy', { elementIds: [...selectedIds], delta }, '階層を更新しました')
+  }
 
   const call = async (method: string, params: Record<string, unknown>, successMessage?: string): Promise<boolean> => {
     const res = await invoke(method, { uid, ...params })
@@ -231,11 +350,21 @@ export function IntermediateDocumentEditor({ uid }: { uid: string }): React.JSX.
       },
       { header: 'ID', accessorKey: 'id', size: 50 },
       { header: '種別', accessorKey: 'type', size: 80 },
-      { header: '内容', accessorFn: (e) => e.text ?? e.image ?? '' },
+      { header: '内容', accessorFn: (e) => `${'　'.repeat(e.level ?? 0)}${e.text ?? e.image ?? ''}` },
       { header: '章節', accessorKey: 'section_path', size: 130 }
     ],
     []
   )
+
+  const sourceColumns: ColumnDef<IntermediateElement & { source_title?: string }, unknown>[] = [
+    {
+      header: '選択',
+      cell: ({ row }) => <input type="checkbox" readOnly checked={sourceSelectedIds.has(row.original.id)} />
+    },
+    { header: '統合元', accessorKey: 'source_title' },
+    { header: '種別', accessorKey: 'type' },
+    { header: '内容', accessorFn: (e) => e.text ?? e.image ?? '' }
+  ]
 
   if (!doc) return <div className="d2d-empty">読込中…</div>
 
@@ -479,26 +608,146 @@ export function IntermediateDocumentEditor({ uid }: { uid: string }): React.JSX.
         </div>
       )}
 
-      <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
-        <div style={{ flex: 1, minWidth: 0, padding: 8 }}>
-          <VirtualDataGrid<IntermediateElement>
+      <div style={{ display: 'flex', gap: 6, padding: '4px 12px', borderBottom: '1px solid var(--d2d-border)' }}>
+        <button
+          className="d2d-btn small"
+          disabled={sourceSelectedIds.size === 0 || (doc.elements.length > 0 && selectedIds.size !== 1)}
+          onClick={() => void integrate('above')}
+        >
+          {doc.elements.length === 0 ? '選択②を最初に統合' : '選択②を上へ統合'}
+        </button>
+        <button
+          className="d2d-btn small"
+          disabled={sourceSelectedIds.size === 0 || selectedIds.size !== 1}
+          onClick={() => void integrate('below')}
+        >
+          選択②を下へ統合
+        </button>
+        <span style={{ borderLeft: '1px solid var(--d2d-border)' }} />
+        <button className="d2d-btn small" onClick={() => void move('up')}>
+          ↑移動
+        </button>
+        <button className="d2d-btn small" onClick={() => void move('down')}>
+          ↓移動
+        </button>
+        <button className="d2d-btn small" onClick={() => void hierarchy(-1)}>
+          階層を上げる
+        </button>
+        <button className="d2d-btn small" onClick={() => void hierarchy(1)}>
+          階層を下げる
+        </button>
+        <span style={{ flex: 1 }} />
+        <button className="d2d-btn small" onClick={() => void applyStatus('approved')}>
+          確認済みにする
+        </button>
+        <button className="d2d-btn small" onClick={() => void applyStatus('needs_fix')}>
+          要修正
+        </button>
+        <button className="d2d-btn small" onClick={() => void applyStatus('rejected')}>
+          棄却
+        </button>
+      </div>
+      <div
+        style={{
+          flex: 1,
+          display: 'grid',
+          gridTemplateColumns: 'minmax(240px,1fr) minmax(260px,1fr) minmax(300px,1.2fr)',
+          minHeight: 0
+        }}
+      >
+        <div style={{ minWidth: 0, padding: 8 }}>
+          <b>統合元 extracted_item</b>
+          <VirtualDataGrid
+            columns={sourceColumns}
+            data={sourceItems}
+            getRowId={(e) => e.id}
+            selectedRowIds={sourceSelectedIds}
+            activeRowId={sourceActiveId}
+            onRowClick={(e, event) => {
+              setSourceSelectedIds(selectRows(sourceItems, e, event, sourceSelectedIds, sourceActiveId))
+              setSourceActiveId(e.id)
+              setLastSelectedPane('source')
+            }}
+            onRowKeyDown={(e, event) => {
+              if (event.key === ' ' || event.key === 'Enter') {
+                event.preventDefault()
+                setSourceSelectedIds(selectRows(sourceItems, e, event, sourceSelectedIds, sourceActiveId))
+                setSourceActiveId(e.id)
+                setLastSelectedPane('source')
+              }
+            }}
+            testId="intermediate-source-grid"
+          />
+        </div>
+        <div style={{ minWidth: 0, padding: 8, borderLeft: '1px solid var(--d2d-border)' }}>
+          <b>成果物 intermediate_item</b>
+          <VirtualDataGrid
             columns={columns}
             data={doc.elements}
             getRowId={(e) => e.id}
-            onRowClick={(e) => {
-              setSelectedId(e.id)
+            selectedRowIds={selectedIds}
+            activeRowId={activeId}
+            onRowClick={(e, event) => {
+              setSelectedIds(selectRows(doc.elements, e, event, selectedIds, activeId))
+              setActiveId(e.id)
+              setLastSelectedPane('intermediate')
               setEditText(null)
+            }}
+            onRowKeyDown={(e, event) => {
+              if (event.key === ' ' || event.key === 'Enter') {
+                event.preventDefault()
+                setSelectedIds(selectRows(doc.elements, e, event, selectedIds, activeId))
+                setActiveId(e.id)
+                setLastSelectedPane('intermediate')
+              }
             }}
             testId="intermediate-grid"
           />
         </div>
         <div
-          style={{ flex: 1, minWidth: 0, overflow: 'auto', borderLeft: '1px solid var(--d2d-border)' }}
+          style={{ minWidth: 0, overflow: 'auto', padding: 8, borderLeft: '1px solid var(--d2d-border)' }}
           data-testid="intermediate-markdown"
         >
-          <MarkdownPreview markdown={markdown} terms={terms} />
+          <b>中間文書プレビュー</b>
+          {doc.elements.map((e) => (
+            <article
+              key={e.id}
+              ref={(node) => {
+                if (node) previewRefs.current.set(e.id, node)
+                else previewRefs.current.delete(e.id)
+              }}
+              className={`extraction-preview-item${selectedIds.has(e.id) ? ' selected' : ''}${activeId === e.id ? ' active' : ''}`}
+              style={{ marginLeft: (e.level ?? 0) * 14 }}
+            >
+              <span className="d2d-badge">{e.type}</span>
+              {e.type === 'table' ? (
+                <table>
+                  <tbody>
+                    {(e.rows ?? []).map((r, i) => (
+                      <tr key={i}>
+                        {r.map((c, j) => (
+                          <td key={j} style={{ border: '1px solid var(--d2d-border)', padding: 3 }}>
+                            {c.text}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : e.type === 'figure' ? (
+                <FigureElement element={e} />
+              ) : (
+                <div>
+                  <HighlightTerms text={e.text ?? ''} terms={terms} />
+                </div>
+              )}
+            </article>
+          ))}
         </div>
       </div>
+      <span data-testid="properties-selection-source" hidden>
+        {lastSelectedPane}
+      </span>
     </div>
   )
 }

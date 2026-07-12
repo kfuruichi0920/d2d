@@ -14,6 +14,10 @@ import {
   editElementText,
   estimateTokens,
   getChunkText,
+  insertExtractedItems,
+  reorderIntermediateItems,
+  changeIntermediateHierarchy,
+  updateIntermediateItemStatuses,
   listChunks,
   mergeElements,
   splitElement,
@@ -100,6 +104,45 @@ describe('③中間データ（P7）', () => {
       .prepare(`SELECT relation_type, basis_kind FROM trace_link WHERE from_uid = ? AND to_uid = ?`)
       .get(result.intermediateDocumentUid, extractedUid) as { relation_type: string; basis_kind: string }
     expect(link).toEqual({ relation_type: 'based_on', basis_kind: 'extracted' })
+  })
+
+  it('空の成果物へ②要素を統合し、階層・連続移動・レビュー状態を編集できる（P7-1/P7-7）', () => {
+    const doc = createIntermediateDocument(db, projectUid, {
+      extractedDocumentUids: [extractedUid],
+      artifactTypeId: 'design_doc',
+      devPhaseId: 'DD',
+      importItems: false
+    })
+    expect(doc.elementCount).toBe(0)
+    const extracted = db.prepare(`SELECT structure_json FROM extracted_document WHERE uid=?`).get(extractedUid) as {
+      structure_json: string
+    }
+    const source = JSON.parse(extracted.structure_json) as { elements: { resource_uid: string }[] }
+    insertExtractedItems(
+      db,
+      projectUid,
+      doc.intermediateDocumentUid,
+      source.elements.slice(0, 3).map((e) => e.resource_uid),
+      undefined,
+      'below'
+    )
+    expect(structureOf(doc.intermediateDocumentUid).elements).toHaveLength(3)
+    changeIntermediateHierarchy(db, doc.intermediateDocumentUid, ['i2'], 1)
+    expect(structureOf(doc.intermediateDocumentUid).elements[1]!.level).toBe(1)
+    reorderIntermediateItems(db, doc.intermediateDocumentUid, ['i2', 'i3'], 'up')
+    expect(structureOf(doc.intermediateDocumentUid).elements.map((e) => e.id)).toEqual(['i2', 'i3', 'i1'])
+    expect(() => reorderIntermediateItems(db, doc.intermediateDocumentUid, ['i2', 'i1'], 'down')).toThrow(/連続/)
+    expect(updateIntermediateItemStatuses(db, doc.intermediateDocumentUid, ['i2'], 'needs_fix')).toBe(1)
+    const status = db
+      .prepare(
+        `SELECT e.status FROM intermediate_item i JOIN entity_registry e ON e.uid=i.uid WHERE i.intermediate_document_uid=? AND i.resource_uid=?`
+      )
+      .get(doc.intermediateDocumentUid, source.elements[1]!.resource_uid) as { status: string }
+    expect(status.status).toBe('review')
+    const legacy = db
+      .prepare(`SELECT source_extracted_document_uid FROM intermediate_document WHERE uid=?`)
+      .get(doc.intermediateDocumentUid) as { source_extracted_document_uid: string | null }
+    expect(legacy.source_extracted_document_uid).toBeNull()
   })
 
   it('未承認の②は統合を拒否する（SRS §2.2 原則10）', () => {
