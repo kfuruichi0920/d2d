@@ -296,7 +296,7 @@ export function updateIntermediateItemStatuses(
   elementIds: string[],
   status: string
 ): number {
-  if (!['approved', 'needs_fix', 'rejected'].includes(status))
+  if (!['draft', 'approved', 'needs_fix', 'rejected'].includes(status))
     throw new BackendError('validation', '不正なレビュー状態です', '')
   const dbStatus = status === 'needs_fix' ? 'review' : status
   const structure = loadStructure(db, docUid)

@@ -140,6 +140,14 @@ describe('③中間データ（P7）', () => {
       )
       .get(doc.intermediateDocumentUid, source.elements[1]!.resource_uid) as { status: string }
     expect(status.status).toBe('review')
+    expect(updateIntermediateItemStatuses(db, doc.intermediateDocumentUid, ['i2'], 'rejected')).toBe(1)
+    expect(updateIntermediateItemStatuses(db, doc.intermediateDocumentUid, ['i2'], 'draft')).toBe(1)
+    const resetStatus = db
+      .prepare(
+        `SELECT e.status FROM intermediate_item i JOIN entity_registry e ON e.uid=i.uid WHERE i.intermediate_document_uid=? AND i.resource_uid=?`
+      )
+      .get(doc.intermediateDocumentUid, source.elements[1]!.resource_uid) as { status: string }
+    expect(resetStatus.status).toBe('draft')
     const legacy = db
       .prepare(`SELECT source_extracted_document_uid FROM intermediate_document WHERE uid=?`)
       .get(doc.intermediateDocumentUid) as { source_extracted_document_uid: string | null }

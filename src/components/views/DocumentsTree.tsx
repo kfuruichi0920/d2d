@@ -31,6 +31,7 @@ interface ArtifactSetting {
   uid: string
   artifact_name: string
   artifact_type_id: string
+  dev_phase_id: string | null
   is_active: number
 }
 interface DevPhaseSetting {
@@ -175,7 +176,7 @@ export function DocumentsTree(): React.JSX.Element {
           <div key={phase.uid} data-testid={`phase-${phase.dev_phase_id}`}>
             <div style={{ padding: '5px 4px 2px', fontWeight: 600 }}>▾ {phase.dev_phase_name}</div>
             {artifacts
-              .filter((a) => a.is_active === 1)
+              .filter((a) => a.is_active === 1 && a.dev_phase_id === phase.dev_phase_id)
               .map((artifact) => {
                 const doc = intermediates.find(
                   (m) => m.dev_phase_id === phase.dev_phase_id && m.artifact_type_id === artifact.artifact_type_id

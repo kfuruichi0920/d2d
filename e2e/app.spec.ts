@@ -260,6 +260,9 @@ test('②→③統合・編集・確定（P7）', async () => {
   await page.getByTestId('palette-input').fill('プロジェクト設定を開く')
   await page.keyboard.press('Enter')
   await expect(page.getByTestId('project-settings-editor')).toBeVisible()
+  await page.evaluate(async () =>
+    window.api.invoke('project.saveArtifactSetting', { artifactName: 'フェーズ未定義成果物', artifactTypeId: 'orphan' })
+  )
   await page.getByTestId('phase-name').fill('詳細設計')
   await page.getByTestId('phase-id').fill('DD')
   await page.getByTestId('phase-add').click()
@@ -269,6 +272,7 @@ test('②→③統合・編集・確定（P7）', async () => {
   await page.getByTestId('artifact-add').click()
 
   // Explorer のフェーズ→成果物「取込」で統合元②を選択する
+  await expect(page.getByTestId('documents-tree')).not.toContainText('フェーズ未定義成果物')
   await expect(page.getByTestId('artifact-slot-DD-design_doc')).toBeVisible()
   await page.getByTestId('artifact-slot-DD-design_doc').getByRole('button', { name: '取込' }).click()
   const sourceDialog = page.getByTestId('intermediate-source-dialog')
@@ -293,9 +297,14 @@ test('②→③統合・編集・確定（P7）', async () => {
     .click({ modifiers: ['Shift'] })
   await page.getByRole('button', { name: '選択②を最初に統合' }).click()
   await expect(page.getByTestId('intermediate-grid')).toContainText('1. 概要')
+  await expect(page.getByTestId('intermediate-source-grid').getByRole('row').nth(1)).toContainText('統合済')
   const middleGrid = page.getByTestId('intermediate-grid')
   await middleGrid.getByRole('row').nth(1).getByTitle('クリックで状態を切替').click()
   await expect(middleGrid.getByRole('row').nth(1)).toContainText('確認済')
+  for (let i = 0; i < 3; i++) await middleGrid.getByRole('row').nth(1).getByTitle('クリックで状態を切替').click()
+  await expect(middleGrid.getByRole('row').nth(1)).toContainText('未確認')
+  await middleGrid.getByRole('row').nth(1).focus()
+  await page.keyboard.press('ArrowDown')
   await expect(page.getByTestId('intermediate-markdown')).toContainText('対象項目その1')
 
   // 要素編集（新ID割当・由来追跡）: 段落を選択して編集

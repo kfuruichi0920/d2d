@@ -124,7 +124,9 @@ export function VirtualDataGrid<T>({
                     ? row.id === activeRowId
                       ? 'var(--d2d-selection-bg)'
                       : 'color-mix(in srgb, var(--d2d-selection-bg) 65%, transparent)'
-                    : undefined,
+                    : relatedRowIds?.has(row.id)
+                      ? 'color-mix(in srgb, var(--d2d-warning) 22%, var(--d2d-surface-raised))'
+                      : undefined,
                   outline:
                     row.id === activeRowId
                       ? '1px solid var(--d2d-accent)'

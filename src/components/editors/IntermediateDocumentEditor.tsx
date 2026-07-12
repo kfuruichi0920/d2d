@@ -433,7 +433,12 @@ export function IntermediateDocumentEditor({ uid }: { uid: string }): React.JSX.
   const sourceColumns: ColumnDef<IntermediateElement & { source_title?: string }, unknown>[] = [
     {
       header: '選択',
-      cell: ({ row }) => <input type="checkbox" readOnly checked={sourceSelectedIds.has(row.original.id)} />
+      cell: ({ row }) =>
+        row.original.resource_uid && integratedResourceUids.has(row.original.resource_uid) ? (
+          <span className="d2d-badge status-success">統合済</span>
+        ) : (
+          <input type="checkbox" readOnly checked={sourceSelectedIds.has(row.original.id)} />
+        )
     },
     { header: '統合元', accessorKey: 'source_title' },
     { header: '種別', accessorKey: 'type' },
@@ -790,7 +795,18 @@ export function IntermediateDocumentEditor({ uid }: { uid: string }): React.JSX.
               setEditText(null)
             }}
             onRowKeyDown={(e, event) => {
-              if (event.key === ' ' || event.key === 'Enter') {
+              if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+                event.preventDefault()
+                const movingIds = selectedIds.has(e.id) ? [...selectedIds] : [e.id]
+                setSelectedIds(new Set(movingIds))
+                setActiveId(e.id)
+                setLastSelectedPane('intermediate')
+                void call(
+                  'intermediate.reorderItems',
+                  { elementIds: movingIds, direction: event.key === 'ArrowUp' ? 'up' : 'down' },
+                  '表示順を更新しました'
+                )
+              } else if (event.key === ' ' || event.key === 'Enter') {
                 event.preventDefault()
                 setSelectedIds(selectRows(doc.elements, e, event, selectedIds, activeId))
                 setActiveId(e.id)
