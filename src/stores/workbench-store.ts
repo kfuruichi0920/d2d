@@ -4,6 +4,7 @@
  */
 import { create } from 'zustand'
 import { DEFAULT_THEME, applyTheme, type ThemeState } from '../theme/theme'
+import { invoke } from '../services/backend'
 
 export type WorkMode = 'M0' | 'M1' | 'M2' | 'M3' | 'M4' | 'M5'
 
@@ -84,7 +85,7 @@ const MODE_DEFAULT_LAYOUTS: Record<WorkMode, ModeLayout> = {
 interface PersistedLayout {
   workMode: WorkMode
   layouts: Record<WorkMode, ModeLayout>
-  theme: ThemeState
+  theme?: ThemeState
 }
 
 interface WorkbenchState extends ModeLayout {
@@ -116,8 +117,7 @@ function storageKey(persistKey: string): string {
 function persist(state: WorkbenchState): void {
   const data: PersistedLayout = {
     workMode: state.workMode,
-    layouts: { ...state.layouts, [state.workMode]: currentLayout(state) },
-    theme: state.theme
+    layouts: { ...state.layouts, [state.workMode]: currentLayout(state) }
   }
   try {
     localStorage.setItem(storageKey(state.persistKey), JSON.stringify(data))
@@ -206,6 +206,8 @@ export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
     set({ theme })
     applyTheme(theme)
     persist(get())
+    void invoke('settings.set', { key: 'theme.displayMode', value: theme.displayMode })
+    void invoke('settings.set', { key: 'theme.colorTheme', value: theme.colorTheme })
   },
 
   setPaletteOpen: (open) => set({ paletteOpen: open }),
@@ -224,7 +226,6 @@ export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
         persistKey,
         workMode: data.workMode,
         layouts,
-        theme: data.theme ?? DEFAULT_THEME,
         ...layouts[data.workMode]
       })
     } else {

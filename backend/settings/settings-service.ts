@@ -5,8 +5,8 @@
  * - 機密情報（APIキー等）: <userData>/secrets.json（safeStorage で暗号化した base64 のみ保存）
  * - プロジェクト別設定:   <projectRoot>/project.settings.json（Git 管理対象。機密を含めない）
  *
- * エクスポートは機密情報を除外する（CORE-046）。復号値は Backend 内部（LLM 通信等）
- * でのみ使用し、Renderer へは返さない。
+ * エクスポートは機密情報を除外する（CORE-046）。復号値は Backend 内部（LLM 通信等）で使用し、
+ * Renderer へは設定画面でユーザーが明示的に表示操作した場合のみ返す。
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -47,6 +47,10 @@ export class SettingsService {
   }
 
   // ---- アプリ全体設定（CORE-040） ----
+
+  getStorageInfo(): { scope: 'application'; settingsPath: string; secretsPath: string } {
+    return { scope: 'application', settingsPath: this.settingsPath, secretsPath: this.secretsPath }
+  }
 
   getAll(): SettingsMap {
     return readJson(this.settingsPath)
