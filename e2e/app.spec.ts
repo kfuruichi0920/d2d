@@ -344,9 +344,12 @@ test('②→③統合・編集・確定（P7）', async () => {
   await page.getByTestId('chunks-IMDOC-000001').click()
   await expect(page.getByTestId('chunk-editor')).toBeVisible()
   await page.getByTestId('chunk-source-i1').click()
-  await page.getByLabel('追加プロンプト').fill('安全性の観点を優先すること')
   await page.getByRole('button', { name: 'チャンク作成' }).click()
-  await expect(page.getByTestId('chunk-editor')).toContainText('1項目')
+  await expect(page.getByTestId('chunk-editor')).toContainText('1')
+  await page.getByTestId('chunk-prompt-edit').click()
+  await page.getByLabel('追加プロンプト').fill('安全性の観点を優先すること')
+  await page.getByTestId('chunk-prompt-editor').getByRole('button', { name: '保存' }).click()
+  await expect(page.getByTestId('chunk-editor')).toContainText('安全性の観点を優先すること')
 })
 
 test('LLM 実行（モック Ollama）→ ログビューまでの全経路（P6）', async () => {

@@ -5,11 +5,17 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { invoke, onBackendEvent } from '../../services/backend'
 import { useEditorStore } from '../../stores/editor-store'
 import { useJobsStore } from '../../stores/jobs-store'
+import { reviewStateFromEntityStatus, ReviewStatusBadge } from '../common/review'
 
 interface ElementRow {
   id: string
   type: string
   text?: string
+  level?: number
+  section_path?: string
+  image?: string
+  rows?: { text: string }[][]
+  resource_uid?: string
   intermediate_item_uid?: string
   review?: { status: string }
 }
@@ -31,6 +37,30 @@ interface ChunkDetail extends ChunkRow {
   items: { intermediate_item_uid: string; sort_order: number; resource_uid: string }[]
 }
 
+const typeColors: Record<string, string> = {
+  heading: '#7c3aed',
+  paragraph: '#2563eb',
+  list_item: '#0891b2',
+  table: '#d97706',
+  figure: '#db2777',
+  caption: '#65a30d'
+}
+
+function FigurePreview({ resourceUid, alt }: { resourceUid?: string; alt?: string }): React.JSX.Element {
+  const [src, setSrc] = useState<string | null>(null)
+  useEffect(() => {
+    if (!resourceUid) return
+    void invoke<{ dataUrl: string }>('extracted.getFigurePreview', { resourceUid }).then((result) => {
+      if (result.ok) setSrc(result.result.dataUrl)
+    })
+  }, [resourceUid])
+  return src ? (
+    <img src={src} alt={alt ?? '図'} style={{ maxWidth: '100%', maxHeight: 420 }} />
+  ) : (
+    <div className="d2d-empty">図を読込中…</div>
+  )
+}
+
 export function ChunkEditor({ uid }: { uid: string }): React.JSX.Element {
   const [doc, setDoc] = useState<DocumentData | null>(null)
   const [chunks, setChunks] = useState<ChunkRow[]>([])
@@ -39,8 +69,11 @@ export function ChunkEditor({ uid }: { uid: string }): React.JSX.Element {
   const [selectedChunk, setSelectedChunk] = useState<string | null>(null)
   const [detail, setDetail] = useState<ChunkDetail | null>(null)
   const [prompt, setPrompt] = useState('')
+  const [promptDraft, setPromptDraft] = useState('')
+  const [editingPrompt, setEditingPrompt] = useState(false)
   const [generating, setGenerating] = useState(false)
   const anchor = useRef<number | null>(null)
+  const previewRefs = useRef(new Map<string, HTMLElement>())
   const notify = useJobsStore((s) => s.notify)
 
   const refresh = useCallback(async () => {
@@ -62,11 +95,11 @@ export function ChunkEditor({ uid }: { uid: string }): React.JSX.Element {
   const loadChunk = async (chunkUid: string): Promise<void> => {
     setSelectedChunk(chunkUid)
     const result = await invoke<ChunkDetail>('chunk.get', { uid: chunkUid })
-    if (result.ok) {
-      setDetail(result.result)
-      setSelectedItems(new Set(result.result.items.map((item) => item.intermediate_item_uid)))
-      setPrompt(result.result.additional_prompt)
-    }
+    if (!result.ok) return
+    setDetail(result.result)
+    setSelectedItems(new Set(result.result.items.map((item) => item.intermediate_item_uid)))
+    setPrompt(result.result.additional_prompt)
+    setActiveItem(result.result.items[0]?.intermediate_item_uid ?? null)
   }
 
   const chooseItem = (row: ElementRow, index: number, event: React.MouseEvent): void => {
@@ -92,49 +125,52 @@ export function ChunkEditor({ uid }: { uid: string }): React.JSX.Element {
       return new Set([itemUid])
     })
     setActiveItem(itemUid)
+    previewRefs.current.get(itemUid)?.scrollIntoView({ block: 'nearest' })
   }
 
   const moveSelection = (side: 'item' | 'chunk', delta: number): void => {
     if (side === 'chunk') {
       if (chunks.length === 0) return
-      const current = chunks.findIndex((c) => c.uid === selectedChunk)
+      const current = chunks.findIndex((chunk) => chunk.uid === selectedChunk)
       const next = chunks[Math.max(0, Math.min(chunks.length - 1, current + delta))] ?? chunks[0]
       if (next) void loadChunk(next.uid)
       return
     }
     if (!doc) return
-    const eligible = doc.elements.filter((e) => e.review?.status === 'approved' && e.intermediate_item_uid)
-    const current = eligible.findIndex((e) => e.intermediate_item_uid === activeItem)
+    const eligible = doc.elements.filter((row) => row.review?.status === 'approved' && row.intermediate_item_uid)
+    const current = eligible.findIndex((row) => row.intermediate_item_uid === activeItem)
     const next = eligible[Math.max(0, Math.min(eligible.length - 1, current + delta))] ?? eligible[0]
-    if (next?.intermediate_item_uid) {
-      setActiveItem(next.intermediate_item_uid)
-      setSelectedItems(new Set([next.intermediate_item_uid]))
-    }
+    if (!next?.intermediate_item_uid) return
+    setActiveItem(next.intermediate_item_uid)
+    setSelectedItems(new Set([next.intermediate_item_uid]))
+    previewRefs.current.get(next.intermediate_item_uid)?.scrollIntoView({ block: 'nearest' })
   }
 
   const create = async (): Promise<void> => {
     if (!doc) return
     const elementIds = doc.elements
-      .filter((e) => e.intermediate_item_uid && selectedItems.has(e.intermediate_item_uid))
-      .map((e) => e.id)
+      .filter((row) => row.intermediate_item_uid && selectedItems.has(row.intermediate_item_uid))
+      .map((row) => row.id)
     const result = await invoke<{ chunkUid: string }>('chunk.create', {
       intermediateDocumentUid: uid,
       elementIds,
-      additionalPrompt: prompt
+      additionalPrompt: ''
     })
     if (!result.ok) return notify('error', 'チャンクを作成できません', result.error.message)
     await refresh()
     await loadChunk(result.result.chunkUid)
   }
 
-  const save = async (): Promise<void> => {
+  const save = async (additionalPrompt = prompt): Promise<void> => {
     if (!selectedChunk) return
     const result = await invoke('chunk.update', {
       uid: selectedChunk,
       intermediateItemUids: [...selectedItems],
-      additionalPrompt: prompt
+      additionalPrompt
     })
     if (!result.ok) return notify('error', 'チャンクを更新できません', result.error.message)
+    setPrompt(additionalPrompt)
+    setEditingPrompt(false)
     notify('info', 'チャンクを更新しました')
     await refresh()
     await loadChunk(selectedChunk)
@@ -180,7 +216,7 @@ export function ChunkEditor({ uid }: { uid: string }): React.JSX.Element {
     notify('error', '候補生成がタイムアウトしました')
   }
 
-  const linked = new Set(detail?.items.map((i) => i.intermediate_item_uid) ?? [])
+  const linked = new Set(detail?.items.map((item) => item.intermediate_item_uid) ?? [])
   const selectedChunksForItems = new Set(
     chunks
       .filter((chunk) => selectedItems.size > 0 && chunk.item_uids.some((id) => selectedItems.has(id)))
@@ -207,6 +243,17 @@ export function ChunkEditor({ uid }: { uid: string }): React.JSX.Element {
         <button className="d2d-btn" onClick={() => void save()} disabled={!selectedChunk || selectedItems.size === 0}>
           選択行で更新
         </button>
+        <button
+          className="d2d-btn"
+          data-testid="chunk-prompt-edit"
+          onClick={() => {
+            setPromptDraft(prompt)
+            setEditingPrompt(true)
+          }}
+          disabled={!selectedChunk}
+        >
+          編集
+        </button>
         <button className="d2d-btn" onClick={() => void remove()} disabled={!selectedChunk}>
           削除
         </button>
@@ -214,104 +261,199 @@ export function ChunkEditor({ uid }: { uid: string }): React.JSX.Element {
           {generating ? '生成中…' : '④モデル候補生成'}
         </button>
       </div>
-      <div style={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: '34% 26% 40%' }}>
+
+      {editingPrompt && (
+        <div data-testid="chunk-prompt-editor" style={{ padding: 8, borderBottom: '1px solid var(--d2d-border)' }}>
+          <label>
+            追加プロンプト
+            <textarea
+              value={promptDraft}
+              onChange={(event) => setPromptDraft(event.target.value)}
+              rows={5}
+              style={{ width: '100%', boxSizing: 'border-box' }}
+            />
+          </label>
+          <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
+            <button className="d2d-btn primary" onClick={() => void save(promptDraft)}>
+              保存
+            </button>
+            <button className="d2d-btn" onClick={() => setEditingPrompt(false)}>
+              キャンセル
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div style={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: '40% 27% 33%' }}>
         <section
           tabIndex={0}
-          onKeyDown={(e) => {
-            if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
-              e.preventDefault()
-              moveSelection('item', e.key === 'ArrowUp' ? -1 : 1)
+          onKeyDown={(event) => {
+            if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+              event.preventDefault()
+              moveSelection('item', event.key === 'ArrowUp' ? -1 : 1)
             }
           }}
           style={{ overflow: 'auto', borderRight: '1px solid var(--d2d-border)' }}
         >
           <h3 style={{ padding: '0 8px' }}>成果物（確認済のみ選択可）</h3>
-          {doc.elements.map((row, index) => {
-            const itemUid = row.intermediate_item_uid
-            const isLinked = Boolean(itemUid && linked.has(itemUid))
-            return (
-              <div
-                key={row.id}
-                className="d2d-list-row"
-                data-testid={`chunk-source-${row.id}`}
-                onClick={(e) => chooseItem(row, index, e)}
-                style={{
-                  opacity: row.review?.status === 'approved' ? 1 : 0.45,
-                  background: selectedItems.has(itemUid ?? '')
-                    ? 'var(--d2d-selection)'
-                    : isLinked
-                      ? 'color-mix(in srgb, var(--d2d-accent) 18%, transparent)'
-                      : undefined
-                }}
-              >
-                <input
-                  type="checkbox"
-                  readOnly
-                  checked={selectedItems.has(itemUid ?? '')}
-                  disabled={row.review?.status !== 'approved'}
-                />
-                <span>{row.type}</span>
-                <span style={{ flex: 1 }}>{row.text ?? row.id}</span>
-              </div>
-            )
-          })}
+          <table className="d2d-table" style={{ width: '100%', minWidth: 720 }}>
+            <thead>
+              <tr>
+                <th>選択</th>
+                <th>状態</th>
+                <th>ID</th>
+                <th>種別</th>
+                <th>内容</th>
+                <th>小節</th>
+              </tr>
+            </thead>
+            <tbody>
+              {doc.elements.map((row, index) => {
+                const itemUid = row.intermediate_item_uid
+                const isLinked = Boolean(itemUid && linked.has(itemUid))
+                const selected = selectedItems.has(itemUid ?? '')
+                return (
+                  <tr
+                    key={row.id}
+                    data-testid={`chunk-source-${row.id}`}
+                    aria-selected={selected}
+                    onClick={(event) => chooseItem(row, index, event)}
+                    style={{
+                      opacity: row.review?.status === 'approved' ? 1 : 0.45,
+                      background: selected
+                        ? 'var(--d2d-selection)'
+                        : isLinked
+                          ? 'color-mix(in srgb, var(--d2d-accent) 18%, transparent)'
+                          : undefined
+                    }}
+                  >
+                    <td>
+                      <input type="checkbox" readOnly checked={selected} disabled={row.review?.status !== 'approved'} />
+                    </td>
+                    <td>
+                      <ReviewStatusBadge status={reviewStateFromEntityStatus(row.review?.status ?? 'draft')} />
+                    </td>
+                    <td>{row.id}</td>
+                    <td>
+                      <span
+                        className="d2d-badge"
+                        style={{ borderColor: typeColors[row.type], color: typeColors[row.type] }}
+                      >
+                        {row.type}
+                      </span>
+                    </td>
+                    <td>
+                      <span
+                        style={{
+                          borderLeft: `${Math.max(1, row.level ?? 0)}px solid ${typeColors[row.type] ?? 'var(--d2d-border)'}`,
+                          paddingLeft: 6,
+                          background: `color-mix(in srgb, ${typeColors[row.type] ?? 'var(--d2d-border)'} ${Math.min(22, 6 + (row.level ?? 0) * 4)}%, transparent)`
+                        }}
+                      >
+                        {'┆ '.repeat(row.level ?? 0)}
+                        {row.text ?? row.image ?? ''}
+                      </span>
+                    </td>
+                    <td>{row.section_path ?? ''}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
         </section>
+
         <section
           tabIndex={0}
-          onKeyDown={(e) => {
-            if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
-              e.preventDefault()
-              moveSelection('chunk', e.key === 'ArrowUp' ? -1 : 1)
+          onKeyDown={(event) => {
+            if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+              event.preventDefault()
+              moveSelection('chunk', event.key === 'ArrowUp' ? -1 : 1)
             }
           }}
           style={{ overflow: 'auto', borderRight: '1px solid var(--d2d-border)' }}
         >
           <h3 style={{ padding: '0 8px' }}>チャンク</h3>
-          {chunks.map((chunk) => (
-            <div
-              key={chunk.uid}
-              className="d2d-list-row"
-              onClick={() => void loadChunk(chunk.uid)}
-              style={{
-                background:
-                  chunk.uid === selectedChunk
-                    ? 'var(--d2d-selection)'
-                    : selectedChunksForItems.has(chunk.uid)
-                      ? 'color-mix(in srgb, var(--d2d-accent) 18%, transparent)'
-                      : undefined
-              }}
-            >
-              <span style={{ flex: 1 }}>{chunk.title ?? chunk.code}</span>
-              <small>{chunk.item_count}項目</small>
-            </div>
-          ))}
-          <label style={{ display: 'block', padding: 8 }}>
-            追加プロンプト
-            <textarea
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              rows={7}
-              style={{ width: '100%', boxSizing: 'border-box' }}
-            />
-          </label>
+          <table className="d2d-table" style={{ width: '100%', minWidth: 430 }}>
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>内容</th>
+                <th>項目数</th>
+                <th>Token</th>
+                <th>追加プロンプト</th>
+              </tr>
+            </thead>
+            <tbody>
+              {chunks.map((chunk) => (
+                <tr
+                  key={chunk.uid}
+                  data-testid={`chunk-row-${chunk.code}`}
+                  aria-selected={chunk.uid === selectedChunk}
+                  onClick={() => void loadChunk(chunk.uid)}
+                  style={{
+                    background:
+                      chunk.uid === selectedChunk
+                        ? 'var(--d2d-selection)'
+                        : selectedChunksForItems.has(chunk.uid)
+                          ? 'color-mix(in srgb, var(--d2d-accent) 18%, transparent)'
+                          : undefined
+                  }}
+                >
+                  <td>{chunk.code}</td>
+                  <td>{chunk.title ?? chunk.code}</td>
+                  <td>{chunk.item_count}</td>
+                  <td>{chunk.token_count}</td>
+                  <td title={chunk.additional_prompt}>{chunk.additional_prompt || '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </section>
+
         <section style={{ overflow: 'auto', padding: 12 }}>
           <h3>中間文書プレビュー</h3>
           {doc.elements.map((row) => {
             const itemUid = row.intermediate_item_uid
             const highlighted = Boolean(itemUid && (linked.has(itemUid) || selectedItems.has(itemUid)))
+            const common = {
+              padding: 8,
+              marginBottom: 4,
+              marginLeft: (row.level ?? 0) * 12,
+              borderLeft: highlighted
+                ? '4px solid var(--d2d-accent)'
+                : `${Math.max(1, row.level ?? 0)}px solid ${typeColors[row.type] ?? 'transparent'}`,
+              background: highlighted ? 'color-mix(in srgb, var(--d2d-accent) 12%, transparent)' : undefined
+            }
+            let body: React.JSX.Element
+            if (row.type === 'figure') body = <FigurePreview resourceUid={row.resource_uid} alt={row.image} />
+            else if (row.type === 'table' && row.rows)
+              body = (
+                <table className="d2d-table">
+                  <tbody>
+                    {row.rows.map((cells, rowNo) => (
+                      <tr key={rowNo}>
+                        {cells.map((cell, colNo) => (
+                          <td key={colNo}>{cell.text}</td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )
+            else if (row.type === 'heading') {
+              const Heading = `h${Math.min(6, Math.max(1, row.level ?? 1))}` as keyof React.JSX.IntrinsicElements
+              body = <Heading style={{ margin: 0 }}>{row.text ?? row.id}</Heading>
+            } else body = <div style={{ whiteSpace: 'pre-wrap' }}>{row.text ?? row.image ?? row.id}</div>
             return (
               <article
                 key={row.id}
-                style={{
-                  padding: 8,
-                  marginBottom: 4,
-                  borderLeft: highlighted ? '4px solid var(--d2d-accent)' : '4px solid transparent',
-                  background: highlighted ? 'color-mix(in srgb, var(--d2d-accent) 12%, transparent)' : undefined
+                ref={(node) => {
+                  if (itemUid && node) previewRefs.current.set(itemUid, node)
                 }}
+                style={common}
               >
-                <small>{row.type}</small>
-                <div>{row.text ?? row.id}</div>
+                <small className="d2d-badge">{row.type}</small>
+                {body}
               </article>
             )
           })}

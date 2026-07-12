@@ -56,6 +56,7 @@
 - Explorer の③成果物は有効状態かつ `artifact.dev_phase_id === phase.dev_phase_id` の設定だけ表示し、未所属成果物は表示しない。
 - ③成果物の状態サイクルは `draft → approved → review → rejected → draft`。成果物ペインの上下矢印はデータ順を変更せず、選択行の前後移動とフォーカス追従に割り当てる。
 - チャンクは成果物単位で管理し、確認済み intermediate_item と多対多で対応する。対応正本は chunk → intermediate_item のアイテム単位 based_on。チャンク固有の追加プロンプトは chunk.additional_prompt に保持し、LLM候補生成時に本文へ追加する。
+- チャンク編集の成果物ペインは状態・ID・種別・内容・小節・選択を表示し、中間編集と同じ階層/種別表現にする。チャンクは表形式で、追加プロンプトはチャンク行選択後の上部「編集」から変更する。プレビューは見出し階層・表・図を表示する。
 
 ## E2E（Playwright）の注意
 
