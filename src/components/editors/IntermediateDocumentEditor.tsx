@@ -797,15 +797,24 @@ export function IntermediateDocumentEditor({ uid }: { uid: string }): React.JSX.
             onRowKeyDown={(e, event) => {
               if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
                 event.preventDefault()
-                const movingIds = selectedIds.has(e.id) ? [...selectedIds] : [e.id]
-                setSelectedIds(new Set(movingIds))
-                setActiveId(e.id)
-                setLastSelectedPane('intermediate')
-                void call(
-                  'intermediate.reorderItems',
-                  { elementIds: movingIds, direction: event.key === 'ArrowUp' ? 'up' : 'down' },
-                  '表示順を更新しました'
+                const currentIndex = doc.elements.findIndex((item) => item.id === (activeId ?? e.id))
+                const nextIndex = Math.max(
+                  0,
+                  Math.min(doc.elements.length - 1, currentIndex + (event.key === 'ArrowUp' ? -1 : 1))
                 )
+                const next = doc.elements[nextIndex]
+                if (next) {
+                  setSelectedIds(new Set([next.id]))
+                  setActiveId(next.id)
+                  setLastSelectedPane('intermediate')
+                  requestAnimationFrame(() => {
+                    const row = document.querySelector<HTMLTableRowElement>(
+                      `[data-testid="intermediate-grid"] tr[data-row-id="${next.id}"]`
+                    )
+                    row?.focus()
+                    row?.scrollIntoView({ block: 'nearest' })
+                  })
+                }
               } else if (event.key === ' ' || event.key === 'Enter') {
                 event.preventDefault()
                 setSelectedIds(selectRows(doc.elements, e, event, selectedIds, activeId))

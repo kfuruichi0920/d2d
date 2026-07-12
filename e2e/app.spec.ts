@@ -305,6 +305,8 @@ test('②→③統合・編集・確定（P7）', async () => {
   await expect(middleGrid.getByRole('row').nth(1)).toContainText('未確認')
   await middleGrid.getByRole('row').nth(1).focus()
   await page.keyboard.press('ArrowDown')
+  await expect(middleGrid.getByRole('row').nth(2)).toHaveAttribute('aria-selected', 'true')
+  await expect(middleGrid.getByRole('row').nth(1)).toHaveAttribute('aria-selected', 'false')
   await expect(page.getByTestId('intermediate-markdown')).toContainText('対象項目その1')
 
   // 要素編集（新ID割当・由来追跡）: 段落を選択して編集
