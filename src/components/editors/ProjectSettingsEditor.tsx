@@ -2,11 +2,11 @@
 import { useCallback, useEffect, useState } from 'react'
 import { invoke } from '../../services/backend'
 import { useJobsStore } from '../../stores/jobs-store'
-
 interface Artifact {
   uid: string
   artifact_name: string
   artifact_type_id: string
+  dev_phase_id: string | null
   sort_order: number
   is_active: number
 }
@@ -17,15 +17,15 @@ interface Phase {
   sort_order: number
   is_active: number
 }
-
 export function ProjectSettingsEditor(): React.JSX.Element {
-  const [artifacts, setArtifacts] = useState<Artifact[]>([])
-  const [phases, setPhases] = useState<Phase[]>([])
-  const [artifactName, setArtifactName] = useState('')
-  const [artifactTypeId, setArtifactTypeId] = useState('')
-  const [phaseId, setPhaseId] = useState('')
-  const [phaseName, setPhaseName] = useState('')
-  const [externalAllowed, setExternalAllowed] = useState(false)
+  const [artifacts, setArtifacts] = useState<Artifact[]>([]),
+    [phases, setPhases] = useState<Phase[]>([])
+  const [artifactName, setArtifactName] = useState(''),
+    [artifactTypeId, setArtifactTypeId] = useState(''),
+    [artifactPhase, setArtifactPhase] = useState('')
+  const [phaseId, setPhaseId] = useState(''),
+    [phaseName, setPhaseName] = useState(''),
+    [externalAllowed, setExternalAllowed] = useState(false)
   const notify = useJobsStore((s) => s.notify)
   const load = useCallback(async () => {
     const [a, p, s] = await Promise.all([
@@ -34,7 +34,10 @@ export function ProjectSettingsEditor(): React.JSX.Element {
       invoke<Record<string, unknown>>('settings.getProjectSettings')
     ])
     if (a.ok) setArtifacts(a.result)
-    if (p.ok) setPhases(p.result)
+    if (p.ok) {
+      setPhases(p.result)
+      setArtifactPhase((v) => v || p.result.find((x) => x.is_active === 1)?.dev_phase_id || '')
+    }
     if (s.ok) setExternalAllowed(s.result['llm.externalSendAllowed'] === true)
   }, [])
   useEffect(() => {
@@ -48,10 +51,11 @@ export function ProjectSettingsEditor(): React.JSX.Element {
             uid: item.uid,
             artifactName: item.artifact_name,
             artifactTypeId: item.artifact_type_id,
+            devPhaseId: item.dev_phase_id,
             sortOrder: item.sort_order,
             isActive: item.is_active !== 1
           }
-        : { artifactName, artifactTypeId, sortOrder: artifacts.length }
+        : { artifactName, artifactTypeId, devPhaseId: artifactPhase, sortOrder: artifacts.length }
     )
     if (!res.ok) notify('error', '成果物設定を保存できませんでした', res.error.message)
     else {
@@ -80,10 +84,14 @@ export function ProjectSettingsEditor(): React.JSX.Element {
       await load()
     }
   }
-  const setExternal = async (value: boolean): Promise<void> => {
-    const res = await invoke('settings.setProjectSetting', { key: 'llm.externalSendAllowed', value })
-    if (res.ok) setExternalAllowed(value)
-    else notify('error', '外部送信可否を保存できませんでした', res.error.message)
+  const remove = async (method: string, uid: string, label: string): Promise<void> => {
+    if (!window.confirm(`${label}を削除します。関連する中間データも復旧不能になります。よろしいですか？`)) return
+    const res = await invoke(method, { uid })
+    if (!res.ok) notify('error', `${label}を削除できませんでした`, res.error.message)
+    else {
+      notify('info', `${label}を削除しました`)
+      await load()
+    }
   }
   const section: React.CSSProperties = {
     border: '1px solid var(--d2d-border)',
@@ -93,63 +101,59 @@ export function ProjectSettingsEditor(): React.JSX.Element {
   }
   const row: React.CSSProperties = {
     display: 'grid',
-    gridTemplateColumns: '1fr 1fr 80px 70px',
+    gridTemplateColumns: '1fr 1fr 70px 70px',
     gap: 8,
     alignItems: 'center',
     margin: '5px 0'
   }
   return (
-    <div style={{ padding: 20, maxWidth: 820 }} data-testid="project-settings-editor">
+    <div style={{ padding: 20, maxWidth: 900 }} data-testid="project-settings-editor">
       <h1 style={{ fontSize: 18, marginTop: 0 }}>プロジェクト設定</h1>
       <p style={{ color: 'var(--d2d-fg-muted)' }}>
-        この設定は現在のプロジェクト内に保存され、③中間データのフェーズ・成果物構成に使用されます。
+        この設定は現在のプロジェクト内に保存されます。成果物は開発フェーズの配下で管理します。
       </p>
       <section style={section}>
-        <h2 style={{ fontSize: 14 }}>成果物設定（project_artifact_setting）</h2>
-        {artifacts.map((a) => (
-          <div key={a.uid} style={row}>
-            <span>{a.artifact_name}</span>
-            <code>{a.artifact_type_id}</code>
-            <span>{a.is_active ? '有効' : '無効'}</span>
-            <button className="d2d-btn small" onClick={() => void saveArtifact(a)}>
-              {a.is_active ? '無効化' : '有効化'}
-            </button>
-          </div>
-        ))}
-        <div style={row}>
-          <input
-            value={artifactName}
-            onChange={(e) => setArtifactName(e.target.value)}
-            placeholder="成果物名"
-            data-testid="artifact-name"
-          />
-          <input
-            value={artifactTypeId}
-            onChange={(e) => setArtifactTypeId(e.target.value)}
-            placeholder="種別ID"
-            data-testid="artifact-type"
-          />
-          <span />
-          <button
-            className="d2d-btn primary small"
-            disabled={!artifactName || !artifactTypeId}
-            onClick={() => void saveArtifact()}
-            data-testid="artifact-add"
+        <h2 style={{ fontSize: 14 }}>開発フェーズ・成果物設定</h2>
+        {phases.map((phase) => (
+          <div
+            key={phase.uid}
+            data-testid={`project-phase-${phase.dev_phase_id}`}
+            style={{ borderLeft: '3px solid var(--d2d-accent)', paddingLeft: 10, marginBottom: 12 }}
           >
-            追加
-          </button>
-        </div>
-      </section>
-      <section style={section}>
-        <h2 style={{ fontSize: 14 }}>開発フェーズ設定（project_dev_phase_setting）</h2>
-        {phases.map((p) => (
-          <div key={p.uid} style={row}>
-            <span>{p.dev_phase_name}</span>
-            <code>{p.dev_phase_id}</code>
-            <span>{p.is_active ? '有効' : '無効'}</span>
-            <button className="d2d-btn small" onClick={() => void savePhase(p)}>
-              {p.is_active ? '無効化' : '有効化'}
-            </button>
+            <div style={row}>
+              <strong>{phase.dev_phase_name}</strong>
+              <code>{phase.dev_phase_id}</code>
+              <button className="d2d-btn small" onClick={() => void savePhase(phase)}>
+                {phase.is_active ? '無効化' : '有効化'}
+              </button>
+              <button
+                className="d2d-btn small danger"
+                onClick={() => void remove('project.deleteDevPhase', phase.uid, '開発フェーズ')}
+              >
+                削除
+              </button>
+            </div>
+            {artifacts
+              .filter((a) => a.dev_phase_id === phase.dev_phase_id)
+              .map((a) => (
+                <div
+                  key={a.uid}
+                  style={{ ...row, marginLeft: 16 }}
+                  data-testid={`project-artifact-${a.artifact_type_id}`}
+                >
+                  <span>└ {a.artifact_name}</span>
+                  <code>{a.artifact_type_id}</code>
+                  <button className="d2d-btn small" onClick={() => void saveArtifact(a)}>
+                    {a.is_active ? '無効化' : '有効化'}
+                  </button>
+                  <button
+                    className="d2d-btn small danger"
+                    onClick={() => void remove('project.deleteArtifactSetting', a.uid, '成果物')}
+                  >
+                    削除
+                  </button>
+                </div>
+              ))}
           </div>
         ))}
         <div style={row}>
@@ -172,7 +176,39 @@ export function ProjectSettingsEditor(): React.JSX.Element {
             onClick={() => void savePhase()}
             data-testid="phase-add"
           >
-            追加
+            フェーズ追加
+          </button>
+        </div>
+        <div style={{ ...row, gridTemplateColumns: '1fr 1fr 1fr 70px' }}>
+          <input
+            value={artifactName}
+            onChange={(e) => setArtifactName(e.target.value)}
+            placeholder="成果物名"
+            data-testid="artifact-name"
+          />
+          <input
+            value={artifactTypeId}
+            onChange={(e) => setArtifactTypeId(e.target.value)}
+            placeholder="種別ID"
+            data-testid="artifact-type"
+          />
+          <select value={artifactPhase} onChange={(e) => setArtifactPhase(e.target.value)} data-testid="artifact-phase">
+            <option value="">開発フェーズを選択</option>
+            {phases
+              .filter((p) => p.is_active)
+              .map((p) => (
+                <option key={p.uid} value={p.dev_phase_id}>
+                  {p.dev_phase_name}
+                </option>
+              ))}
+          </select>
+          <button
+            className="d2d-btn primary small"
+            disabled={!artifactName || !artifactTypeId || !artifactPhase}
+            onClick={() => void saveArtifact()}
+            data-testid="artifact-add"
+          >
+            成果物追加
           </button>
         </div>
       </section>
@@ -182,7 +218,11 @@ export function ProjectSettingsEditor(): React.JSX.Element {
           <input
             type="checkbox"
             checked={externalAllowed}
-            onChange={(e) => void setExternal(e.target.checked)}
+            onChange={async (e) => {
+              const value = e.target.checked
+              const r = await invoke('settings.setProjectSetting', { key: 'llm.externalSendAllowed', value })
+              if (r.ok) setExternalAllowed(value)
+            }}
             data-testid="llm-external-allowed"
           />{' '}
           このプロジェクトから外部 LLM への送信を許可する（既定: 不可）

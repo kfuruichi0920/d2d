@@ -538,3 +538,14 @@ mark.d2d-term {
   outline: 2px solid var(--d2d-accent) !important;
   outline-offset: -2px;
 }
+
+/* P5/P7: 図表はペイン幅を超えた場合だけ水平スクロールする。 */
+.extraction-structure-preview table,
+[data-testid='intermediate-markdown'] table {
+  width: max-content;
+  min-width: 100%;
+}
+.extraction-preview-item.related {
+  border-color: var(--d2d-warning);
+  background: color-mix(in srgb, var(--d2d-warning) 10%, transparent);
+}

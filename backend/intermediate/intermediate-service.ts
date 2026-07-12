@@ -249,6 +249,17 @@ export function insertExtractedItems(
   return result
 }
 
+export function deleteIntermediateItems(db: Database, docUid: string, elementIds: string[]): { deleted: number } {
+  const structure = loadStructure(db, docUid)
+  const removed = structure.elements.filter((e) => elementIds.includes(e.id))
+  const resources = removed.map((e) => e.resource_uid).filter((uid): uid is string => Boolean(uid))
+  structure.elements = structure.elements.filter((e) => !elementIds.includes(e.id))
+  if (resources.length > 0) removeIntermediateItems(db, docUid, resources)
+  saveStructure(db, docUid, structure)
+  eventBus.emit('intermediate.updated', { intermediateDocumentUid: docUid, kind: 'items-deleted' })
+  return { deleted: removed.length }
+}
+
 export function reorderIntermediateItems(
   db: Database,
   docUid: string,

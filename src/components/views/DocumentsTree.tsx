@@ -230,7 +230,8 @@ export function DocumentsTree(): React.JSX.Element {
             position: 'fixed',
             inset: '20% 25%',
             zIndex: 20,
-            background: 'var(--d2d-bg-elevated)',
+            background: 'var(--d2d-surface-raised)',
+            color: 'var(--d2d-fg)',
             border: '1px solid var(--d2d-border)',
             padding: 16,
             boxShadow: '0 8px 30px #0008'

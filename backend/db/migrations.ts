@@ -50,6 +50,19 @@ export const MIGRATIONS: Migration[] = [
         CREATE INDEX IF NOT EXISTS idx_resource_table_cell_table ON resource_table_cell(table_uid, row_no, col_no);
       `)
     }
+  },
+  {
+    // P7-1: 成果物は開発フェーズ配下に所属する。既存行は未割当として移行し、UIで再設定する。
+    version: '1.2.0',
+    description: '成果物設定への開発フェーズ紐付け追加（P7-1）',
+    apply(db) {
+      const columns = db.prepare(`PRAGMA table_info(project_artifact_setting)`).all() as { name: string }[]
+      if (!columns.some((column) => column.name === 'dev_phase_id'))
+        db.exec(`ALTER TABLE project_artifact_setting ADD COLUMN dev_phase_id TEXT;`)
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_project_artifact_setting_phase ON project_artifact_setting(project_uid, dev_phase_id, sort_order);`
+      )
+    }
   }
 ]
 

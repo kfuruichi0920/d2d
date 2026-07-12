@@ -11,6 +11,7 @@ import {
   createChunk,
   createIntermediateDocument,
   insertExtractedItems,
+  deleteIntermediateItems,
   reorderIntermediateItems,
   changeIntermediateHierarchy,
   updateIntermediateItemStatuses,
@@ -63,7 +64,9 @@ function resolveArtifactAndPhase(
 
   const artifact = artifactTypeId ?? artifacts[0]!.artifact_type_id
   const phase = devPhaseId ?? phases[0]!.dev_phase_id
-  if (!artifacts.some((a) => a.artifact_type_id === artifact)) {
+  if (
+    !artifacts.some((a) => a.artifact_type_id === artifact && (a.dev_phase_id === null || a.dev_phase_id === phase))
+  ) {
     throw new BackendError(
       'validation',
       `未定義の成果物種別です: ${artifact}`,
@@ -141,6 +144,25 @@ export function registerIntermediateApi(router: ApiRouter, jobs: JobManager): vo
           .all(uid) as { uid: string; status: string }[]
       ).map((r) => [r.uid, r.status])
     )
+    const links = db.prepare(`SELECT from_uid, to_uid FROM trace_link WHERE relation_type='based_on'`).all() as {
+      from_uid: string
+      to_uid: string
+    }[]
+    const parents = new Map<string, string[]>()
+    for (const link of links) parents.set(link.from_uid, [...(parents.get(link.from_uid) ?? []), link.to_uid])
+    const ancestry = (uid?: string): string[] => {
+      if (!uid) return []
+      const seen = new Set<string>()
+      const visit = (current: string): void => {
+        for (const parent of parents.get(current) ?? [])
+          if (!seen.has(parent)) {
+            seen.add(parent)
+            visit(parent)
+          }
+      }
+      visit(uid)
+      return [uid, ...seen]
+    }
     return {
       ...doc,
       structure_json: undefined,
@@ -148,7 +170,8 @@ export function registerIntermediateApi(router: ApiRouter, jobs: JobManager): vo
       sources: structure.sources,
       elements: structure.elements.map((e) => ({
         ...e,
-        review: e.resource_uid ? { status: statusByUid.get(e.resource_uid) ?? 'draft' } : undefined
+        review: e.resource_uid ? { status: statusByUid.get(e.resource_uid) ?? 'draft' } : undefined,
+        source_resource_uids: ancestry(e.resource_uid)
       }))
     }
   })
@@ -187,6 +210,15 @@ export function registerIntermediateApi(router: ApiRouter, jobs: JobManager): vo
       Array.isArray(p.resourceUids) ? (p.resourceUids as string[]) : [],
       p.targetElementId === undefined ? undefined : String(p.targetElementId),
       p.position === 'above' ? 'above' : 'below'
+    )
+  })
+  router.register('intermediate.deleteItems', (params) => {
+    const p = asRecord(params)
+    const { db } = requireProject()
+    return deleteIntermediateItems(
+      db,
+      requireString(p, 'uid'),
+      Array.isArray(p.elementIds) ? (p.elementIds as string[]) : []
     )
   })
   router.register('intermediate.reorderItems', (params) => {

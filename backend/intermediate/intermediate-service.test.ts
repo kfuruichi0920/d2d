@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { Database } from 'better-sqlite3'
 import { closeDatabase, createDatabase, getProjectRow } from '../store/database'
 import { createProjectLayout } from '../project/layout'
+import { deleteArtifactSetting, saveArtifactSetting, saveDevPhase } from '../project/project-settings'
 import { importSourceDocument } from '../import/import-service'
 import { storeExtractionResult, type ExtractionOutput } from '../extract/store-extraction'
 import {
@@ -143,6 +144,24 @@ describe('③中間データ（P7）', () => {
       .prepare(`SELECT source_extracted_document_uid FROM intermediate_document WHERE uid=?`)
       .get(doc.intermediateDocumentUid) as { source_extracted_document_uid: string | null }
     expect(legacy.source_extracted_document_uid).toBeNull()
+  })
+
+  it('成果物設定の削除で関連する③中間データも物理削除する', () => {
+    saveDevPhase(db, projectUid, { devPhaseId: 'DD', devPhaseName: '詳細設計' })
+    const artifact = saveArtifactSetting(db, projectUid, {
+      artifactName: '統合設計書',
+      artifactTypeId: 'design_doc',
+      devPhaseId: 'DD'
+    })
+    const doc = createIntermediateDocument(db, projectUid, {
+      extractedDocumentUids: [extractedUid],
+      artifactTypeId: 'design_doc',
+      devPhaseId: 'DD'
+    })
+    expect(deleteArtifactSetting(db, projectUid, artifact.uid)).toEqual({ deletedDocuments: 1 })
+    expect(
+      db.prepare(`SELECT uid FROM intermediate_document WHERE uid=?`).get(doc.intermediateDocumentUid)
+    ).toBeUndefined()
   })
 
   it('未承認の②は統合を拒否する（SRS §2.2 原則10）', () => {

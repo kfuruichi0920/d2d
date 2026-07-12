@@ -2,7 +2,7 @@
  * Intermediate Document Editor（P7-7、V-03、UI-012、EDIT-002〜008）。
  * ③中間データの文書風表示 + 要素編集（編集/マージ/分割/LLM候補）+ 正本確定。
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ColumnDef } from '@tanstack/react-table'
 import { invoke, onBackendEvent } from '../../services/backend'
 import { useEditorStore } from '../../stores/editor-store'
@@ -22,6 +22,7 @@ interface IntermediateElement {
   rows?: { text: string }[][]
   resource_uid?: string
   review?: { status: string }
+  source_resource_uids?: string[]
 }
 
 interface IntermediateDoc {
@@ -339,22 +340,95 @@ export function IntermediateDocumentEditor({ uid }: { uid: string }): React.JSX.
     }
   }
 
-  const columns = useMemo<ColumnDef<IntermediateElement, unknown>[]>(
-    () => [
-      {
-        header: '状態',
-        accessorKey: 'review',
-        cell: ({ row }) => (
-          <ReviewStatusBadge status={reviewStateFromEntityStatus(row.original.review?.status ?? 'draft')} />
-        )
-      },
-      { header: 'ID', accessorKey: 'id', size: 50 },
-      { header: '種別', accessorKey: 'type', size: 80 },
-      { header: '内容', accessorFn: (e) => `${'　'.repeat(e.level ?? 0)}${e.text ?? e.image ?? ''}` },
-      { header: '章節', accessorKey: 'section_path', size: 130 }
-    ],
-    []
+  const integratedResourceUids = new Set(
+    doc?.elements.flatMap((e) => e.source_resource_uids ?? [e.resource_uid ?? '']) ?? []
   )
+  const activeSourceResource = sourceItems.find((e) => e.id === sourceActiveId)?.resource_uid
+  const relatedCenterIds = new Set(
+    doc?.elements
+      .filter((e) => activeSourceResource && e.source_resource_uids?.includes(activeSourceResource))
+      .map((e) => e.id) ?? []
+  )
+  const activeCenter = doc?.elements.find((e) => e.id === activeId)
+  const relatedSourceIds = new Set(
+    sourceItems
+      .filter((e) => e.resource_uid && activeCenter?.source_resource_uids?.includes(e.resource_uid))
+      .map((e) => e.id)
+  )
+  const cycleStatus = async (element: IntermediateElement): Promise<void> => {
+    const statuses = ['draft', 'approved', 'review', 'rejected']
+    const current = element.review?.status ?? 'draft'
+    const next = statuses[(statuses.indexOf(current) + 1) % statuses.length]!
+    await call(
+      'intermediate.updateItemStatuses',
+      { elementIds: [element.id], status: next === 'review' ? 'needs_fix' : next },
+      'レビュー状態を更新しました'
+    )
+  }
+  const removeSelected = async (): Promise<void> => {
+    if (selectedIds.size === 0) return
+    await call('intermediate.deleteItems', { elementIds: [...selectedIds] }, '成果物から要素を削除しました')
+    setSelectedIds(new Set())
+    setActiveId(null)
+  }
+
+  const typeColors: Record<string, string> = {
+    heading: '#7c3aed',
+    paragraph: '#2563eb',
+    list_item: '#0891b2',
+    table: '#d97706',
+    figure: '#db2777',
+    caption: '#65a30d'
+  }
+  const columns: ColumnDef<IntermediateElement, unknown>[] = [
+    {
+      header: '状態',
+      accessorKey: 'review',
+      cell: ({ row }) => (
+        <button
+          type="button"
+          className="d2d-btn small"
+          onClick={(event) => {
+            event.stopPropagation()
+            void cycleStatus(row.original)
+          }}
+          title="クリックで状態を切替"
+        >
+          <ReviewStatusBadge status={reviewStateFromEntityStatus(row.original.review?.status ?? 'draft')} />
+        </button>
+      )
+    },
+    { header: 'ID', accessorKey: 'id', size: 50 },
+    {
+      header: '種別',
+      accessorKey: 'type',
+      size: 80,
+      cell: ({ row }) => (
+        <span
+          className="d2d-badge"
+          style={{ borderColor: typeColors[row.original.type], color: typeColors[row.original.type] }}
+        >
+          {row.original.type}
+        </span>
+      )
+    },
+    {
+      header: '内容',
+      cell: ({ row }) => (
+        <span
+          style={{
+            borderLeft: `${Math.max(1, row.original.level ?? 0)}px solid ${typeColors[row.original.type] ?? 'var(--d2d-border)'}`,
+            paddingLeft: 6,
+            background: `color-mix(in srgb, ${typeColors[row.original.type] ?? 'var(--d2d-border)'} ${Math.min(22, 6 + (row.original.level ?? 0) * 4)}%, transparent)`
+          }}
+        >
+          {'┆ '.repeat(row.original.level ?? 0)}
+          {row.original.text ?? row.original.image ?? ''}
+        </span>
+      )
+    },
+    { header: '章節', accessorKey: 'section_path', size: 130 }
+  ]
 
   const sourceColumns: ColumnDef<IntermediateElement & { source_title?: string }, unknown>[] = [
     {
@@ -636,6 +710,13 @@ export function IntermediateDocumentEditor({ uid }: { uid: string }): React.JSX.
         <button className="d2d-btn small" onClick={() => void hierarchy(1)}>
           階層を下げる
         </button>
+        <button
+          className="d2d-btn small danger"
+          disabled={selectedIds.size === 0}
+          onClick={() => void removeSelected()}
+        >
+          選択行を削除
+        </button>
         <span style={{ flex: 1 }} />
         <button className="d2d-btn small" onClick={() => void applyStatus('approved')}>
           確認済みにする
@@ -655,7 +736,7 @@ export function IntermediateDocumentEditor({ uid }: { uid: string }): React.JSX.
           minHeight: 0
         }}
       >
-        <div style={{ minWidth: 0, padding: 8 }}>
+        <div style={{ minWidth: 0, minHeight: 0, overflow: 'hidden', padding: 8 }}>
           <b>統合元 extracted_item</b>
           <VirtualDataGrid
             columns={sourceColumns}
@@ -663,7 +744,11 @@ export function IntermediateDocumentEditor({ uid }: { uid: string }): React.JSX.
             getRowId={(e) => e.id}
             selectedRowIds={sourceSelectedIds}
             activeRowId={sourceActiveId}
+            relatedRowIds={relatedSourceIds}
+            isRowDisabled={(e) => Boolean(e.resource_uid && integratedResourceUids.has(e.resource_uid))}
+            height="calc(100% - 22px)"
             onRowClick={(e, event) => {
+              if (e.resource_uid && integratedResourceUids.has(e.resource_uid)) return
               setSourceSelectedIds(selectRows(sourceItems, e, event, sourceSelectedIds, sourceActiveId))
               setSourceActiveId(e.id)
               setLastSelectedPane('source')
@@ -671,6 +756,7 @@ export function IntermediateDocumentEditor({ uid }: { uid: string }): React.JSX.
             onRowKeyDown={(e, event) => {
               if (event.key === ' ' || event.key === 'Enter') {
                 event.preventDefault()
+                if (e.resource_uid && integratedResourceUids.has(e.resource_uid)) return
                 setSourceSelectedIds(selectRows(sourceItems, e, event, sourceSelectedIds, sourceActiveId))
                 setSourceActiveId(e.id)
                 setLastSelectedPane('source')
@@ -679,7 +765,15 @@ export function IntermediateDocumentEditor({ uid }: { uid: string }): React.JSX.
             testId="intermediate-source-grid"
           />
         </div>
-        <div style={{ minWidth: 0, padding: 8, borderLeft: '1px solid var(--d2d-border)' }}>
+        <div
+          style={{
+            minWidth: 0,
+            minHeight: 0,
+            overflow: 'hidden',
+            padding: 8,
+            borderLeft: '1px solid var(--d2d-border)'
+          }}
+        >
           <b>成果物 intermediate_item</b>
           <VirtualDataGrid
             columns={columns}
@@ -687,6 +781,8 @@ export function IntermediateDocumentEditor({ uid }: { uid: string }): React.JSX.
             getRowId={(e) => e.id}
             selectedRowIds={selectedIds}
             activeRowId={activeId}
+            relatedRowIds={relatedCenterIds}
+            height="calc(100% - 22px)"
             onRowClick={(e, event) => {
               setSelectedIds(selectRows(doc.elements, e, event, selectedIds, activeId))
               setActiveId(e.id)
@@ -716,7 +812,12 @@ export function IntermediateDocumentEditor({ uid }: { uid: string }): React.JSX.
                 if (node) previewRefs.current.set(e.id, node)
                 else previewRefs.current.delete(e.id)
               }}
-              className={`extraction-preview-item${selectedIds.has(e.id) ? ' selected' : ''}${activeId === e.id ? ' active' : ''}`}
+              className={`extraction-preview-item${selectedIds.has(e.id) ? ' selected' : ''}${activeId === e.id ? ' active' : ''}${relatedCenterIds.has(e.id) ? ' related' : ''}`}
+              onClick={() => {
+                setSelectedIds(new Set([e.id]))
+                setActiveId(e.id)
+                setLastSelectedPane('intermediate')
+              }}
               style={{ marginLeft: (e.level ?? 0) * 14 }}
             >
               <span className="d2d-badge">{e.type}</span>

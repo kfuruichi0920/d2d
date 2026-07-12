@@ -301,7 +301,7 @@ PDFのbbox編集、LLM OCR、表OCR、テキスト補正は、D2D上のレビュ
 | テーブル名 | 役割 | 主な情報 | 主キー | 主な外部キー | 備考 |
 | ----- | -- | ---- | --- | ------ | -- |
 | `project` | プロジェクト管理 | 名前、説明、スキーマバージョン | `uid` | なし | DB内の最上位管理単位 |
-| `project_artifact_setting` | プロジェクト成果物設定 | 成果物名、成果物種別ID、表示順、有効状態 | `uid` | `project(uid)` | project設定画面で編集する |
+| `project_artifact_setting` | プロジェクト成果物設定 | 所属開発フェーズID、成果物名、成果物種別ID、表示順、有効状態 | `uid` | `project(uid)` | project設定画面で編集する |
 | `project_artifact_relation` | 成果物文書体系 | 親成果物、子成果物、表示順、有効状態 | `uid` | `project(uid)`, `project_artifact_setting(uid)` | 成果物設定同士の親子関係を定義する |
 | `project_dev_phase_setting` | プロジェクト開発フェーズ設定 | 開発フェーズID、開発フェーズ名、表示順、有効状態 | `uid` | `project(uid)` | project設定画面で編集する |
 | `entity_registry` | 共通台帳 | 種別、設計分類、表示コード、タイトル、状態、レビュー情報、メモ情報、作成更新情報 | `uid` | `project(uid)`, `batch_operation_info(uid)` | `UNIQUE(entity_type, code)`。設計分類は13分類（SRS 9.1） |
@@ -352,7 +352,7 @@ PDFのbbox編集、LLM OCR、表OCR、テキスト補正は、D2D上のレビュ
 
 ### 4.2 project_artifact_setting
 
-`project_artifact_setting` は、project設定画面で編集する成果物定義である。設計要素ではなくプロジェクト設定であるため、`entity_registry` には登録しない。
+`project_artifact_setting` は、project設定画面で開発フェーズ配下に編集する成果物定義である。`dev_phase_id` で `project_dev_phase_setting.dev_phase_id` と対応し、アプリ層で同一project内の存在を検証する。設計要素ではなくプロジェクト設定であるため、`entity_registry` には登録しない。
 
 | No | 論理名 | 物理名 | 内容 | データ型 | PK | NN | UQ | FK | DEFAULT | CHECK | 更新可否 | 自動生成 | 備考 |
 | -: | --- | --- | -- | ---- | -- | -- | -- | -- | ------- | ----- | ---- | ---- | -- |

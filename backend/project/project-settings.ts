@@ -18,6 +18,7 @@ export interface ArtifactSetting {
   uid: string
   artifact_name: string
   artifact_type_id: string
+  dev_phase_id: string | null
   sort_order: number
   is_active: number
 }
@@ -25,7 +26,7 @@ export interface ArtifactSetting {
 export function listArtifactSettings(db: Database, projectUid: string): ArtifactSetting[] {
   return db
     .prepare(
-      `SELECT uid, artifact_name, artifact_type_id, sort_order, is_active
+      `SELECT uid, artifact_name, artifact_type_id, dev_phase_id, sort_order, is_active
          FROM project_artifact_setting WHERE project_uid = ? ORDER BY sort_order, artifact_name`
     )
     .all(projectUid) as ArtifactSetting[]
@@ -35,6 +36,7 @@ export interface SaveArtifactSettingInput {
   uid?: string
   artifactName: string
   artifactTypeId: string
+  devPhaseId?: string
   sortOrder?: number
   isActive?: boolean
 }
@@ -52,12 +54,13 @@ export function saveArtifactSetting(
     const result = db
       .prepare(
         `UPDATE project_artifact_setting
-            SET artifact_name = ?, artifact_type_id = ?, sort_order = ?, is_active = ?, updated_at = ?
+            SET artifact_name = ?, artifact_type_id = ?, dev_phase_id = ?, sort_order = ?, is_active = ?, updated_at = ?
           WHERE uid = ? AND project_uid = ?`
       )
       .run(
         input.artifactName,
         input.artifactTypeId,
+        input.devPhaseId ?? null,
         input.sortOrder ?? 0,
         input.isActive === false ? 0 : 1,
         ts,
@@ -72,13 +75,14 @@ export function saveArtifactSetting(
   const uid = newUid()
   try {
     db.prepare(
-      `INSERT INTO project_artifact_setting (uid, project_uid, artifact_name, artifact_type_id, sort_order, is_active, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO project_artifact_setting (uid, project_uid, artifact_name, artifact_type_id, dev_phase_id, sort_order, is_active, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       uid,
       projectUid,
       input.artifactName,
       input.artifactTypeId,
+      input.devPhaseId ?? null,
       input.sortOrder ?? 0,
       input.isActive === false ? 0 : 1,
       ts,
@@ -96,7 +100,7 @@ export function saveArtifactSetting(
 function getArtifactSetting(db: Database, projectUid: string, uid: string): ArtifactSetting {
   const row = db
     .prepare(
-      `SELECT uid, artifact_name, artifact_type_id, sort_order, is_active
+      `SELECT uid, artifact_name, artifact_type_id, dev_phase_id, sort_order, is_active
          FROM project_artifact_setting WHERE uid = ? AND project_uid = ?`
     )
     .get(uid, projectUid) as ArtifactSetting | undefined
@@ -112,6 +116,23 @@ export function deactivateArtifactSetting(db: Database, projectUid: string, uid:
   if (result.changes === 0) {
     throw new BackendError('not_found', `成果物設定が見つかりません: ${uid}`, '')
   }
+}
+
+/** 成果物設定と同じフェーズ・種別の③中間データを復旧不能で削除する（P7-1）。 */
+export function deleteArtifactSetting(db: Database, projectUid: string, uid: string): { deletedDocuments: number } {
+  const setting = getArtifactSetting(db, projectUid, uid)
+  const txn = db.transaction(() => {
+    const docs = db
+      .prepare(
+        `SELECT d.uid FROM intermediate_document d JOIN entity_registry e ON e.uid=d.uid WHERE e.project_uid=? AND d.artifact_type_id=? AND d.dev_phase_id=?`
+      )
+      .all(projectUid, setting.artifact_type_id, setting.dev_phase_id) as { uid: string }[]
+    const remove = db.prepare(`DELETE FROM entity_registry WHERE uid=?`)
+    for (const doc of docs) remove.run(doc.uid)
+    db.prepare(`DELETE FROM project_artifact_setting WHERE uid=? AND project_uid=?`).run(uid, projectUid)
+    return { deletedDocuments: docs.length }
+  })
+  return txn()
 }
 
 // ---- 文書体系（成果物親子関係） ----
@@ -234,7 +255,7 @@ export function saveDevPhase(db: Database, projectUid: string, input: SaveDevPha
       ).run(
         newUid(),
         projectUid,
-        input.devPhaseId,
+        input.devPhaseId ?? null,
         input.devPhaseName,
         input.sortOrder ?? 0,
         input.isActive === false ? 0 : 1,
@@ -255,4 +276,25 @@ export function saveDevPhase(db: Database, projectUid: string, input: SaveDevPha
     )
     .get(projectUid, input.devPhaseId) as DevPhaseSetting
   return row
+}
+
+/** フェーズ配下の成果物と関連③中間データを含めて復旧不能で削除する（P7-1）。 */
+export function deleteDevPhase(
+  db: Database,
+  projectUid: string,
+  uid: string
+): { deletedArtifacts: number; deletedDocuments: number } {
+  const phase = db
+    .prepare(`SELECT dev_phase_id FROM project_dev_phase_setting WHERE uid=? AND project_uid=?`)
+    .get(uid, projectUid) as { dev_phase_id: string } | undefined
+  if (!phase) throw new BackendError('not_found', `開発フェーズが見つかりません: ${uid}`, '')
+  const artifacts = listArtifactSettings(db, projectUid).filter((a) => a.dev_phase_id === phase.dev_phase_id)
+  let deletedDocuments = 0
+  const txn = db.transaction(() => {
+    for (const artifact of artifacts)
+      deletedDocuments += deleteArtifactSetting(db, projectUid, artifact.uid).deletedDocuments
+    db.prepare(`DELETE FROM project_dev_phase_setting WHERE uid=? AND project_uid=?`).run(uid, projectUid)
+  })
+  txn()
+  return { deletedArtifacts: artifacts.length, deletedDocuments }
 }
