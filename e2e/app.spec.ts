@@ -219,6 +219,10 @@ test('原本取込→Word抽出→レビュー→②正本確定の全経路（P
   await expect(page.getByTestId('review-markdown')).toContainText('1.1 対象範囲')
   await expect(page.getByTestId('review-markdown')).toContainText('100ms以内')
   await expect(page.getByTestId('review-markdown').getByRole('img')).toBeVisible()
+  await page.getByTestId('extraction-preview-structure').click()
+  await expect(page.getByTestId('extraction-structure-json')).toContainText('elements')
+  await expect(page.getByTestId('extraction-structure-json').locator('.structured-json-key').first()).toBeVisible()
+  await page.getByTestId('extraction-preview-visual').click()
   await expect(page.getByTestId('preview-item-e1')).toHaveClass(/selected/)
 
   // キーボード選択: ↓で次要素へ移動し、プレビューとPropertiesを同期する。
@@ -319,6 +323,10 @@ test('②→③統合・編集・確定（P7）', async () => {
   await expect(middleGrid.getByRole('row').nth(2)).toHaveAttribute('aria-selected', 'true')
   await expect(middleGrid.getByRole('row').nth(1)).toHaveAttribute('aria-selected', 'false')
   await expect(page.getByTestId('intermediate-markdown')).toContainText('対象項目その1')
+  await page.getByTestId('intermediate-preview-structure').click()
+  await expect(page.getByTestId('intermediate-structure-json')).toContainText('sources')
+  await expect(page.getByTestId('intermediate-structure-json').locator('.structured-json-key').first()).toBeVisible()
+  await page.getByTestId('intermediate-preview-visual').click()
 
   // 要素編集（新ID割当・由来追跡）: 段落を選択して編集
   await page.getByTestId('intermediate-grid').getByText('本書はテスト用の仕様書である。要求REQ-001を含む。').click()

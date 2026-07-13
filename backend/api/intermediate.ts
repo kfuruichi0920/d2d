@@ -177,6 +177,7 @@ export function registerIntermediateApi(router: ApiRouter, jobs: JobManager): vo
     return {
       ...doc,
       structure_json: undefined,
+      structure,
       metadata: structure.metadata,
       sources: structure.sources,
       elements: structure.elements.map((e) => ({

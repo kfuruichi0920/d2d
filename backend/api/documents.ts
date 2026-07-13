@@ -118,6 +118,7 @@ export function registerDocumentApi(router: ApiRouter, jobs: JobManager): void {
     return {
       ...doc,
       structure_json: undefined,
+      structure,
       metadata: structure.metadata,
       elements: structure.elements.map((e) => ({
         ...e,

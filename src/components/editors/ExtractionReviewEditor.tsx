@@ -9,6 +9,7 @@ import { useJobsStore } from '../../stores/jobs-store'
 import { useProjectStore } from '../../stores/project-store'
 import { useSelectionStore, type ExtractedItemSelection } from '../../stores/selection-store'
 import { VirtualDataGrid } from '../common/VirtualDataGrid'
+import { StructuredJsonView } from '../common/StructuredJsonView'
 import { reviewStateFromEntityStatus, ReviewStatusBadge } from '../common/review'
 
 interface TableCell {
@@ -38,6 +39,7 @@ interface ExtractedDoc {
   title: string | null
   status: string
   metadata: Record<string, unknown>
+  structure: unknown
   elements: ReviewElement[]
 }
 
@@ -121,6 +123,7 @@ export function ExtractionReviewEditor({ uid }: { uid: string }): React.JSX.Elem
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [activeId, setActiveId] = useState<string | null>(null)
   const [anchorId, setAnchorId] = useState<string | null>(null)
+  const [previewMode, setPreviewMode] = useState<'visual' | 'structure'>('visual')
   const previewRefs = useRef(new Map<string, HTMLElement>())
   const notify = useJobsStore((state) => state.notify)
   const setExtractedItems = useSelectionStore((state) => state.setExtractedItems)
@@ -357,32 +360,54 @@ export function ExtractionReviewEditor({ uid }: { uid: string }): React.JSX.Elem
           />
         </div>
         <div className="extraction-structure-preview" data-testid="review-markdown">
-          {doc.elements.map((element) => {
-            const selected = selectedIds.has(element.id)
-            return (
-              <article
-                key={element.id}
-                ref={(node) => {
-                  if (node) previewRefs.current.set(element.id, node)
-                  else previewRefs.current.delete(element.id)
-                }}
-                data-testid={`preview-item-${element.id}`}
-                className={`extraction-preview-item${selected ? ' selected' : ''}${activeId === element.id ? ' active' : ''}`}
-                onClick={() => {
-                  setSelectedIds(new Set([element.id]))
-                  setActiveId(element.id)
-                  setAnchorId(element.id)
-                }}
-              >
-                <header>
-                  <span className="d2d-badge">{TYPE_LABELS[element.type] ?? element.type}</span>
-                  <code>{element.id}</code>
-                  {element.section_path && <span>{element.section_path}</span>}
-                </header>
-                <ElementBody element={element} />
-              </article>
-            )
-          })}
+          <div className="document-preview-switch" aria-label="抽出データのプレビュー表示">
+            <button
+              type="button"
+              className={`d2d-btn small${previewMode === 'visual' ? ' active' : ''}`}
+              onClick={() => setPreviewMode('visual')}
+              data-testid="extraction-preview-visual"
+            >
+              文書プレビュー
+            </button>
+            <button
+              type="button"
+              className={`d2d-btn small${previewMode === 'structure' ? ' active' : ''}`}
+              onClick={() => setPreviewMode('structure')}
+              data-testid="extraction-preview-structure"
+            >
+              structure_json
+            </button>
+          </div>
+          {previewMode === 'structure' ? (
+            <StructuredJsonView value={doc.structure} testId="extraction-structure-json" />
+          ) : (
+            doc.elements.map((element) => {
+              const selected = selectedIds.has(element.id)
+              return (
+                <article
+                  key={element.id}
+                  ref={(node) => {
+                    if (node) previewRefs.current.set(element.id, node)
+                    else previewRefs.current.delete(element.id)
+                  }}
+                  data-testid={`preview-item-${element.id}`}
+                  className={`extraction-preview-item${selected ? ' selected' : ''}${activeId === element.id ? ' active' : ''}`}
+                  onClick={() => {
+                    setSelectedIds(new Set([element.id]))
+                    setActiveId(element.id)
+                    setAnchorId(element.id)
+                  }}
+                >
+                  <header>
+                    <span className="d2d-badge">{TYPE_LABELS[element.type] ?? element.type}</span>
+                    <code>{element.id}</code>
+                    {element.section_path && <span>{element.section_path}</span>}
+                  </header>
+                  <ElementBody element={element} />
+                </article>
+              )
+            })
+          )}
         </div>
       </div>
     </div>

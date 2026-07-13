@@ -10,6 +10,7 @@ import { useJobsStore } from '../../stores/jobs-store'
 import { useProjectStore } from '../../stores/project-store'
 import { useSelectionStore } from '../../stores/selection-store'
 import { VirtualDataGrid } from '../common/VirtualDataGrid'
+import { StructuredJsonView } from '../common/StructuredJsonView'
 import { reviewStateFromEntityStatus, ReviewStatusBadge } from '../common/review'
 
 interface IntermediateElement {
@@ -34,6 +35,7 @@ interface IntermediateDoc {
   dev_phase_id: string
   intermediate_status: string
   sources: { extracted_document_uid: string; order: number }[]
+  structure: unknown
   elements: IntermediateElement[]
 }
 
@@ -103,6 +105,7 @@ export function IntermediateDocumentEditor({ uid }: { uid: string }): React.JSX.
   const [sourceActiveId, setSourceActiveId] = useState<string | null>(null)
   const [lastSelectedPane, setLastSelectedPane] = useState<'source' | 'intermediate'>('intermediate')
   const [editorMode, setEditorMode] = useState<IntermediateEditorMode>('import')
+  const [previewMode, setPreviewMode] = useState<'visual' | 'structure'>('visual')
   const previewRefs = useRef(new Map<string, HTMLElement>())
   const [elementEditor, setElementEditor] = useState<ElementEditorState | null>(null)
   const [editCells, setEditCells] = useState<string[][] | null>(null)
@@ -1029,47 +1032,70 @@ export function IntermediateDocumentEditor({ uid }: { uid: string }): React.JSX.
           style={{ minWidth: 0, overflow: 'auto', padding: 8, borderLeft: '1px solid var(--d2d-border)' }}
           data-testid="intermediate-markdown"
         >
-          <b>中間文書プレビュー</b>
-          {doc.elements.map((e) => (
-            <article
-              key={e.id}
-              ref={(node) => {
-                if (node) previewRefs.current.set(e.id, node)
-                else previewRefs.current.delete(e.id)
-              }}
-              className={`extraction-preview-item${selectedIds.has(e.id) ? ' selected' : ''}${activeId === e.id ? ' active' : ''}${relatedCenterIds.has(e.id) ? ' related' : ''}`}
-              onClick={() => {
-                setSelectedIds(new Set([e.id]))
-                setActiveId(e.id)
-                setLastSelectedPane('intermediate')
-              }}
-              onDoubleClick={() => openElementEditor(e)}
-              style={{ marginLeft: (e.level ?? 0) * 14 }}
+          <div className="document-preview-switch">
+            <b>中間文書プレビュー</b>
+            <span style={{ flex: 1 }} />
+            <button
+              type="button"
+              className={`d2d-btn small${previewMode === 'visual' ? ' active' : ''}`}
+              onClick={() => setPreviewMode('visual')}
+              data-testid="intermediate-preview-visual"
             >
-              <span className="d2d-badge">{e.type}</span>
-              {e.type === 'table' ? (
-                <table>
-                  <tbody>
-                    {(e.rows ?? []).map((r, i) => (
-                      <tr key={i}>
-                        {r.map((c, j) => (
-                          <td key={j} style={{ border: '1px solid var(--d2d-border)', padding: 3 }}>
-                            {c.text}
-                          </td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              ) : e.type === 'figure' ? (
-                <FigureElement element={e} />
-              ) : (
-                <div>
-                  <HighlightTerms text={e.text ?? ''} terms={terms} />
-                </div>
-              )}
-            </article>
-          ))}
+              文書プレビュー
+            </button>
+            <button
+              type="button"
+              className={`d2d-btn small${previewMode === 'structure' ? ' active' : ''}`}
+              onClick={() => setPreviewMode('structure')}
+              data-testid="intermediate-preview-structure"
+            >
+              structure_json
+            </button>
+          </div>
+          {previewMode === 'structure' ? (
+            <StructuredJsonView value={doc.structure} testId="intermediate-structure-json" />
+          ) : (
+            doc.elements.map((e) => (
+              <article
+                key={e.id}
+                ref={(node) => {
+                  if (node) previewRefs.current.set(e.id, node)
+                  else previewRefs.current.delete(e.id)
+                }}
+                className={`extraction-preview-item${selectedIds.has(e.id) ? ' selected' : ''}${activeId === e.id ? ' active' : ''}${relatedCenterIds.has(e.id) ? ' related' : ''}`}
+                onClick={() => {
+                  setSelectedIds(new Set([e.id]))
+                  setActiveId(e.id)
+                  setLastSelectedPane('intermediate')
+                }}
+                onDoubleClick={() => openElementEditor(e)}
+                style={{ marginLeft: (e.level ?? 0) * 14 }}
+              >
+                <span className="d2d-badge">{e.type}</span>
+                {e.type === 'table' ? (
+                  <table>
+                    <tbody>
+                      {(e.rows ?? []).map((r, i) => (
+                        <tr key={i}>
+                          {r.map((c, j) => (
+                            <td key={j} style={{ border: '1px solid var(--d2d-border)', padding: 3 }}>
+                              {c.text}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                ) : e.type === 'figure' ? (
+                  <FigureElement element={e} />
+                ) : (
+                  <div>
+                    <HighlightTerms text={e.text ?? ''} terms={terms} />
+                  </div>
+                )}
+              </article>
+            ))
+          )}
         </div>
       </div>
       <span data-testid="properties-selection-source" hidden>
