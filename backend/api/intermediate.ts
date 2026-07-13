@@ -8,15 +8,18 @@ import { requireProject } from '../project/project-service'
 import { eventBus } from '../events/event-bus'
 import { generateMarkdown, type MarkdownVariant } from '../extract/markdown-gen'
 import {
+  addIntermediateElement,
   createChunk,
   createIntermediateDocument,
   insertExtractedItems,
   deleteIntermediateItems,
+  duplicateIntermediateElement,
   reorderIntermediateItems,
   changeIntermediateHierarchy,
   updateIntermediateItemStatuses,
   deleteChunk,
   editElementText,
+  editIntermediateElement,
   ensureIntermediateItemTraceLinks,
   getChunk,
   getChunkText,
@@ -292,6 +295,31 @@ export function registerIntermediateApi(router: ApiRouter, jobs: JobManager): vo
 
   // ---- P7-2: 編集・マージ・分割 ----
 
+  router.register('intermediate.addElement', (params) => {
+    const p = asRecord(params)
+    const { db, info } = requireProject()
+    return addIntermediateElement(db, info.projectUid, requireString(p, 'uid'), {
+      targetElementId: p.targetElementId === undefined ? undefined : String(p.targetElementId),
+      position: p.position === 'above' ? 'above' : 'below',
+      type: requireString(p, 'type'),
+      text: requireString(p, 'text')
+    })
+  })
+
+  router.register('intermediate.duplicateElement', (params) => {
+    const p = asRecord(params)
+    const { db, info } = requireProject()
+    return duplicateIntermediateElement(db, info.projectUid, requireString(p, 'uid'), requireString(p, 'elementId'))
+  })
+
+  router.register('intermediate.editElement', (params) => {
+    const p = asRecord(params)
+    const { db, info } = requireProject()
+    return editIntermediateElement(db, info.projectUid, requireString(p, 'uid'), requireString(p, 'elementId'), {
+      type: requireString(p, 'type'),
+      text: requireString(p, 'text')
+    })
+  })
   router.register('intermediate.editElementText', (params) => {
     const p = asRecord(params)
     const { db, info } = requireProject()

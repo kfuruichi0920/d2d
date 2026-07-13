@@ -47,7 +47,9 @@ function saveStructure(db: Database, uid: string, structure: IntermediateStructu
 }
 
 /** element.type → item_type（store-extraction と同じ写像） */
-function itemTypeOf(element: IntermediateElement): string {
+function itemTypeOf(
+  element: IntermediateElement
+): 'resource_label' | 'resource_list' | 'resource_table' | 'resource_figure' | 'resource_text' {
   switch (element.type) {
     case 'heading':
     case 'caption':
@@ -471,6 +473,217 @@ function newTextResource(ctx: EditContext, text: string, titleHint: string, crea
   return resource
 }
 
+const BASIC_EDITABLE_TYPES = ['paragraph', 'heading', 'list_item', 'caption'] as const
+export type BasicIntermediateElementType = (typeof BASIC_EDITABLE_TYPES)[number]
+
+function requireBasicElementType(value: string): BasicIntermediateElementType {
+  if (!BASIC_EDITABLE_TYPES.includes(value as BasicIntermediateElementType)) {
+    throw new BackendError(
+      'validation',
+      `基本編集に未対応の要素種別です: ${value}`,
+      'table / figure 等の種別固有編集項目は個別編集APIを使用してください。'
+    )
+  }
+  return value as BasicIntermediateElementType
+}
+
+function nextIntermediateElementId(structure: IntermediateStructure): string {
+  const sequence = structure.elements.reduce((max, element) => {
+    const value = Number(element.id.match(/^i(\d+)$/)?.[1] ?? 0)
+    return Math.max(max, value)
+  }, 0)
+  return `i${sequence + 1}`
+}
+
+function createBasicElementResource(
+  db: Database,
+  projectUid: string,
+  type: BasicIntermediateElementType,
+  text: string,
+  level?: number
+): string {
+  const entityType = itemTypeOf({ id: '', type })
+  const resource = registerEntity(db, { projectUid, entityType, title: text.slice(0, 80), createdBy: 'user' })
+  switch (entityType) {
+    case 'resource_label':
+      db.prepare(`INSERT INTO resource_label (uid, label_text, label_kind, level) VALUES (?, ?, ?, ?)`).run(
+        resource.uid,
+        text,
+        type === 'heading' ? 'section' : 'other',
+        type === 'heading' ? Math.max(1, level ?? 1) : 0
+      )
+      break
+    case 'resource_list':
+      db.prepare(
+        `INSERT INTO resource_list (uid, list_kind, item_count, items_json, max_level) VALUES (?, 'unordered', 1, ?, 0)`
+      ).run(resource.uid, JSON.stringify([{ text, level: 0 }]))
+      break
+    default:
+      db.prepare(`INSERT INTO resource_text (uid, text_body, text_role, language) VALUES (?, ?, 'body', 'ja')`).run(
+        resource.uid,
+        text
+      )
+  }
+  return resource.uid
+}
+
+function cloneElementResource(db: Database, projectUid: string, element: IntermediateElement): string {
+  if (!element.resource_uid) throw new BackendError('validation', '複製元にResourceがありません', element.id)
+  const entityType = itemTypeOf(element)
+  const resource = registerEntity(db, {
+    projectUid,
+    entityType,
+    title: (element.text ?? element.image ?? '複製').slice(0, 80),
+    createdBy: 'user'
+  })
+  let changes = 0
+  switch (entityType) {
+    case 'resource_label':
+      changes = db
+        .prepare(
+          `INSERT INTO resource_label (uid,label_text,label_kind,numbering,level,style_name,target_resource_uid)
+           SELECT ?,label_text,label_kind,numbering,level,style_name,target_resource_uid FROM resource_label WHERE uid=?`
+        )
+        .run(resource.uid, element.resource_uid).changes
+      break
+    case 'resource_list':
+      changes = db
+        .prepare(
+          `INSERT INTO resource_list (uid,list_kind,item_count,items_json,max_level)
+           SELECT ?,list_kind,item_count,items_json,max_level FROM resource_list WHERE uid=?`
+        )
+        .run(resource.uid, element.resource_uid).changes
+      break
+    case 'resource_table':
+      changes = db
+        .prepare(
+          `INSERT INTO resource_table (uid,table_title,row_count,column_count,table_kind,header_rows_json,header_columns_json,cells_json,source_range)
+           SELECT ?,table_title,row_count,column_count,table_kind,header_rows_json,header_columns_json,cells_json,source_range FROM resource_table WHERE uid=?`
+        )
+        .run(resource.uid, element.resource_uid).changes
+      break
+    case 'resource_figure':
+      changes = db
+        .prepare(
+          `INSERT INTO resource_figure (uid,image_uri,image_hash,figure_kind,width,height,ocr_texts_json,objects_json,caption_uid)
+           SELECT ?,image_uri,image_hash,figure_kind,width,height,ocr_texts_json,objects_json,caption_uid FROM resource_figure WHERE uid=?`
+        )
+        .run(resource.uid, element.resource_uid).changes
+      break
+    default:
+      changes = db
+        .prepare(
+          `INSERT INTO resource_text (uid,text_body,text_role,language,sentences_json,context_json)
+           SELECT ?,text_body,text_role,language,sentences_json,context_json FROM resource_text WHERE uid=?`
+        )
+        .run(resource.uid, element.resource_uid).changes
+  }
+  if (changes !== 1) throw new BackendError('internal', `複製元Resourceが見つかりません: ${element.resource_uid}`, '')
+  addDerivationLink(db, projectUid, resource.uid, element.resource_uid, 'human_approved', 'duplicate')
+  return resource.uid
+}
+
+/** 単独編集: 選択要素の前後（空文書は先頭）へ基本要素を追加する（P7-2 / MID-004/005）。 */
+export function addIntermediateElement(
+  db: Database,
+  projectUid: string,
+  docUid: string,
+  input: { targetElementId?: string; position: 'above' | 'below'; type: string; text: string }
+): { elementId: string; resourceUid: string } {
+  const type = requireBasicElementType(input.type)
+  if (!input.text.trim()) throw new BackendError('validation', '要素のテキストを入力してください', '')
+  const txn = db.transaction(() => {
+    const structure = loadStructure(db, docUid)
+    let index = 0
+    let sectionPath = ''
+    if (structure.elements.length > 0) {
+      if (!input.targetElementId) throw new BackendError('validation', '追加位置の基準要素を選択してください', '')
+      const targetIndex = structure.elements.findIndex((element) => element.id === input.targetElementId)
+      if (targetIndex < 0) throw new BackendError('not_found', `追加位置が見つかりません: ${input.targetElementId}`, '')
+      index = targetIndex + (input.position === 'below' ? 1 : 0)
+      sectionPath = structure.elements[targetIndex]?.section_path ?? ''
+    }
+    const elementId = nextIntermediateElementId(structure)
+    const level = type === 'heading' ? 1 : 0
+    const resourceUid = createBasicElementResource(db, projectUid, type, input.text, level)
+    const element: IntermediateElement = {
+      id: elementId,
+      type,
+      text: input.text,
+      level,
+      section_path: sectionPath,
+      resource_uid: resourceUid
+    }
+    structure.elements.splice(index, 0, element)
+    addIntermediateItem(db, projectUid, docUid, element)
+    saveStructure(db, docUid, structure)
+    return { elementId, resourceUid }
+  })
+  const result = txn()
+  eventBus.emit('intermediate.updated', { intermediateDocumentUid: docUid, kind: 'element-added' })
+  return result
+}
+
+/** 単独編集: 任意要素を直後へ新ID・新Resourceで複製する（P7-2 / MID-004/005）。 */
+export function duplicateIntermediateElement(
+  db: Database,
+  projectUid: string,
+  docUid: string,
+  elementId: string
+): { elementId: string; resourceUid: string } {
+  const txn = db.transaction(() => {
+    const structure = loadStructure(db, docUid)
+    const index = structure.elements.findIndex((element) => element.id === elementId)
+    const source = structure.elements[index]
+    if (!source) throw new BackendError('not_found', `複製元要素が見つかりません: ${elementId}`, '')
+    const newElementId = nextIntermediateElementId(structure)
+    const resourceUid = cloneElementResource(db, projectUid, source)
+    const duplicate: IntermediateElement = { ...source, id: newElementId, resource_uid: resourceUid }
+    structure.elements.splice(index + 1, 0, duplicate)
+    const itemUid = addIntermediateItem(db, projectUid, docUid, duplicate)
+    addItemBasedOnLinks(db, projectUid, itemUid, sourceExtractedItemUids(db, docUid, [source.resource_uid!]))
+    saveStructure(db, docUid, structure)
+    return { elementId: newElementId, resourceUid }
+  })
+  const result = txn()
+  eventBus.emit('intermediate.updated', { intermediateDocumentUid: docUid, kind: 'element-duplicated' })
+  return result
+}
+
+/** 共通編集: 基本種別・テキストを新Resourceへ置換し、元Resourceと②由来を保持する。 */
+export function editIntermediateElement(
+  db: Database,
+  projectUid: string,
+  docUid: string,
+  elementId: string,
+  input: { type: string; text: string }
+): { resourceUid: string } {
+  const type = requireBasicElementType(input.type)
+  if (!input.text.trim()) throw new BackendError('validation', '要素のテキストを入力してください', '')
+  const txn = db.transaction(() => {
+    const structure = loadStructure(db, docUid)
+    const element = structure.elements.find((item) => item.id === elementId)
+    if (!element?.resource_uid) throw new BackendError('not_found', `要素が見つかりません: ${elementId}`, '')
+    const oldResourceUid = element.resource_uid
+    const sources = sourceExtractedItemUids(db, docUid, [oldResourceUid])
+    const resourceUid = createBasicElementResource(db, projectUid, type, input.text, element.level)
+    addDerivationLink(db, projectUid, resourceUid, oldResourceUid, 'human_approved', 'edit')
+    removeIntermediateItems(db, docUid, [oldResourceUid])
+    element.type = type
+    element.text = input.text
+    element.level = type === 'heading' ? Math.max(1, element.level ?? 1) : 0
+    element.resource_uid = resourceUid
+    delete element.rows
+    delete element.image
+    const itemUid = addIntermediateItem(db, projectUid, docUid, element)
+    addItemBasedOnLinks(db, projectUid, itemUid, sources)
+    saveStructure(db, docUid, structure)
+    return { resourceUid }
+  })
+  const result = txn()
+  eventBus.emit('intermediate.updated', { intermediateDocumentUid: docUid, kind: 'element-edited' })
+  return result
+}
 /** 要素テキストの編集: 新リソースを作成し由来を追跡する（MID-005） */
 export function editElementText(
   db: Database,

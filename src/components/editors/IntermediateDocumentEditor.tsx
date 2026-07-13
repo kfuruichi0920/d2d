@@ -45,6 +45,19 @@ interface TextCandidate {
   candidateText: string
 }
 
+type IntermediateEditorMode = 'import' | 'standalone'
+type ElementEditorAction = 'add' | 'edit'
+
+interface ElementEditorState {
+  action: ElementEditorAction
+  elementId?: string
+  position?: 'above' | 'below'
+  type: string
+  text: string
+}
+
+const BASIC_EDITABLE_TYPES = new Set(['paragraph', 'heading', 'list_item', 'caption'])
+const ELEMENT_TYPE_OPTIONS = ['paragraph', 'heading', 'list_item', 'caption', 'table', 'figure']
 function HighlightTerms({ text, terms }: { text: string; terms: string[] }): React.JSX.Element {
   const active = terms.filter(Boolean).sort((a, b) => b.length - a.length)
   if (active.length === 0) return <>{text}</>
@@ -89,8 +102,9 @@ export function IntermediateDocumentEditor({ uid }: { uid: string }): React.JSX.
   const [sourceSelectedIds, setSourceSelectedIds] = useState<Set<string>>(new Set())
   const [sourceActiveId, setSourceActiveId] = useState<string | null>(null)
   const [lastSelectedPane, setLastSelectedPane] = useState<'source' | 'intermediate'>('intermediate')
+  const [editorMode, setEditorMode] = useState<IntermediateEditorMode>('import')
   const previewRefs = useRef(new Map<string, HTMLElement>())
-  const [editText, setEditText] = useState<string | null>(null)
+  const [elementEditor, setElementEditor] = useState<ElementEditorState | null>(null)
   const [editCells, setEditCells] = useState<string[][] | null>(null)
   const [candidate, setCandidate] = useState<TextCandidate | null>(null)
   const [generating, setGenerating] = useState(false)
@@ -209,17 +223,63 @@ export function IntermediateDocumentEditor({ uid }: { uid: string }): React.JSX.
     return false
   }
 
-  const saveEdit = async (): Promise<void> => {
-    if (!selected || editText === null) return
-    if (
-      await call(
-        'intermediate.editElementText',
-        { elementId: selected.id, newText: editText },
-        '要素を編集しました（新IDを割当て）'
-      )
-    ) {
-      setEditText(null)
+  const openElementEditor = (element: IntermediateElement): void => {
+    setElementEditor({ action: 'edit', elementId: element.id, type: element.type, text: element.text ?? '' })
+  }
+
+  const openAddEditor = (position: 'above' | 'below'): void => {
+    setElementEditor({
+      action: 'add',
+      elementId: activeId ?? undefined,
+      position,
+      type: 'paragraph',
+      text: ''
+    })
+  }
+
+  const saveElementEditor = async (): Promise<void> => {
+    if (!elementEditor || !BASIC_EDITABLE_TYPES.has(elementEditor.type) || !elementEditor.text.trim()) return
+    const method = elementEditor.action === 'add' ? 'intermediate.addElement' : 'intermediate.editElement'
+    const params =
+      elementEditor.action === 'add'
+        ? {
+            targetElementId: elementEditor.elementId,
+            position: elementEditor.position,
+            type: elementEditor.type,
+            text: elementEditor.text
+          }
+        : { elementId: elementEditor.elementId, type: elementEditor.type, text: elementEditor.text }
+    const result = await invoke<{ elementId?: string }>(method, { uid, ...params })
+    if (!result.ok) {
+      notify('error', '要素を保存できませんでした', result.error.message)
+      return
     }
+    const nextId = result.result.elementId ?? elementEditor.elementId ?? null
+    setElementEditor(null)
+    await load()
+    if (nextId) {
+      setSelectedIds(new Set([nextId]))
+      setActiveId(nextId)
+      setLastSelectedPane('intermediate')
+    }
+    notify('info', elementEditor.action === 'add' ? '中間要素を追加しました' : '中間要素を編集しました')
+  }
+
+  const duplicateSelected = async (): Promise<void> => {
+    if (!selected || selectedIds.size !== 1) return
+    const result = await invoke<{ elementId: string }>('intermediate.duplicateElement', {
+      uid,
+      elementId: selected.id
+    })
+    if (!result.ok) {
+      notify('error', '要素を複製できませんでした', result.error.message)
+      return
+    }
+    await load()
+    setSelectedIds(new Set([result.result.elementId]))
+    setActiveId(result.result.elementId)
+    setLastSelectedPane('intermediate')
+    notify('info', '中間要素を複製しました')
   }
 
   const merge = async (): Promise<void> => {
@@ -471,6 +531,27 @@ export function IntermediateDocumentEditor({ uid }: { uid: string }): React.JSX.
         <span style={{ color: 'var(--d2d-fg-muted)' }}>
           {doc.artifact_type_id} / {doc.dev_phase_id} / {doc.elements.length} 要素 / 統合元 {doc.sources.length} 文書
         </span>
+        <div style={{ display: 'flex', gap: 4 }} aria-label="中間データ編集画面切替">
+          <button
+            type="button"
+            className={`d2d-btn small${editorMode === 'import' ? ' primary' : ''}`}
+            data-testid="intermediate-mode-import"
+            onClick={() => setEditorMode('import')}
+          >
+            中間データ取込編集
+          </button>
+          <button
+            type="button"
+            className={`d2d-btn small${editorMode === 'standalone' ? ' primary' : ''}`}
+            data-testid="intermediate-mode-standalone"
+            onClick={() => {
+              setEditorMode('standalone')
+              setLastSelectedPane('intermediate')
+            }}
+          >
+            中間データ単独編集
+          </button>
+        </div>
         <span style={{ flex: 1 }} />
         <button
           type="button"
@@ -493,6 +574,76 @@ export function IntermediateDocumentEditor({ uid }: { uid: string }): React.JSX.
         </button>
       </div>
 
+      <div
+        style={{
+          display: 'flex',
+          gap: 6,
+          alignItems: 'center',
+          padding: '4px 12px',
+          borderBottom: '1px solid var(--d2d-border)'
+        }}
+        data-testid="intermediate-element-actions"
+      >
+        {doc.elements.length === 0 ? (
+          <button
+            type="button"
+            className="d2d-btn small"
+            data-testid="element-add-first"
+            onClick={() => openAddEditor('below')}
+          >
+            要素を追加
+          </button>
+        ) : (
+          <>
+            <button
+              type="button"
+              className="d2d-btn small"
+              data-testid="element-add-above"
+              disabled={!selected || selectedIds.size !== 1}
+              onClick={() => openAddEditor('above')}
+            >
+              上に追加
+            </button>
+            <button
+              type="button"
+              className="d2d-btn small"
+              data-testid="element-add-below"
+              disabled={!selected || selectedIds.size !== 1}
+              onClick={() => openAddEditor('below')}
+            >
+              下に追加
+            </button>
+          </>
+        )}
+        <button
+          type="button"
+          className="d2d-btn small"
+          data-testid="element-duplicate"
+          disabled={!selected || selectedIds.size !== 1}
+          onClick={() => void duplicateSelected()}
+        >
+          複製
+        </button>
+        <button
+          type="button"
+          className="d2d-btn small"
+          data-testid="element-edit-open"
+          disabled={!selected || selectedIds.size !== 1}
+          onClick={() => selected && openElementEditor(selected)}
+        >
+          編集
+        </button>
+        <button
+          type="button"
+          className="d2d-btn small danger"
+          data-testid="element-delete"
+          disabled={selectedIds.size === 0}
+          onClick={() => void removeSelected()}
+        >
+          削除
+        </button>
+        <span style={{ color: 'var(--d2d-fg-muted)', fontSize: 11 }}>ダブルクリック / Space / Enter でも編集</span>
+      </div>
       {selected && (
         <div
           style={{
@@ -505,11 +656,6 @@ export function IntermediateDocumentEditor({ uid }: { uid: string }): React.JSX.
           data-testid="element-toolbar"
         >
           <span style={{ color: 'var(--d2d-fg-muted)' }}>選択: {selected.id}</span>
-          {canText && (
-            <button type="button" className="d2d-btn small" onClick={() => setEditText(selected.text ?? '')}>
-              編集
-            </button>
-          )}
           {canMerge && (
             <button type="button" className="d2d-btn small" onClick={() => void merge()} data-testid="merge-button">
               次とマージ
@@ -554,25 +700,68 @@ export function IntermediateDocumentEditor({ uid }: { uid: string }): React.JSX.
         </div>
       )}
 
-      {editText !== null && selected && (
-        <div style={{ padding: '6px 12px', borderBottom: '1px solid var(--d2d-border)' }}>
-          <textarea
-            style={{ width: '100%', minHeight: 60 }}
-            value={editText}
-            onChange={(e) => setEditText(e.target.value)}
-            data-testid="edit-textarea"
-          />
-          <div style={{ display: 'flex', gap: 6 }}>
+      {elementEditor && (
+        <div
+          role="dialog"
+          data-testid="element-edit-dialog"
+          aria-modal="true"
+          style={{
+            position: 'fixed',
+            inset: '22% 28%',
+            zIndex: 30,
+            padding: 16,
+            overflow: 'auto',
+            background: 'var(--d2d-surface-raised)',
+            color: 'var(--d2d-fg)',
+            border: '1px solid var(--d2d-border)',
+            borderRadius: 'var(--d2d-radius)',
+            boxShadow: '0 8px 30px #0008'
+          }}
+        >
+          <h3 style={{ marginTop: 0 }}>
+            {elementEditor.action === 'add' ? '中間要素を追加' : `中間要素を編集: ${elementEditor.elementId}`}
+          </h3>
+          <label style={{ display: 'grid', gap: 4, marginBottom: 10 }}>
+            種別
+            <select
+              value={elementEditor.type}
+              data-testid="element-edit-type"
+              onChange={(event) => setElementEditor((current) => current && { ...current, type: event.target.value })}
+            >
+              {ELEMENT_TYPE_OPTIONS.map((type) => (
+                <option key={type} value={type}>
+                  {type}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label style={{ display: 'grid', gap: 4 }}>
+            テキスト
+            <textarea
+              style={{ width: '100%', minHeight: 90 }}
+              value={elementEditor.text}
+              onChange={(event) => setElementEditor((current) => current && { ...current, text: event.target.value })}
+              data-testid="edit-textarea"
+            />
+          </label>
+          {!BASIC_EDITABLE_TYPES.has(elementEditor.type) && (
+            <p style={{ color: 'var(--d2d-warning)', fontSize: 11 }}>
+              {elementEditor.type}{' '}
+              の種別固有編集項目は次段階で追加します。現在は基本4種への変更、または既存の表編集を利用してください。
+            </p>
+          )}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, marginTop: 10 }}>
+            <button type="button" className="d2d-btn small" onClick={() => setElementEditor(null)}>
+              キャンセル
+            </button>
             <button
               type="button"
               className="d2d-btn primary small"
-              onClick={() => void saveEdit()}
+              onClick={() => void saveElementEditor()}
+              disabled={!BASIC_EDITABLE_TYPES.has(elementEditor.type) || !elementEditor.text.trim()}
               data-testid="edit-save"
             >
-              保存（新IDで反映）
-            </button>
-            <button type="button" className="d2d-btn small" onClick={() => setEditText(null)}>
-              キャンセル
+              保存（新Resourceで反映）
             </button>
           </div>
         </div>
@@ -688,21 +877,25 @@ export function IntermediateDocumentEditor({ uid }: { uid: string }): React.JSX.
       )}
 
       <div style={{ display: 'flex', gap: 6, padding: '4px 12px', borderBottom: '1px solid var(--d2d-border)' }}>
-        <button
-          className="d2d-btn small"
-          disabled={sourceSelectedIds.size === 0 || (doc.elements.length > 0 && selectedIds.size !== 1)}
-          onClick={() => void integrate('above')}
-        >
-          {doc.elements.length === 0 ? '選択②を最初に統合' : '選択②を上へ統合'}
-        </button>
-        <button
-          className="d2d-btn small"
-          disabled={sourceSelectedIds.size === 0 || selectedIds.size !== 1}
-          onClick={() => void integrate('below')}
-        >
-          選択②を下へ統合
-        </button>
-        <span style={{ borderLeft: '1px solid var(--d2d-border)' }} />
+        {editorMode === 'import' && (
+          <>
+            <button
+              className="d2d-btn small"
+              disabled={sourceSelectedIds.size === 0 || (doc.elements.length > 0 && selectedIds.size !== 1)}
+              onClick={() => void integrate('above')}
+            >
+              {doc.elements.length === 0 ? '選択②を最初に統合' : '選択②を上へ統合'}
+            </button>
+            <button
+              className="d2d-btn small"
+              disabled={sourceSelectedIds.size === 0 || selectedIds.size !== 1}
+              onClick={() => void integrate('below')}
+            >
+              選択②を下へ統合
+            </button>
+            <span style={{ borderLeft: '1px solid var(--d2d-border)' }} />
+          </>
+        )}
         <button className="d2d-btn small" onClick={() => void move('up')}>
           ↑移動
         </button>
@@ -737,46 +930,52 @@ export function IntermediateDocumentEditor({ uid }: { uid: string }): React.JSX.
         style={{
           flex: 1,
           display: 'grid',
-          gridTemplateColumns: 'minmax(240px,1fr) minmax(260px,1fr) minmax(300px,1.2fr)',
+          gridTemplateColumns:
+            editorMode === 'import'
+              ? 'minmax(240px,1fr) minmax(260px,1fr) minmax(300px,1.2fr)'
+              : 'minmax(360px,1fr) minmax(420px,1.25fr)',
           minHeight: 0
         }}
+        data-testid={editorMode === 'import' ? 'intermediate-import-layout' : 'intermediate-standalone-layout'}
       >
-        <div style={{ minWidth: 0, minHeight: 0, overflow: 'hidden', padding: 8 }}>
-          <b>統合元 extracted_item</b>
-          <VirtualDataGrid
-            columns={sourceColumns}
-            data={sourceItems}
-            getRowId={(e) => e.id}
-            selectedRowIds={sourceSelectedIds}
-            activeRowId={sourceActiveId}
-            relatedRowIds={relatedSourceIds}
-            isRowDisabled={(e) => Boolean(e.resource_uid && integratedResourceUids.has(e.resource_uid))}
-            height="calc(100% - 22px)"
-            onRowClick={(e, event) => {
-              if (e.resource_uid && integratedResourceUids.has(e.resource_uid)) return
-              setSourceSelectedIds(selectRows(sourceItems, e, event, sourceSelectedIds, sourceActiveId))
-              setSourceActiveId(e.id)
-              setLastSelectedPane('source')
-            }}
-            onRowKeyDown={(e, event) => {
-              if (event.key === ' ' || event.key === 'Enter') {
-                event.preventDefault()
+        {editorMode === 'import' && (
+          <div style={{ minWidth: 0, minHeight: 0, overflow: 'hidden', padding: 8 }}>
+            <b>統合元 extracted_item</b>
+            <VirtualDataGrid
+              columns={sourceColumns}
+              data={sourceItems}
+              getRowId={(e) => e.id}
+              selectedRowIds={sourceSelectedIds}
+              activeRowId={sourceActiveId}
+              relatedRowIds={relatedSourceIds}
+              isRowDisabled={(e) => Boolean(e.resource_uid && integratedResourceUids.has(e.resource_uid))}
+              height="calc(100% - 22px)"
+              onRowClick={(e, event) => {
                 if (e.resource_uid && integratedResourceUids.has(e.resource_uid)) return
                 setSourceSelectedIds(selectRows(sourceItems, e, event, sourceSelectedIds, sourceActiveId))
                 setSourceActiveId(e.id)
                 setLastSelectedPane('source')
-              }
-            }}
-            testId="intermediate-source-grid"
-          />
-        </div>
+              }}
+              onRowKeyDown={(e, event) => {
+                if (event.key === ' ' || event.key === 'Enter') {
+                  event.preventDefault()
+                  if (e.resource_uid && integratedResourceUids.has(e.resource_uid)) return
+                  setSourceSelectedIds(selectRows(sourceItems, e, event, sourceSelectedIds, sourceActiveId))
+                  setSourceActiveId(e.id)
+                  setLastSelectedPane('source')
+                }
+              }}
+              testId="intermediate-source-grid"
+            />
+          </div>
+        )}
         <div
           style={{
             minWidth: 0,
             minHeight: 0,
             overflow: 'hidden',
             padding: 8,
-            borderLeft: '1px solid var(--d2d-border)'
+            borderLeft: editorMode === 'import' ? '1px solid var(--d2d-border)' : undefined
           }}
         >
           <b>成果物 intermediate_item</b>
@@ -792,7 +991,7 @@ export function IntermediateDocumentEditor({ uid }: { uid: string }): React.JSX.
               setSelectedIds(selectRows(doc.elements, e, event, selectedIds, activeId))
               setActiveId(e.id)
               setLastSelectedPane('intermediate')
-              setEditText(null)
+              if (event.detail >= 2) openElementEditor(e)
             }}
             onRowKeyDown={(e, event) => {
               if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
@@ -817,9 +1016,10 @@ export function IntermediateDocumentEditor({ uid }: { uid: string }): React.JSX.
                 }
               } else if (event.key === ' ' || event.key === 'Enter') {
                 event.preventDefault()
-                setSelectedIds(selectRows(doc.elements, e, event, selectedIds, activeId))
+                setSelectedIds(new Set([e.id]))
                 setActiveId(e.id)
                 setLastSelectedPane('intermediate')
+                openElementEditor(e)
               }
             }}
             testId="intermediate-grid"
@@ -843,6 +1043,7 @@ export function IntermediateDocumentEditor({ uid }: { uid: string }): React.JSX.
                 setActiveId(e.id)
                 setLastSelectedPane('intermediate')
               }}
+              onDoubleClick={() => openElementEditor(e)}
               style={{ marginLeft: (e.level ?? 0) * 14 }}
             >
               <span className="d2d-badge">{e.type}</span>

@@ -9,10 +9,13 @@ import { deleteArtifactSetting, saveArtifactSetting, saveDevPhase } from '../pro
 import { importSourceDocument } from '../import/import-service'
 import { storeExtractionResult, type ExtractionOutput } from '../extract/store-extraction'
 import {
+  addIntermediateElement,
   createChunk,
   createIntermediateDocument,
   deleteChunk,
+  duplicateIntermediateElement,
   editElementText,
+  editIntermediateElement,
   estimateTokens,
   getChunk,
   getChunkText,
@@ -290,6 +293,56 @@ describe('③中間データ（P7）', () => {
     ).toThrowError(/統合できません/)
   })
 
+  it('単独編集で任意位置追加・複製・種別変更を非破壊で行う（P7-2 / MID-004/005）', () => {
+    const doc = createIntermediateDocument(db, projectUid, {
+      extractedDocumentUids: [extractedUid],
+      artifactTypeId: 'design_doc',
+      devPhaseId: 'DD'
+    })
+    const added = addIntermediateElement(db, projectUid, doc.intermediateDocumentUid, {
+      targetElementId: 'i2',
+      position: 'below',
+      type: 'paragraph',
+      text: '人手で追加した中間要素'
+    })
+    let structure = structureOf(doc.intermediateDocumentUid)
+    expect(structure.elements.map((element) => element.id)).toEqual(['i1', 'i2', added.elementId, 'i3', 'i4'])
+    expect(structure.elements[2]).toMatchObject({ type: 'paragraph', text: '人手で追加した中間要素' })
+
+    const duplicated = duplicateIntermediateElement(db, projectUid, doc.intermediateDocumentUid, 'i2')
+    structure = structureOf(doc.intermediateDocumentUid)
+    const source = structure.elements.find((element) => element.id === 'i2')!
+    const copy = structure.elements.find((element) => element.id === duplicated.elementId)!
+    expect(copy.text).toBe(source.text)
+    expect(copy.resource_uid).not.toBe(source.resource_uid)
+    expect(
+      db
+        .prepare(`SELECT transform_note FROM trace_link WHERE from_uid=? AND to_uid=?`)
+        .get(copy.resource_uid, source.resource_uid)
+    ).toEqual({ transform_note: 'duplicate' })
+
+    const beforeEditResource = copy.resource_uid!
+    const edited = editIntermediateElement(db, projectUid, doc.intermediateDocumentUid, duplicated.elementId, {
+      type: 'heading',
+      text: '複製後に見出しへ変更'
+    })
+    structure = structureOf(doc.intermediateDocumentUid)
+    expect(structure.elements.find((element) => element.id === duplicated.elementId)).toMatchObject({
+      type: 'heading',
+      text: '複製後に見出しへ変更',
+      resource_uid: edited.resourceUid
+    })
+    expect(
+      db
+        .prepare(`SELECT transform_note FROM trace_link WHERE from_uid=? AND to_uid=?`)
+        .get(edited.resourceUid, beforeEditResource)
+    ).toEqual({ transform_note: 'edit' })
+    expect(
+      db
+        .prepare(`SELECT item_type FROM intermediate_item WHERE intermediate_document_uid=? AND resource_uid=?`)
+        .get(doc.intermediateDocumentUid, edited.resourceUid)
+    ).toEqual({ item_type: 'resource_label' })
+  })
   it('テキスト編集は新リソース ID を割当て、based_on で元 ID を追跡する（P7-2 / MID-005）', () => {
     const doc = createIntermediateDocument(db, projectUid, {
       extractedDocumentUids: [extractedUid],

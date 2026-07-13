@@ -322,10 +322,42 @@ test('②→③統合・編集・確定（P7）', async () => {
 
   // 要素編集（新ID割当・由来追跡）: 段落を選択して編集
   await page.getByTestId('intermediate-grid').getByText('本書はテスト用の仕様書である。要求REQ-001を含む。').click()
-  await page.getByTestId('element-toolbar').getByRole('button', { name: '編集', exact: true }).click()
+  await page.getByTestId('element-edit-open').click()
   await page.getByTestId('edit-textarea').fill('本書はテスト用の仕様書である。要求REQ-001および要求REQ-002を含む。')
   await page.getByTestId('edit-save').click()
   await expect(page.getByTestId('intermediate-markdown')).toContainText('REQ-002')
+
+  // 中間データ単独編集: 2ペイン切替、任意位置追加、Enter/ダブルクリック編集、複製、削除
+  await page.getByTestId('intermediate-mode-standalone').click()
+  await expect(page.getByTestId('intermediate-standalone-layout')).toBeVisible()
+  await expect(page.getByTestId('intermediate-source-grid')).toHaveCount(0)
+  await page.getByTestId('element-add-below').click()
+  await page.getByTestId('edit-textarea').fill('単独編集で追加した要素')
+  await page.getByTestId('edit-save').click()
+  await expect(middleGrid).toContainText('単独編集で追加した要素')
+
+  const addedRow = middleGrid.getByRole('row').filter({ hasText: '単独編集で追加した要素' })
+  await addedRow.focus()
+  await page.keyboard.press('Enter')
+  await expect(page.getByTestId('element-edit-dialog')).toBeVisible()
+  await page.getByTestId('element-edit-type').selectOption('heading')
+  await page.getByTestId('edit-textarea').fill('単独編集で追加した見出し')
+  await page.getByTestId('edit-save').click()
+  const headingRow = middleGrid.getByRole('row').filter({ hasText: '単独編集で追加した見出し' })
+  await expect(headingRow).toContainText('heading')
+  await headingRow.dblclick()
+  await expect(page.getByTestId('element-edit-dialog')).toBeVisible()
+  await page.getByTestId('element-edit-dialog').getByRole('button', { name: 'キャンセル' }).click()
+
+  const rowsBeforeDuplicate = await middleGrid.getByRole('row').count()
+  await headingRow.click()
+  await page.getByTestId('element-duplicate').click()
+  await expect(middleGrid.getByRole('row')).toHaveCount(rowsBeforeDuplicate + 1)
+  await page.getByTestId('element-delete').click()
+  await expect(middleGrid.getByRole('row')).toHaveCount(rowsBeforeDuplicate)
+  await page.getByTestId('intermediate-mode-import').click()
+  await expect(page.getByTestId('intermediate-import-layout')).toBeVisible()
+  await expect(page.getByTestId('intermediate-source-grid')).toBeVisible()
 
   // ③正本確定 → intermediate.updated
   await page.getByTestId('intermediate-approve').click()
