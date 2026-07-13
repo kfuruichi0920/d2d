@@ -73,6 +73,19 @@ export const MIGRATIONS: Migration[] = [
       if (!columns.some((column) => column.name === 'additional_prompt'))
         db.exec("ALTER TABLE chunk ADD COLUMN additional_prompt TEXT NOT NULL DEFAULT '';")
     }
+  },
+  {
+    // P7-5: チャンクIDを変えずに成果物内の表示順を編集する。
+    version: '1.4.0',
+    description: 'チャンク表示順の追加（MID-031）',
+    apply(db) {
+      const columns = db.prepare('PRAGMA table_info(chunk)').all() as { name: string }[]
+      if (!columns.some((column) => column.name === 'sort_order'))
+        db.exec('ALTER TABLE chunk ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0 CHECK (sort_order >= 0);')
+      db.exec(
+        'UPDATE chunk SET sort_order = (SELECT ranked.rn - 1 FROM (SELECT c2.uid, ROW_NUMBER() OVER (PARTITION BY c2.intermediate_document_uid ORDER BY c2.created_at, e.code) AS rn FROM chunk c2 JOIN entity_registry e ON e.uid=c2.uid) ranked WHERE ranked.uid=chunk.uid)'
+      )
+    }
   }
 ]
 

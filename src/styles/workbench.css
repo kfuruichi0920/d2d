@@ -549,3 +549,23 @@ mark.d2d-term {
   border-color: var(--d2d-warning);
   background: color-mix(in srgb, var(--d2d-warning) 10%, transparent);
 }
+
+.chunk-grid {
+  border-collapse: collapse;
+}
+.chunk-grid th,
+.chunk-grid td {
+  border: 1px solid var(--d2d-border);
+  padding: 4px 6px;
+  vertical-align: top;
+}
+.chunk-grid thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--d2d-surface-raised);
+}
+.chunk-grid tbody tr[aria-selected='true'] {
+  outline: 2px solid var(--d2d-accent);
+  outline-offset: -2px;
+}

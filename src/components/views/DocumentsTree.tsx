@@ -212,6 +212,17 @@ export function DocumentsTree(): React.JSX.Element {
                         )}
                       </small>
                     </span>
+                    <button
+                      type="button"
+                      className="d2d-btn small"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setImportTarget({ artifact, phase })
+                        setSelectedSources(new Set(sourceIds))
+                      }}
+                    >
+                      取込
+                    </button>{' '}
                     {doc && (
                       <button
                         type="button"
@@ -227,17 +238,6 @@ export function DocumentsTree(): React.JSX.Element {
                         チャンク
                       </button>
                     )}
-                    <button
-                      type="button"
-                      className="d2d-btn small"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        setImportTarget({ artifact, phase })
-                        setSelectedSources(new Set(sourceIds))
-                      }}
-                    >
-                      取込
-                    </button>
                   </div>
                 )
               })}

@@ -23,6 +23,7 @@ import {
   listChunks,
   updateChunk,
   mergeElements,
+  reorderChunks,
   splitElement,
   type IntermediateStructure
 } from '../intermediate/intermediate-service'
@@ -380,6 +381,16 @@ export function registerIntermediateApi(router: ApiRouter, jobs: JobManager): vo
       p.additionalPrompt === undefined ? '' : String(p.additionalPrompt)
     )
     return { updated: true }
+  })
+  router.register('chunk.reorder', (params) => {
+    const p = asRecord(params)
+    const { db } = requireProject()
+    reorderChunks(
+      db,
+      requireString(p, 'intermediateDocumentUid'),
+      Array.isArray(p.chunkUids) ? p.chunkUids.map(String) : []
+    )
+    return { reordered: true }
   })
   router.register('chunk.getText', (params) => {
     const p = asRecord(params)

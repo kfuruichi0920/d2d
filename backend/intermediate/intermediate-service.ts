@@ -584,9 +584,14 @@ export function createChunk(
       title: (selected[0]!.text ?? '').slice(0, 60) || 'チャンク',
       createdBy: 'user'
     })
+    const nextOrder = (
+      db
+        .prepare('SELECT COALESCE(MAX(sort_order), -1) + 1 AS value FROM chunk WHERE intermediate_document_uid=?')
+        .get(docUid) as { value: number }
+    ).value
     db.prepare(
-      `INSERT INTO chunk (uid, intermediate_document_uid, prompt_template_uid, additional_prompt, token_count) VALUES (?, ?, ?, ?, ?)`
-    ).run(chunk.uid, docUid, promptTemplateUid ?? null, additionalPrompt, estimateTokens(text))
+      'INSERT INTO chunk (uid, intermediate_document_uid, prompt_template_uid, additional_prompt, sort_order, token_count) VALUES (?, ?, ?, ?, ?, ?)'
+    ).run(chunk.uid, docUid, promptTemplateUid ?? null, additionalPrompt, nextOrder, estimateTokens(text))
 
     // chunk_item: intermediate_item を順序付きで対応付ける（本文は重複保持しない。§9.2）
     selected.forEach((element, i) => {
@@ -617,12 +622,12 @@ export function createChunk(
 export function listChunks(db: Database, docUid: string): unknown[] {
   const rows = db
     .prepare(
-      `SELECT e.uid, e.code, e.title, c.token_count, c.prompt_template_uid, c.additional_prompt, c.created_at,
+      `SELECT e.uid, e.code, e.title, c.token_count, c.prompt_template_uid, c.additional_prompt, c.sort_order, c.created_at,
               (SELECT COUNT(*) FROM chunk_item ci WHERE ci.chunk_uid = c.uid) AS item_count,
               (SELECT json_group_array(ci.intermediate_item_uid) FROM chunk_item ci WHERE ci.chunk_uid = c.uid) AS item_uids_json
          FROM chunk c JOIN entity_registry e ON e.uid = c.uid
         WHERE c.intermediate_document_uid = ? AND e.status <> 'deleted'
-        ORDER BY c.created_at DESC`
+        ORDER BY c.sort_order, e.code`
     )
     .all(docUid) as Array<Record<string, unknown> & { item_uids_json: string }>
   return rows.map(({ item_uids_json, ...row }) => ({
@@ -634,7 +639,7 @@ export function listChunks(db: Database, docUid: string): unknown[] {
 export function getChunk(db: Database, chunkUid: string): unknown {
   const chunk = db
     .prepare(
-      `SELECT e.uid, e.code, e.title, c.intermediate_document_uid, c.prompt_template_uid, c.additional_prompt, c.token_count
+      `SELECT e.uid, e.code, e.title, c.intermediate_document_uid, c.prompt_template_uid, c.additional_prompt, c.sort_order, c.token_count
        FROM chunk c JOIN entity_registry e ON e.uid=c.uid WHERE c.uid=? AND e.status <> 'deleted'`
     )
     .get(chunkUid)
@@ -695,6 +700,27 @@ export function updateChunk(
   })
   txn()
   eventBus.emit('intermediate.updated', { kind: 'chunk-updated', chunkUid })
+}
+
+export function reorderChunks(db: Database, docUid: string, chunkUids: string[]): void {
+  const current = db
+    .prepare(
+      `SELECT c.uid FROM chunk c JOIN entity_registry e ON e.uid=c.uid
+      WHERE c.intermediate_document_uid=? AND e.status <> 'deleted' ORDER BY c.sort_order, e.code`
+    )
+    .all(docUid) as { uid: string }[]
+  if (
+    chunkUids.length !== current.length ||
+    new Set(chunkUids).size !== current.length ||
+    current.some((row) => !chunkUids.includes(row.uid))
+  )
+    throw new BackendError('validation', '成果物内の全チャンクを重複なく指定してください', '')
+  const txn = db.transaction(() => {
+    const update = db.prepare(`UPDATE chunk SET sort_order=? WHERE uid=? AND intermediate_document_uid=?`)
+    chunkUids.forEach((chunkUid, index) => update.run(index, chunkUid, docUid))
+  })
+  txn()
+  eventBus.emit('intermediate.updated', { kind: 'chunk-reordered', intermediateDocumentUid: docUid })
 }
 /** チャンクの LLM 入力テキストを resource_* から再生成する（本文の二重管理をしない） */
 export function getChunkText(db: Database, chunkUid: string): string {

@@ -341,11 +341,16 @@ test('②→③統合・編集・確定（P7）', async () => {
   ) {
     await page.getByTestId('activity-explorer').click()
   }
+  await expect(page.getByTestId('intermediate-doc-IMDOC-000001').getByRole('button')).toHaveText(['取込', 'チャンク'])
   await page.getByTestId('chunks-IMDOC-000001').click()
   await expect(page.getByTestId('chunk-editor')).toBeVisible()
+  await expect(page.getByTestId('chunk-source-i1').getByRole('checkbox')).toHaveCount(0)
   await page.getByTestId('chunk-source-i1').click()
   await page.getByRole('button', { name: 'チャンク作成' }).click()
   await expect(page.getByTestId('chunk-editor')).toContainText('1')
+  await expect(
+    page.getByTestId('chunk-editor').locator('.chunk-grid').nth(1).locator('tbody tr').first()
+  ).toHaveAttribute('aria-selected', 'true')
   await page.getByTestId('chunk-prompt-edit').click()
   await page.getByLabel('追加プロンプト').fill('安全性の観点を優先すること')
   await page.getByTestId('chunk-prompt-editor').getByRole('button', { name: '保存' }).click()

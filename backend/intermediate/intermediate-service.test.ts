@@ -18,6 +18,7 @@ import {
   getChunkText,
   insertExtractedItems,
   reorderIntermediateItems,
+  reorderChunks,
   changeIntermediateHierarchy,
   updateIntermediateItemStatuses,
   updateChunk,
@@ -360,7 +361,19 @@ describe('③中間データ（P7）', () => {
     expect((getChunk(db, chunk.chunkUid) as { items: unknown[]; additional_prompt: string }).items).toHaveLength(2)
     expect((getChunk(db, chunk.chunkUid) as { additional_prompt: string }).additional_prompt).toBe('更新後プロンプト')
 
+    const chunk2 = createChunk(db, projectUid, doc.intermediateDocumentUid, ['i4'])
+    expect((listChunks(db, doc.intermediateDocumentUid) as { uid: string }[]).map((row) => row.uid)).toEqual([
+      chunk.chunkUid,
+      chunk2.chunkUid
+    ])
+    reorderChunks(db, doc.intermediateDocumentUid, [chunk2.chunkUid, chunk.chunkUid])
+    expect((listChunks(db, doc.intermediateDocumentUid) as { uid: string }[]).map((row) => row.uid)).toEqual([
+      chunk2.chunkUid,
+      chunk.chunkUid
+    ])
+
     deleteChunk(db, chunk.chunkUid)
+    deleteChunk(db, chunk2.chunkUid)
     expect(listChunks(db, doc.intermediateDocumentUid)).toHaveLength(0)
     expect(() => getChunkText(db, chunk.chunkUid)).toThrowError(/見つかりません/)
   })

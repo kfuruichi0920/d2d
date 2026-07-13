@@ -176,6 +176,17 @@ export function ChunkEditor({ uid }: { uid: string }): React.JSX.Element {
     await loadChunk(selectedChunk)
   }
 
+  const moveChunk = async (delta: number): Promise<void> => {
+    if (!selectedChunk) return
+    const index = chunks.findIndex((chunk) => chunk.uid === selectedChunk)
+    const target = index + delta
+    if (index < 0 || target < 0 || target >= chunks.length) return
+    const ordered = chunks.map((chunk) => chunk.uid)
+    ;[ordered[index], ordered[target]] = [ordered[target]!, ordered[index]!]
+    const result = await invoke('chunk.reorder', { intermediateDocumentUid: uid, chunkUids: ordered })
+    if (!result.ok) return notify('error', 'チャンク順を変更できません', result.error.message)
+    await refresh()
+  }
   const remove = async (): Promise<void> => {
     if (!selectedChunk || !window.confirm('選択中のチャンクを削除しますか？')) return
     const result = await invoke('chunk.delete', { uid: selectedChunk })
@@ -245,6 +256,20 @@ export function ChunkEditor({ uid }: { uid: string }): React.JSX.Element {
         </button>
         <button
           className="d2d-btn"
+          onClick={() => void moveChunk(-1)}
+          disabled={!selectedChunk || chunks[0]?.uid === selectedChunk}
+        >
+          ↑
+        </button>
+        <button
+          className="d2d-btn"
+          onClick={() => void moveChunk(1)}
+          disabled={!selectedChunk || chunks.at(-1)?.uid === selectedChunk}
+        >
+          ↓
+        </button>
+        <button
+          className="d2d-btn"
           data-testid="chunk-prompt-edit"
           onClick={() => {
             setPromptDraft(prompt)
@@ -296,10 +321,9 @@ export function ChunkEditor({ uid }: { uid: string }): React.JSX.Element {
           style={{ overflow: 'auto', borderRight: '1px solid var(--d2d-border)' }}
         >
           <h3 style={{ padding: '0 8px' }}>成果物（確認済のみ選択可）</h3>
-          <table className="d2d-table" style={{ width: '100%', minWidth: 720 }}>
+          <table className="d2d-table chunk-grid" style={{ width: '100%', minWidth: 680 }}>
             <thead>
               <tr>
-                <th>選択</th>
                 <th>状態</th>
                 <th>ID</th>
                 <th>種別</th>
@@ -327,9 +351,6 @@ export function ChunkEditor({ uid }: { uid: string }): React.JSX.Element {
                           : undefined
                     }}
                   >
-                    <td>
-                      <input type="checkbox" readOnly checked={selected} disabled={row.review?.status !== 'approved'} />
-                    </td>
                     <td>
                       <ReviewStatusBadge status={reviewStateFromEntityStatus(row.review?.status ?? 'draft')} />
                     </td>
@@ -373,7 +394,7 @@ export function ChunkEditor({ uid }: { uid: string }): React.JSX.Element {
           style={{ overflow: 'auto', borderRight: '1px solid var(--d2d-border)' }}
         >
           <h3 style={{ padding: '0 8px' }}>チャンク</h3>
-          <table className="d2d-table" style={{ width: '100%', minWidth: 430 }}>
+          <table className="d2d-table chunk-grid" style={{ width: '100%', minWidth: 430 }}>
             <thead>
               <tr>
                 <th>ID</th>
