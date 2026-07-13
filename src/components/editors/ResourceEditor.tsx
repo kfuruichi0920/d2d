@@ -1,6 +1,6 @@
 /**
  * 共通Resource Editor（P7-2/P7-3、MID-002/004/005、EDIT-004）。
- * 中間データ画面と resource:// URI の双方から再利用する定義駆動Editor。
+ * 中間要素では由来／変更前Resourceと保存候補を2ペイン表示し、通常／LLMマージは保存前候補として扱う。
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { invoke } from '../../services/backend'
@@ -33,6 +33,20 @@ interface ResourceContext {
   intermediateItemUid: string
   elementId: string
 }
+interface MergeSource {
+  resourceUid: string
+  sourceKind: 'extracted' | 'intermediate'
+  sourceLabel: string
+  readonly: boolean
+  type: string
+  typeLabel: string
+  values: Record<string, unknown>
+}
+interface MergeCandidate {
+  values: Record<string, unknown>
+  warnings: string[]
+  llmRunUid?: string
+}
 
 function displayValue(field: FieldDefinition, value: unknown): string | number {
   if (value === null || value === undefined || value === '') return field.defaultValue ?? ''
@@ -47,6 +61,63 @@ function displayValue(field: FieldDefinition, value: unknown): string | number {
 }
 function initialValues(definition: TypeDefinition, source?: Record<string, unknown>): Record<string, string | number> {
   return Object.fromEntries(definition.fields.map((field) => [field.name, displayValue(field, source?.[field.name])]))
+}
+
+function ResourceFields({
+  definition,
+  values,
+  readonly = false,
+  onChange
+}: {
+  definition: TypeDefinition
+  values: Record<string, string | number>
+  readonly?: boolean
+  onChange?: (values: Record<string, string | number>) => void
+}): React.JSX.Element {
+  const update = (name: string, value: string): void => onChange?.({ ...values, [name]: value })
+  return (
+    <div className="resource-editor-fields">
+      {definition.fields.map((field) => (
+        <label className={field.kind === 'multiline' || field.kind === 'json' ? 'wide' : ''} key={field.name}>
+          <span>
+            {field.label}
+            {field.required && ' *'} <code>{field.name}</code>
+          </span>
+          {field.kind === 'enum' ? (
+            <select
+              value={values[field.name] ?? ''}
+              disabled={readonly}
+              onChange={(event) => update(field.name, event.target.value)}
+              data-testid={`resource-field-${field.name}`}
+            >
+              <option value="">（未設定）</option>
+              {field.options?.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
+          ) : field.kind === 'multiline' || field.kind === 'json' ? (
+            <textarea
+              value={values[field.name] ?? ''}
+              readOnly={readonly}
+              onChange={(event) => update(field.name, event.target.value)}
+              spellCheck={field.kind !== 'json'}
+              data-testid={`resource-field-${field.name}`}
+            />
+          ) : (
+            <input
+              type={field.kind === 'number' ? 'number' : 'text'}
+              value={values[field.name] ?? ''}
+              readOnly={readonly}
+              onChange={(event) => update(field.name, event.target.value)}
+              data-testid={`resource-field-${field.name}`}
+            />
+          )}
+        </label>
+      ))}
+    </div>
+  )
 }
 
 export function ResourceEditor({
@@ -64,30 +135,84 @@ export function ResourceEditor({
   const [data, setData] = useState<ResourceData | null>(null)
   const [targetType, setTargetType] = useState('')
   const [values, setValues] = useState<Record<string, string | number>>({})
+  const [sources, setSources] = useState<MergeSource[]>([])
+  const [sourceValues, setSourceValues] = useState<Record<string, Record<string, string | number>>>({})
+  const [warnings, setWarnings] = useState<string[]>([])
+  const [mergeMode, setMergeMode] = useState<'edit-resource' | 'merge' | 'llm-merge'>('edit-resource')
+  const [llmRunUid, setLlmRunUid] = useState<string | undefined>()
   const [confirming, setConfirming] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [merging, setMerging] = useState(false)
   const notify = useJobsStore((state) => state.notify)
+
   const load = useCallback(async () => {
-    const result = await invoke<ResourceData>('resource.get', { uid: currentUid })
-    if (!result.ok) {
-      notify('error', 'Resourceを読み込めません', result.error.message)
+    const [resourceResult, contextResult] = await Promise.all([
+      invoke<ResourceData>('resource.get', { uid: currentUid }),
+      context
+        ? invoke<{ sources: MergeSource[] }>('resource.getMergeContext', {
+            resourceUid: currentUid,
+            ...context
+          })
+        : Promise.resolve(null)
+    ])
+    if (!resourceResult.ok) {
+      notify('error', 'Resourceを読み込めません', resourceResult.error.message)
       return
     }
-    setData(result.result)
-    setTargetType(result.result.type)
-    const definition = result.result.definitions.find((candidate) => candidate.type === result.result.type)!
-    setValues(initialValues(definition, result.result.values))
-  }, [currentUid, notify])
-  useEffect(() => {
-    void load()
-  }, [load])
-  useEffect(() => {
-    setCurrentUid(resourceUid)
-  }, [resourceUid])
+    const resource = resourceResult.result
+    setData(resource)
+    setTargetType(resource.type)
+    const definition = resource.definitions.find((candidate) => candidate.type === resource.type)!
+    setValues(initialValues(definition, resource.values))
+    const mergeSources = contextResult?.ok ? contextResult.result.sources : []
+    setSources(mergeSources)
+    const allSources: MergeSource[] = [
+      ...mergeSources,
+      {
+        resourceUid: resource.uid,
+        sourceKind: 'intermediate',
+        sourceLabel: `変更前Resource ${resource.code}`,
+        readonly: false,
+        type: resource.type,
+        typeLabel: resource.typeLabel,
+        values: resource.values
+      }
+    ]
+    setSourceValues(
+      Object.fromEntries(
+        allSources.map((source) => {
+          const sourceDefinition = resource.definitions.find((candidate) => candidate.type === source.type)!
+          return [source.resourceUid, initialValues(sourceDefinition, source.values)]
+        })
+      )
+    )
+    setWarnings([])
+    setMergeMode('edit-resource')
+    setLlmRunUid(undefined)
+  }, [context, currentUid, notify])
+  useEffect(() => void load(), [load])
+  useEffect(() => setCurrentUid(resourceUid), [resourceUid])
+
   const definition = useMemo(
     () => data?.definitions.find((candidate) => candidate.type === targetType),
     [data, targetType]
   )
+  const currentAsSource = useMemo<MergeSource | null>(
+    () =>
+      data
+        ? {
+            resourceUid: data.uid,
+            sourceKind: 'intermediate',
+            sourceLabel: `変更前Resource ${data.code}`,
+            readonly: false,
+            type: data.type,
+            typeLabel: data.typeLabel,
+            values: data.values
+          }
+        : null,
+    [data]
+  )
+  const activeSources = targetType !== data?.type && currentAsSource ? [currentAsSource] : sources
   const lostFields = useMemo(() => {
     if (!data || targetType === data.type) return []
     const old = data.definitions.find((candidate) => candidate.type === data.type)
@@ -100,13 +225,61 @@ export function ResourceEditor({
         .map((field) => field.label) ?? []
     )
   }, [data, targetType])
+
   const changeType = (type: string): void => {
     if (!data) return
     const next = data.definitions.find((candidate) => candidate.type === type)
     if (!next) return
     setTargetType(type)
     setValues(initialValues(next, type === data.type ? data.values : undefined))
+    setWarnings([])
+    setMergeMode('edit-resource')
+    setLlmRunUid(undefined)
     setConfirming(false)
+  }
+  const mergePayload = (): Array<{ resourceUid: string; type: string; values: Record<string, string | number> }> =>
+    activeSources.map((source) => ({
+      resourceUid: source.resourceUid,
+      type: source.type,
+      values: sourceValues[source.resourceUid] ?? {}
+    }))
+  const applyCandidate = (candidate: MergeCandidate, mode: 'merge' | 'llm-merge'): void => {
+    if (!definition) return
+    setValues(initialValues(definition, candidate.values))
+    setWarnings(candidate.warnings)
+    setMergeMode(mode)
+    setLlmRunUid(candidate.llmRunUid)
+  }
+  const ruleMerge = async (): Promise<void> => {
+    const result = await invoke<MergeCandidate>('resource.mergePreview', { targetType, sources: mergePayload() })
+    if (!result.ok) return notify('error', 'ルールマージできません', result.error.message)
+    applyCandidate(result.result, 'merge')
+  }
+  const llmMerge = async (): Promise<void> => {
+    setMerging(true)
+    try {
+      const enqueued = await invoke<{ jobId: string }>('resource.generateMergeCandidate', {
+        targetType,
+        sources: mergePayload()
+      })
+      if (!enqueued.ok) return notify('error', 'LLMマージを開始できません', enqueued.error.message)
+      for (let index = 0; index < 240; index++) {
+        const job = await invoke<{ status: string; output: MergeCandidate; error?: { message: string } | null }>(
+          'job.get',
+          { jobId: enqueued.result.jobId }
+        )
+        if (job.ok && job.result.status === 'success') {
+          applyCandidate(job.result.output, 'llm-merge')
+          return
+        }
+        if (job.ok && ['failed', 'aborted', 'partial'].includes(job.result.status))
+          return notify('error', 'LLMマージに失敗しました', job.result.error?.message)
+        await new Promise((resolve) => setTimeout(resolve, 500))
+      }
+      notify('error', 'LLMマージがタイムアウトしました')
+    } finally {
+      setMerging(false)
+    }
   }
   const submit = async (): Promise<void> => {
     if (!data || !definition) return
@@ -115,14 +288,15 @@ export function ResourceEditor({
       resourceUid: data.uid,
       targetType,
       values,
-      ...context
+      ...context,
+      basedOnResourceUids:
+        mergeMode === 'edit-resource' ? undefined : activeSources.map((source) => source.resourceUid),
+      transformNote: mergeMode,
+      llmRunUid
     })
     setSaving(false)
     setConfirming(false)
-    if (!result.ok) {
-      notify('error', 'Resourceを保存できません', result.error.message)
-      return
-    }
+    if (!result.ok) return notify('error', 'Resourceを保存できません', result.error.message)
     notify('info', `${definition.label} Resourceを新しいIDで保存しました`)
     if (context && onSaved) onSaved(result.result)
     else {
@@ -130,6 +304,7 @@ export function ResourceEditor({
       onSaved?.(result.result)
     }
   }
+
   if (!data || !definition) return <div className="d2d-empty">Resourceを読込中…</div>
   return (
     <div className={`resource-editor${embedded ? ' embedded' : ''}`} data-testid="resource-editor">
@@ -155,57 +330,73 @@ export function ResourceEditor({
       </div>
       {targetType !== data.type && (
         <div className="resource-type-warning" data-testid="resource-type-warning">
-          種別変更: {data.typeLabel} → {definition.label}。保存時に新Resourceを作成します。
+          種別変更: {data.typeLabel} → {definition.label}。左の変更前Resourceから保存前候補を生成できます。
         </div>
       )}
-      <div className="resource-editor-fields">
-        {definition.fields.map((field) => (
-          <label className={field.kind === 'multiline' || field.kind === 'json' ? 'wide' : ''} key={field.name}>
-            <span>
-              {field.label}
-              {field.required && ' *'} <code>{field.name}</code>
-            </span>
-            {field.kind === 'enum' ? (
-              <select
-                value={values[field.name] ?? ''}
-                onChange={(event) => setValues((current) => ({ ...current, [field.name]: event.target.value }))}
-                data-testid={`resource-field-${field.name}`}
+      <div className={context ? 'resource-merge-layout' : undefined}>
+        {context && (
+          <section className="resource-merge-source" data-testid="resource-merge-source">
+            <h3>{targetType === data.type ? 'マージ元／抽出由来' : '変更前Resource'}</h3>
+            {activeSources.map((source) => {
+              const sourceDefinition = data.definitions.find((candidate) => candidate.type === source.type)!
+              return (
+                <details open key={`${source.sourceKind}-${source.resourceUid}`}>
+                  <summary>
+                    {source.sourceLabel} <span>{source.typeLabel}</span>
+                    {source.readonly && <small>読取専用</small>}
+                  </summary>
+                  <ResourceFields
+                    definition={sourceDefinition}
+                    values={sourceValues[source.resourceUid] ?? initialValues(sourceDefinition, source.values)}
+                    readonly={source.readonly}
+                    onChange={(next) => setSourceValues((current) => ({ ...current, [source.resourceUid]: next }))}
+                  />
+                </details>
+              )
+            })}
+            <div className="resource-merge-actions">
+              <button
+                type="button"
+                className="d2d-btn"
+                onClick={() => void ruleMerge()}
+                data-testid="resource-rule-merge"
               >
-                <option value="">（未設定）</option>
-                {field.options?.map((option) => (
-                  <option key={option} value={option}>
-                    {option}
-                  </option>
-                ))}
-              </select>
-            ) : field.kind === 'multiline' || field.kind === 'json' ? (
-              <textarea
-                value={values[field.name] ?? ''}
-                onChange={(event) => setValues((current) => ({ ...current, [field.name]: event.target.value }))}
-                spellCheck={field.kind !== 'json'}
-                data-testid={`resource-field-${field.name}`}
-              />
-            ) : (
-              <input
-                type={field.kind === 'number' ? 'number' : 'text'}
-                value={values[field.name] ?? ''}
-                onChange={(event) => setValues((current) => ({ ...current, [field.name]: event.target.value }))}
-                data-testid={`resource-field-${field.name}`}
-              />
-            )}
-          </label>
-        ))}
-      </div>
-      <div className="resource-editor-actions">
-        <button
-          type="button"
-          className="d2d-btn primary"
-          disabled={saving}
-          onClick={() => (targetType !== data.type && lostFields.length > 0 ? setConfirming(true) : void submit())}
-          data-testid="resource-save"
-        >
-          {saving ? '保存中…' : '新Resourceとして保存'}
-        </button>
+                マージ
+              </button>
+              <button
+                type="button"
+                className="d2d-btn"
+                disabled={merging}
+                onClick={() => void llmMerge()}
+                data-testid="resource-llm-merge"
+              >
+                {merging ? 'LLMマージ中…' : 'LLMマージ'}
+              </button>
+            </div>
+          </section>
+        )}
+        <section className="resource-merge-target" data-testid="resource-merge-target">
+          {context && <h3>保存候補: {definition.label}</h3>}
+          {warnings.length > 0 && (
+            <div className="resource-merge-warnings" data-testid="resource-merge-warnings">
+              {warnings.map((warning) => (
+                <div key={warning}>{warning}</div>
+              ))}
+            </div>
+          )}
+          <ResourceFields definition={definition} values={values} onChange={setValues} />
+          <div className="resource-editor-actions">
+            <button
+              type="button"
+              className="d2d-btn primary"
+              disabled={saving}
+              onClick={() => (targetType !== data.type && lostFields.length > 0 ? setConfirming(true) : void submit())}
+              data-testid="resource-save"
+            >
+              {saving ? '保存中…' : '新Resourceとして保存'}
+            </button>
+          </div>
+        </section>
       </div>
       {confirming && (
         <div className="resource-loss-confirm" role="dialog" aria-modal="true" data-testid="resource-loss-confirm">

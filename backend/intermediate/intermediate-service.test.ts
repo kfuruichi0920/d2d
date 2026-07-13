@@ -378,7 +378,7 @@ describe('③中間データ（P7）', () => {
     expect(oldText.text_body).toBe('応答は速いこと。')
   })
 
-  it('隣接要素のマージ: 1 要素へ統合し両元 ID を追跡する（EXT-014/015 相当）', () => {
+  it('非連続の複数要素を表示順先頭へマージし、全Resource・②由来を追跡する（MID-005）', () => {
     const doc = createIntermediateDocument(db, projectUid, {
       extractedDocumentUids: [extractedUid],
       artifactTypeId: 'design_doc',
@@ -386,20 +386,30 @@ describe('③中間データ（P7）', () => {
     })
     const before = structureOf(doc.intermediateDocumentUid)
     const oldA = before.elements[1]!.resource_uid!
-    const oldB = before.elements[2]!.resource_uid!
+    const oldB = before.elements[3]!.resource_uid!
 
-    const merged = mergeElements(db, projectUid, doc.intermediateDocumentUid, ['i2', 'i3'])
+    const merged = mergeElements(db, projectUid, doc.intermediateDocumentUid, ['i4', 'i2'])
     const after = structureOf(doc.intermediateDocumentUid)
     expect(after.elements).toHaveLength(3)
-    expect(after.elements[1]!.text).toBe('応答は速いこと。\n目安は100msである。')
+    expect(after.elements[1]).toMatchObject({
+      id: merged.newElementId,
+      text: '応答は速いこと。\n対象A',
+      section_path: '1. 概要'
+    })
+    expect(after.elements[2]!.id).toBe('i3')
 
     const links = db
       .prepare(`SELECT to_uid FROM trace_link WHERE from_uid = ? AND transform_note = 'merge' ORDER BY to_uid`)
       .all(merged.newResourceUid) as { to_uid: string }[]
-    expect(links.map((l) => l.to_uid).sort()).toEqual([oldA, oldB].sort())
-
-    // 非隣接はエラー
-    expect(() => mergeElements(db, projectUid, doc.intermediateDocumentUid, ['i1', 'i4'])).toThrowError(/隣接/)
+    expect(links.map((link) => link.to_uid).sort()).toEqual([oldA, oldB].sort())
+    const itemOrigins = (
+      db
+        .prepare(
+          `SELECT COUNT(*) AS count FROM intermediate_item i JOIN trace_link t ON t.from_uid=i.uid JOIN extracted_item x ON x.uid=t.to_uid WHERE i.intermediate_document_uid=? AND i.resource_uid=?`
+        )
+        .get(doc.intermediateDocumentUid, merged.newResourceUid) as { count: number }
+    ).count
+    expect(itemOrigins).toBe(2)
   })
 
   it('分割: 2 新リソースへ分割し双方から元 ID を追跡する', () => {

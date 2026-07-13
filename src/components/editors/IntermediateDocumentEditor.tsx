@@ -167,7 +167,6 @@ export function IntermediateDocumentEditor({ uid }: { uid: string }): React.JSX.
   }, [lastSelectedPane, sourceItems, sourceSelectedIds, doc, selectedIds, setWorkbenchItems])
 
   const selected = doc?.elements.find((e) => e.id === activeId) ?? null
-  const selectedIndex = doc?.elements.findIndex((e) => e.id === activeId) ?? -1
 
   const selectRows = <T extends { id: string }>(
     items: T[],
@@ -295,10 +294,20 @@ export function IntermediateDocumentEditor({ uid }: { uid: string }): React.JSX.
   }
 
   const merge = async (): Promise<void> => {
-    if (!doc || !selected || selectedIndex < 0) return
-    const next = doc.elements[selectedIndex + 1]
-    if (!next) return
-    await call('intermediate.mergeElements', { elementIds: [selected.id, next.id] }, '次の要素とマージしました')
+    if (!doc || selectedIds.size < 2) return
+    const result = await invoke<{ newElementId: string; warnings: string[] }>('intermediate.mergeElements', {
+      uid,
+      elementIds: [...selectedIds]
+    })
+    if (!result.ok) {
+      notify('error', '要素をマージできませんでした', result.error.message)
+      return
+    }
+    await load()
+    setSelectedIds(new Set([result.result.newElementId]))
+    setActiveId(result.result.newElementId)
+    setLastSelectedPane('intermediate')
+    notify('info', `${selectedIds.size}要素を表示順でマージしました`)
   }
 
   const split = async (): Promise<void> => {
@@ -526,12 +535,7 @@ export function IntermediateDocumentEditor({ uid }: { uid: string }): React.JSX.
   if (!doc) return <div className="d2d-empty">読込中…</div>
 
   const canText = selected && ['paragraph', 'heading', 'list_item', 'caption'].includes(selected.type)
-  const nextElement = selectedIndex >= 0 ? doc.elements[selectedIndex + 1] : undefined
-  const canMerge =
-    selected &&
-    nextElement &&
-    ['paragraph', 'list_item'].includes(selected.type) &&
-    ['paragraph', 'list_item'].includes(nextElement.type)
+  const canMerge = selectedIds.size >= 2
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }} data-testid="intermediate-editor">
@@ -676,7 +680,7 @@ export function IntermediateDocumentEditor({ uid }: { uid: string }): React.JSX.
           <span style={{ color: 'var(--d2d-fg-muted)' }}>選択: {selected.id}</span>
           {canMerge && (
             <button type="button" className="d2d-btn small" onClick={() => void merge()} data-testid="merge-button">
-              次とマージ
+              マージ
             </button>
           )}
           {selected.type === 'paragraph' && (

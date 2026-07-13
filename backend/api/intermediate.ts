@@ -340,10 +340,10 @@ export function registerIntermediateApi(router: ApiRouter, jobs: JobManager): vo
     const p = asRecord(params)
     const { db, info } = requireProject()
     const ids = Array.isArray(p.elementIds) ? (p.elementIds as string[]) : []
-    if (ids.length !== 2) {
-      throw new BackendError('validation', 'マージ対象は 2 要素を指定してください', '')
+    if (ids.length < 2) {
+      throw new BackendError('validation', 'マージ対象は 2 要素以上を指定してください', '')
     }
-    return mergeElements(db, info.projectUid, requireString(p, 'uid'), [ids[0]!, ids[1]!])
+    return mergeElements(db, info.projectUid, requireString(p, 'uid'), ids.map(String))
   })
 
   router.register('intermediate.splitElement', (params) => {

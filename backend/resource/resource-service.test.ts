@@ -7,7 +7,14 @@ import { closeDatabase, createDatabase, getProjectRow } from '../store/database'
 import { createProjectLayout } from '../project/layout'
 import { addIntermediateElement } from '../intermediate/intermediate-service'
 import { registerEntity } from '../store/entity-registry'
-import { getResource, RESOURCE_TYPE_DEFINITIONS, reviseResource } from './resource-service'
+import {
+  getResource,
+  getResourceMergeContext,
+  mergeResourceValues,
+  parseLlmMergeCandidate,
+  RESOURCE_TYPE_DEFINITIONS,
+  reviseResource
+} from './resource-service'
 
 describe('共通Resource Editor（P7-2/P7-3、MID-002/004/005）', () => {
   let dir: string
@@ -59,6 +66,32 @@ describe('共通Resource Editor（P7-2/P7-3、MID-002/004/005）', () => {
     expect(getResource(db, resourceUid).values.text_body).toBe('変更前本文')
   })
 
+  it('画面追加した中間要素は現在Resourceを編集可能なマージ元として返す', () => {
+    const context = getResourceMergeContext(db, documentUid, itemUid, resourceUid)
+    expect(context.sources).toHaveLength(1)
+    expect(context.sources[0]).toMatchObject({
+      resourceUid,
+      sourceKind: 'intermediate',
+      readonly: false,
+      type: 'resource_text'
+    })
+  })
+
+  it('通常マージはDBを変更せず、同種本文と異種の必須文字列へ候補を構築する', () => {
+    const merged = mergeResourceValues('resource_text', [
+      { type: 'resource_text', values: { text_body: 'A', text_role: 'body', language: 'ja' } },
+      { type: 'resource_text', values: { text_body: 'B', text_role: 'body', language: 'ja' } }
+    ])
+    expect(merged.values.text_body).toBe('A\nB')
+    const converted = mergeResourceValues('resource_formula', [
+      { type: 'resource_text', values: { text_body: 'x + 1' } }
+    ])
+    expect(converted.values.formula_text).toBe('x + 1')
+    expect(converted.warnings.join('')).toContain('テキストとしてマージ')
+    expect(
+      parseLlmMergeCandidate('resource_text', '```json\n{"text_body":"LLM候補","language":"ja"}\n```').text_body
+    ).toBe('LLM候補')
+  })
   it('同種編集は旧Resourceを残し、新Resourceとbased_onへ差し替える', () => {
     const revised = reviseResource(db, projectUid, {
       resourceUid,
@@ -84,6 +117,29 @@ describe('共通Resource Editor（P7-2/P7-3、MID-002/004/005）', () => {
     ).toBeTruthy()
   })
 
+  it('マージ候補の保存は全マージ元とLLM実行をbased_onへ記録する', () => {
+    const other = addIntermediateElement(db, projectUid, documentUid, {
+      targetElementId: elementId,
+      position: 'below',
+      type: 'paragraph',
+      text: '別本文'
+    })
+    const revised = reviseResource(db, projectUid, {
+      resourceUid,
+      targetType: 'resource_text',
+      values: { text_body: '統合本文', text_role: 'body', language: 'ja' },
+      intermediateDocumentUid: documentUid,
+      intermediateItemUid: itemUid,
+      elementId,
+      basedOnResourceUids: [other.resourceUid],
+      transformNote: 'merge'
+    })
+    const links = db
+      .prepare(`SELECT to_uid,transform_note FROM trace_link WHERE from_uid=? ORDER BY to_uid`)
+      .all(revised.uid) as { to_uid: string; transform_note: string }[]
+    expect(links.map((link) => link.to_uid).sort()).toEqual([resourceUid, other.resourceUid].sort())
+    expect(new Set(links.map((link) => link.transform_note))).toEqual(new Set(['merge']))
+  })
   it('種別変更はitem_typeとstructure_jsonを新Resource種別へ同期する', () => {
     const revised = reviseResource(db, projectUid, {
       resourceUid,

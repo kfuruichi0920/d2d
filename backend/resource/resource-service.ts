@@ -307,6 +307,207 @@ export function getResource(
   }
 }
 
+export interface ResourceMergeSource {
+  resourceUid: string
+  sourceKind: 'extracted' | 'intermediate'
+  sourceLabel: string
+  readonly: boolean
+  type: string
+  typeLabel: string
+  values: Record<string, unknown>
+}
+
+/** 中間要素のResource編集で表示する由来Resource。②由来は読取専用、新規③は編集可能とする。 */
+export function getResourceMergeContext(
+  db: Database,
+  intermediateDocumentUid: string,
+  intermediateItemUid: string,
+  resourceUid: string
+): { sources: ResourceMergeSource[] } {
+  const item = db
+    .prepare(`SELECT resource_uid FROM intermediate_item WHERE uid=? AND intermediate_document_uid=?`)
+    .get(intermediateItemUid, intermediateDocumentUid) as { resource_uid: string } | undefined
+  if (!item || item.resource_uid !== resourceUid)
+    throw new BackendError('conflict', '中間要素のResourceが更新されています', '再読込してください。')
+  const origins = db
+    .prepare(
+      `SELECT DISTINCT x.resource_uid,e.code,e.title
+         FROM trace_link t
+         JOIN extracted_item x ON x.uid=t.to_uid
+         JOIN entity_registry e ON e.uid=x.uid
+        WHERE t.from_uid=? AND t.relation_type='based_on'
+        ORDER BY e.code`
+    )
+    .all(intermediateItemUid) as { resource_uid: string; code: string; title: string | null }[]
+  if (origins.length === 0) {
+    const current = getResource(db, resourceUid)
+    return {
+      sources: [
+        {
+          resourceUid,
+          sourceKind: 'intermediate',
+          sourceLabel: `新規作成した中間要素 ${current.code}`,
+          readonly: false,
+          type: current.type,
+          typeLabel: current.typeLabel,
+          values: current.values
+        }
+      ]
+    }
+  }
+  return {
+    sources: origins.map((origin) => {
+      const resource = getResource(db, origin.resource_uid)
+      return {
+        resourceUid: origin.resource_uid,
+        sourceKind: 'extracted' as const,
+        sourceLabel: `抽出元 ${origin.code}${origin.title ? ` ${origin.title}` : ''}`,
+        readonly: true,
+        type: resource.type,
+        typeLabel: resource.typeLabel,
+        values: resource.values
+      }
+    })
+  }
+}
+
+function plainText(type: string, values: Record<string, unknown>): string {
+  if (type === 'resource_list' && values.items_json) {
+    try {
+      return (JSON.parse(String(values.items_json)) as Array<{ text?: string }>)
+        .map((item) => item.text ?? '')
+        .join('\n')
+    } catch {
+      // 構造不正時は下の汎用文字列表現へフォールバックする
+    }
+  }
+  if (type === 'resource_table' && values.cells_json) {
+    try {
+      return (JSON.parse(String(values.cells_json)) as Array<Array<{ text?: string }>>)
+        .map((row) => row.map((cell) => cell.text ?? '').join(' | '))
+        .join('\n')
+    } catch {
+      // 構造不正時は下の汎用文字列表現へフォールバックする
+    }
+  }
+  const preferred: Record<string, string[]> = {
+    resource_text: ['text_body'],
+    resource_label: ['label_text'],
+    resource_list: ['items_json'],
+    resource_formula: ['formula_text'],
+    resource_code: ['code_text'],
+    resource_model: ['model_source', 'model_name'],
+    resource_scenario: ['steps_json', 'scenario_name'],
+    resource_interface: ['interface_name', 'operations_json'],
+    resource_state_transition: ['transitions_json', 'state_machine_name'],
+    resource_data_structure: ['fields_json', 'data_structure_name'],
+    resource_reference: ['reference_text', 'uri'],
+    resource_metadata: ['metadata_value', 'metadata_key'],
+    resource_table: ['cells_json', 'table_title'],
+    resource_figure: ['ocr_texts_json', 'image_uri']
+  }
+  return (preferred[type] ?? [])
+    .map((field) => values[field])
+    .filter((value) => value !== null && value !== undefined && String(value).trim())
+    .map(String)
+    .join('\n')
+}
+
+/** 左ペインの値から右フォーム用候補を作る。DBは変更しない（MID-005）。 */
+export function mergeResourceValues(
+  targetType: string,
+  sources: Array<{ type: string; values: Record<string, unknown> }>
+): { values: Record<string, string | number>; warnings: string[] } {
+  if (sources.length === 0) throw new BackendError('validation', 'マージ元Resourceがありません', '')
+  const definition = definitionOf(targetType)
+  if (targetType === 'resource_text' && sources.some((source) => source.type !== 'resource_text')) {
+    return {
+      values: {
+        text_body: sources
+          .map((source) => plainText(source.type, source.values))
+          .filter(Boolean)
+          .join('\n'),
+        text_role: 'body',
+        language: 'ja',
+        sentences_json: '',
+        context_json: ''
+      },
+      warnings: ['異なるResource種別をテキスト表現へマージしました。元の固有情報はbased_onから参照できます。']
+    }
+  }
+  const values: Record<string, string | number> = {}
+  const warnings: string[] = []
+  let mapped = 0
+  for (const field of definition.fields) {
+    const candidates = sources
+      .map((source) => source.values[field.name])
+      .filter((value) => value !== null && value !== undefined && String(value).trim() !== '')
+    if (candidates.length === 0) {
+      values[field.name] = field.defaultValue ?? ''
+      continue
+    }
+    mapped++
+    if (field.kind === 'multiline' || (field.kind === 'text' && field.required)) {
+      values[field.name] = [...new Set(candidates.map(String))].join('\n')
+    } else if (field.kind === 'json') {
+      const parsed = candidates.map((candidate) => {
+        try {
+          return JSON.parse(String(candidate)) as unknown
+        } catch {
+          return candidate
+        }
+      })
+      if (parsed.every(Array.isArray)) values[field.name] = JSON.stringify(parsed.flat(), null, 2)
+      else if (parsed.every((value) => value && typeof value === 'object' && !Array.isArray(value)))
+        values[field.name] = JSON.stringify(Object.assign({}, ...parsed), null, 2)
+      else {
+        values[field.name] = String(candidates[0])
+        if (candidates.length > 1) warnings.push(`${field.label}は安全に統合できないため先頭値を使用しました。`)
+      }
+    } else {
+      values[field.name] = field.kind === 'number' ? Number(candidates[0]) : String(candidates[0])
+      if (new Set(candidates.map(String)).size > 1)
+        warnings.push(`${field.label}は複数値を持つため先頭値を使用しました。`)
+    }
+  }
+  if (mapped === 0) {
+    const text = sources
+      .map((source) => plainText(source.type, source.values))
+      .filter(Boolean)
+      .join('\n')
+    const target = definition.fields.find(
+      (field) => field.required && (field.kind === 'text' || field.kind === 'multiline')
+    )
+    if (target && text) {
+      values[target.name] = text
+      warnings.push(`異なるResource種別から${target.label}へテキストとしてマージしました。内容を確認してください。`)
+    } else {
+      warnings.push(
+        'このResource種別はルールベースで安全にマージできません。手動編集またはLLMマージを使用してください。'
+      )
+    }
+  }
+  return { values, warnings }
+}
+
+/** LLMが返したJSONを定義済みフィールドだけの保存前候補へ正規化する。 */
+export function parseLlmMergeCandidate(targetType: string, content: string): Record<string, string | number> {
+  const definition = definitionOf(targetType)
+  const match = content.match(/\{[\s\S]*\}/)
+  if (!match) throw new BackendError('llm', 'LLMマージ結果にJSONオブジェクトがありません', content.slice(0, 300))
+  let parsed: Record<string, unknown>
+  try {
+    parsed = JSON.parse(match[0]) as Record<string, unknown>
+  } catch {
+    throw new BackendError('llm', 'LLMマージ結果のJSONを解析できません', content.slice(0, 300))
+  }
+  return Object.fromEntries(
+    definition.fields.map((field) => [
+      field.name,
+      field.kind === 'number' ? Number(parsed[field.name] ?? field.defaultValue ?? 0) : String(parsed[field.name] ?? '')
+    ])
+  )
+}
 function normalizedValues(
   definition: ResourceTypeDefinition,
   input: Record<string, unknown>
@@ -336,14 +537,30 @@ function normalizedValues(
   return result
 }
 
-function addBasedOn(db: Database, projectUid: string, fromUid: string, toUid: string): void {
-  const link = registerEntity(db, { projectUid, entityType: 'trace_link', createdBy: 'user' })
+function addBasedOn(
+  db: Database,
+  projectUid: string,
+  fromUid: string,
+  toUid: string,
+  transformNote: string,
+  llmRunUid?: string
+): void {
+  const createdBy = llmRunUid ? 'llm' : 'human'
+  const link = registerEntity(db, { projectUid, entityType: 'trace_link', createdBy })
   db.prepare(
-    `INSERT INTO trace_link (uid,from_uid,to_uid,relation_type,basis_kind,transform_note,created_by,review_status) VALUES (?,?,?,'based_on','human_approved','edit-resource','human','approved')`
-  ).run(link.uid, fromUid, toUid)
+    `INSERT INTO trace_link (uid,from_uid,to_uid,relation_type,basis_kind,transform_note,created_by,review_status,llm_run_uid) VALUES (?,?,?,'based_on',?,?,?,'approved',?)`
+  ).run(
+    link.uid,
+    fromUid,
+    toUid,
+    llmRunUid ? 'normalized' : 'human_approved',
+    transformNote,
+    createdBy,
+    llmRunUid ?? null
+  )
 }
 
-function summaryFor(
+export function summaryFor(
   type: string,
   values: Record<string, string | number | null>
 ): Partial<{ type: string; text: string; image: string; rows: { text: string }[][]; level: number }> {
@@ -387,6 +604,43 @@ function summaryFor(
   }
 }
 
+/** 複数Resourceを同種またはresource_textへ統合し、全元Resourceへのbased_onを持つ新Resourceを作る。 */
+export function createMergedResource(
+  db: Database,
+  projectUid: string,
+  targetType: string,
+  sources: Array<{ uid: string; type: string; values: Record<string, unknown> }>
+): {
+  uid: string
+  type: string
+  summary: ReturnType<typeof summaryFor>
+  warnings: string[]
+} {
+  const definition = definitionOf(targetType)
+  const candidate = mergeResourceValues(targetType, sources)
+  const values = normalizedValues(definition, candidate.values)
+  const primary = definition.fields.find((field) => field.required)?.name ?? definition.fields[0]?.name
+  const transaction = db.transaction(() => {
+    const resource = registerEntity(db, {
+      projectUid,
+      entityType: definition.type as EntityType,
+      title: String(primary ? (values[primary] ?? definition.label) : definition.label).slice(0, 80),
+      createdBy: 'user'
+    })
+    const columns = definition.fields.map((field) => field.name)
+    db.prepare(
+      `INSERT INTO ${definition.type} (uid,${columns.join(',')}) VALUES (?${columns.map(() => ',?').join('')})`
+    ).run(resource.uid, ...columns.map((column) => values[column]))
+    for (const source of sources) addBasedOn(db, projectUid, resource.uid, source.uid, 'merge')
+    return {
+      uid: resource.uid,
+      type: definition.type,
+      summary: summaryFor(definition.type, values),
+      warnings: candidate.warnings
+    }
+  })
+  return transaction()
+}
 export function reviseResource(
   db: Database,
   projectUid: string,
@@ -397,6 +651,9 @@ export function reviseResource(
     intermediateDocumentUid?: string
     intermediateItemUid?: string
     elementId?: string
+    basedOnResourceUids?: string[]
+    transformNote?: 'edit-resource' | 'merge' | 'llm-merge'
+    llmRunUid?: string
   }
 ): { uid: string; code: string; type: string } {
   getResource(db, input.resourceUid)
@@ -414,7 +671,8 @@ export function reviseResource(
     db.prepare(
       `INSERT INTO ${definition.type} (uid,${columns.join(',')}) VALUES (?${columns.map(() => ',?').join('')})`
     ).run(resource.uid, ...columns.map((column) => values[column]))
-    addBasedOn(db, projectUid, resource.uid, input.resourceUid)
+    for (const sourceUid of [...new Set([input.resourceUid, ...(input.basedOnResourceUids ?? [])])])
+      addBasedOn(db, projectUid, resource.uid, sourceUid, input.transformNote ?? 'edit-resource', input.llmRunUid)
     if (input.intermediateDocumentUid || input.intermediateItemUid || input.elementId) {
       if (!input.intermediateDocumentUid || !input.intermediateItemUid || !input.elementId)
         throw new BackendError('validation', '中間要素の編集コンテキストが不完全です', '')

@@ -12,6 +12,7 @@ import { BackendError } from '../api/errors'
 import { eventBus } from '../events/event-bus'
 import { registerEntity } from '../store/entity-registry'
 import type { ExtractionElement } from '../extract/store-extraction'
+import { createMergedResource, getResource } from '../resource/resource-service'
 
 export interface IntermediateElement extends ExtractionElement {
   resource_uid?: string
@@ -65,11 +66,17 @@ function itemTypeOf(
   }
 }
 
-function addIntermediateItem(db: Database, projectUid: string, docUid: string, element: IntermediateElement): string {
+function addIntermediateItem(
+  db: Database,
+  projectUid: string,
+  docUid: string,
+  element: IntermediateElement,
+  itemType?: string
+): string {
   const item = registerEntity(db, { projectUid, entityType: 'intermediate_item', createdBy: 'user' })
   db.prepare(
     `INSERT INTO intermediate_item (uid, intermediate_document_uid, item_type, resource_uid) VALUES (?, ?, ?, ?)`
-  ).run(item.uid, docUid, itemTypeOf(element), element.resource_uid)
+  ).run(item.uid, docUid, itemType ?? itemTypeOf(element), element.resource_uid)
   return item.uid
 }
 
@@ -734,58 +741,56 @@ export function editElementText(
   return result
 }
 
-/** 隣接する 2 要素のマージ: 新リソース 1 件へ統合し、両方の元 ID を追跡する */
+/** 複数要素のマージ: 非連続選択を表示順で統合し、先頭位置・階層と全由来を引き継ぐ。 */
 export function mergeElements(
   db: Database,
   projectUid: string,
   docUid: string,
-  elementIds: [string, string]
-): { newElementId: string; newResourceUid: string } {
+  elementIds: string[]
+): { newElementId: string; newResourceUid: string; warnings: string[] } {
+  const uniqueIds = [...new Set(elementIds)]
+  if (uniqueIds.length < 2) throw new BackendError('validation', 'マージ対象を2要素以上指定してください', '')
   const txn = db.transaction(() => {
     const structure = loadStructure(db, docUid)
-    const indexA = structure.elements.findIndex((e) => e.id === elementIds[0])
-    const indexB = structure.elements.findIndex((e) => e.id === elementIds[1])
-    if (indexA < 0 || indexB < 0) {
-      throw new BackendError('not_found', 'マージ対象の要素が見つかりません', elementIds.join(', '))
-    }
-    if (Math.abs(indexA - indexB) !== 1) {
-      throw new BackendError('validation', '隣接する要素のみマージできます', '')
-    }
-    const [first, second] = indexA < indexB ? [indexA, indexB] : [indexB, indexA]
-    const elementA = structure.elements[first]!
-    const elementB = structure.elements[second]!
-    for (const e of [elementA, elementB]) {
-      if (!['paragraph', 'list_item'].includes(e.type) || !e.resource_uid) {
-        throw new BackendError('validation', `マージできない要素種別です: ${e.type}`, '')
-      }
-    }
+    const indexes = uniqueIds.map((id) => structure.elements.findIndex((element) => element.id === id))
+    if (indexes.some((index) => index < 0))
+      throw new BackendError('not_found', 'マージ対象の要素が見つかりません', uniqueIds.join(', '))
+    const selected = indexes.sort((a, b) => a - b).map((index) => structure.elements[index]!)
+    if (selected.some((element) => !element.resource_uid))
+      throw new BackendError('validation', 'Resourceを持たない要素はマージできません', '')
+    const sourceResources = selected.map((element) => {
+      const resource = getResource(db, element.resource_uid!)
+      return { uid: resource.uid, type: resource.type, values: resource.values }
+    })
+    const targetType = sourceResources.every((resource) => resource.type === sourceResources[0]!.type)
+      ? sourceResources[0]!.type
+      : 'resource_text'
+    const created = createMergedResource(db, projectUid, targetType, sourceResources)
+    const resourceUids = selected.map((element) => element.resource_uid!)
+    const sourceItemUids = sourceExtractedItemUids(db, docUid, resourceUids)
+    removeIntermediateItems(db, docUid, resourceUids)
 
-    const mergedText = `${elementA.text ?? ''}\n${elementB.text ?? ''}`
-    const ctx: EditContext = { db, projectUid, docUid }
-    const created = newTextResource(ctx, mergedText, mergedText, 'user')
-    addDerivationLink(db, projectUid, created.uid, elementA.resource_uid!, 'human_approved', 'merge')
-    addDerivationLink(db, projectUid, created.uid, elementB.resource_uid!, 'human_approved', 'merge')
-    const sourceItemUids = sourceExtractedItemUids(db, docUid, [elementA.resource_uid!, elementB.resource_uid!])
-    removeIntermediateItems(db, docUid, [elementA.resource_uid!, elementB.resource_uid!])
-
+    const firstIndex = Math.min(...indexes)
+    const first = selected[0]!
     const merged: IntermediateElement = {
-      id: `${elementA.id}m`,
-      type: 'paragraph',
-      text: mergedText,
-      section_path: elementA.section_path,
+      id: nextIntermediateElementId(structure),
+      level: first.level,
+      section_path: first.section_path,
+      ...created.summary,
+      type: (created.summary.type ?? 'paragraph') as IntermediateElement['type'],
       resource_uid: created.uid
     }
-    structure.elements.splice(first, 2, merged)
-    const mergedItemUid = addIntermediateItem(db, projectUid, docUid, merged)
+    structure.elements = structure.elements.filter((element) => !uniqueIds.includes(element.id))
+    structure.elements.splice(firstIndex, 0, merged)
+    const mergedItemUid = addIntermediateItem(db, projectUid, docUid, merged, created.type)
     addItemBasedOnLinks(db, projectUid, mergedItemUid, sourceItemUids)
     saveStructure(db, docUid, structure)
-    return { newElementId: merged.id, newResourceUid: created.uid }
+    return { newElementId: merged.id, newResourceUid: created.uid, warnings: created.warnings }
   })
   const result = txn()
   eventBus.emit('intermediate.updated', { intermediateDocumentUid: docUid, kind: 'merged' })
   return result
 }
-
 /** 要素の分割: 2 つの新リソースへ分割し、双方から元 ID を追跡する */
 export function splitElement(
   db: Database,

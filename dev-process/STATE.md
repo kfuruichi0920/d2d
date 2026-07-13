@@ -8,7 +8,7 @@
 - 完了: P0〜P13（クリティカルパス完走、MS6 相当まで）
 - 残り: **P14**（性能・オフライン確認・残 TBD-06〜08・パッケージング・商用版）、
   **P5 の他形式抽出**（Excel / PowerPoint / PDF / Visio / テキスト系、EXT-014/015）
-- テスト規模: ユニット 149 件 / pytest 10 件 / E2E 16 件（すべて成功の状態で引き渡し）
+- テスト規模: ユニット 152 件 / pytest 10 件 / E2E 16 件（すべて成功の状態で引き渡し）
 
 ## フェーズ履歴（要点のみ）
 
@@ -24,6 +24,7 @@
 | P11      | 検索（FTS5 + MeCab トグル）※別セッションで実装・マージ                              | 921a55d 等      |
 | P12      | DB to Text / SQLite dump / ZIP + manifest / 差分インポート / Git 参照 / ストア閲覧  | d2bc9c6         |
 | P13      | レポート出力（②③④→文書風、フィルタ、Markdown/HTML、report:// プレビュー）           | 1123e29         |
+| P7 追加  | 任意複数③マージ、由来/変更前＋保存候補2ペインResource Editor、通常/LLMマージ候補 | 本コミット      |
 
 ## 恒久制約（違反するとビルド/実行が壊れる、または設計方針違反）
 
@@ -63,6 +64,8 @@
 - 中間文書エディタは同一Resource内で「中間データ取込編集画面」（統合元／成果物／プレビューの3ペイン）と「中間データ単独編集画面」（成果物／プレビューの2ペイン）を切り替える。成果物要素の追加・複製・削除・編集は両画面共通で、ダブルクリックまたはSpace／Enterから編集を開く。
 - 中間要素の追加・複製・編集は新Resourceを作成する。複製は元Resourceへ `transform_note=duplicate`、編集は `transform_note=edit` の `based_on` を保持し、②由来のアイテム単位トレースも引き継ぐ。基本種別編集は paragraph／heading／list_item／caption を対象とする。
 - 中間成果物とプレビューの種別表示は抽出器の `element.type` ではなく `intermediate_item.item_type` を正本とする。Resource編集は4.6の14種を定義駆動で共通化し、`resource://<uid>` からも開ける。保存は新Resource + 元Resourceへの `based_on (edit-resource)` とし、種別変更で非空の固有カラムが失われる場合は列挙確認後だけ適用する。
+- 中間要素の一覧マージはCtrl/Shiftの非連続を含む2件以上を文書表示順で処理し、先頭位置・階層へ集約する。同一Resource種別は同種の候補へ、異種は可読な esource_text へ変換し、全元Resourceへの ased_on (merge) と全 extracted_item 由来を維持する。
+- 中間要素から開くResource Editorは左を抽出由来（読取専用）または画面追加Resource（編集可能）、右を保存候補とする。通常/LLMマージは右フォームを更新するだけで、明示保存まではDBを変更しない。LLMマージは既存Provider・外部送信可否・マスキングを経由し、保存時は llm_run_uid と llm-merge を由来へ記録する。
 
 ## E2E（Playwright）の注意
 
@@ -86,3 +89,4 @@
 - アーカイブ差分の左右テキストは Backend プロセス内保持（再起動後は差分インポート再実行）
 - Word 抽出の LLM 補助（EXT の一部）、GC 系 Golden Case の拡充
 - Resource EditorのJSONカラムは構造化テキスト編集。表セルは既存のセルグリッド編集も併用し、図の画像実体差替えは画像URI編集として扱う。
+- 同種の複雑Resource（表、図、モデル等）の通常マージは、JSON配列は連結、JSONオブジェクトはキー統合、競合するenum/数値等は先頭値を採用して警告する。意味的な再構成が必要な場合はLLMマージまたは右フォームでの手動修正が必要。
