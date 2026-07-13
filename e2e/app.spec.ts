@@ -271,18 +271,29 @@ test('②→③統合・編集・確定（P7）', async () => {
   await page.getByTestId('artifact-phase').selectOption('DD')
   await page.getByTestId('artifact-add').click()
 
-  // Explorer のフェーズ→成果物「取込」で統合元②を選択する
+  // Explorer の③見出し「取込」で、取込先成果物1件と取込元②複数件を選択する
   await expect(page.getByTestId('documents-tree')).not.toContainText('フェーズ未定義成果物')
+  await expect(page.getByTestId('documents-tree')).not.toContainText('③へ統合')
   await expect(page.getByTestId('artifact-slot-DD-design_doc')).toBeVisible()
-  await page.getByTestId('artifact-slot-DD-design_doc').getByRole('button', { name: '取込' }).click()
+  await page.getByTestId('intermediate-import-button').click()
   const sourceDialog = page.getByTestId('intermediate-source-dialog')
   await expect(sourceDialog).toBeVisible()
   await expect(sourceDialog).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
   await expect(sourceDialog.getByRole('button', { name: 'キャンセル' })).toBeVisible()
-  await sourceDialog.getByRole('checkbox').check()
-  await page.getByTestId('intermediate-source-dialog').getByRole('button', { name: '選択して取込' }).click()
+  const targetCheckbox = page.getByTestId('intermediate-target-DD-design_doc')
+  const sourceCheckbox = sourceDialog.getByTestId('intermediate-source-EXDOC-000001')
+  await expect(sourceCheckbox).toBeDisabled()
+  await targetCheckbox.check()
+  await sourceCheckbox.check()
+  await sourceDialog.getByRole('button', { name: '選択して取込' }).click()
   await expect(page.getByTestId('intermediate-doc-IMDOC-000001')).toBeVisible({ timeout: 15_000 })
   await expect(page.getByTestId('stage-intermediate')).toContainText('1')
+
+  // 既存の取込関係は、取込先成果物を選択した時点で取込元チェックへ復元する
+  await page.getByTestId('intermediate-import-button').click()
+  await page.getByTestId('intermediate-target-DD-design_doc').check()
+  await expect(page.getByTestId('intermediate-source-EXDOC-000001')).toBeChecked()
+  await page.getByTestId('intermediate-source-dialog').getByRole('button', { name: 'キャンセル' }).click()
 
   // Intermediate Document Editor を開く
   await page.getByTestId('intermediate-doc-IMDOC-000001').click()
@@ -341,7 +352,7 @@ test('②→③統合・編集・確定（P7）', async () => {
   ) {
     await page.getByTestId('activity-explorer').click()
   }
-  await expect(page.getByTestId('intermediate-doc-IMDOC-000001').getByRole('button')).toHaveText(['取込', 'チャンク'])
+  await expect(page.getByTestId('intermediate-doc-IMDOC-000001').getByRole('button')).toHaveText(['チャンク'])
   await page.getByTestId('chunks-IMDOC-000001').click()
   await expect(page.getByTestId('chunk-editor')).toBeVisible()
   await expect(page.getByTestId('chunk-source-i1').getByRole('checkbox')).toHaveCount(0)

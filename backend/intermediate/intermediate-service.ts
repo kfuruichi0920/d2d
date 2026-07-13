@@ -266,6 +266,75 @@ export function createIntermediateDocument(
   return result
 }
 
+/** Explorer の成果物取込で、統合対象②と文書単位 based_on を同期する（P7-1 / DATA-009 / NFR-010）。 */
+export function updateIntermediateSources(
+  db: Database,
+  projectUid: string,
+  docUid: string,
+  extractedDocumentUids: string[]
+): { sourceCount: number } {
+  const sourceUids = [...new Set(extractedDocumentUids)]
+  if (sourceUids.length === 0) {
+    throw new BackendError('validation', '統合対象の②抽出文書を 1 件以上指定してください', '')
+  }
+
+  const txn = db.transaction(() => {
+    const structure = loadStructure(db, docUid)
+    for (const uid of sourceUids) {
+      const source = db
+        .prepare(`SELECT status FROM entity_registry WHERE uid=? AND entity_type='extracted_document'`)
+        .get(uid) as { status: string } | undefined
+      if (!source) throw new BackendError('not_found', `②抽出文書が見つかりません: ${uid}`, '')
+      if (source.status !== 'approved') {
+        throw new BackendError('validation', '未確定（レビュー前）の②抽出データは統合できません', uid)
+      }
+    }
+
+    const removed = structure.sources
+      .map((source) => source.extracted_document_uid)
+      .filter((uid) => !sourceUids.includes(uid))
+    for (const uid of removed) {
+      const used = db
+        .prepare(
+          `SELECT 1 FROM intermediate_item i
+             JOIN trace_link t ON t.from_uid=i.uid AND t.relation_type='based_on'
+             JOIN extracted_item x ON x.uid=t.to_uid
+            WHERE i.intermediate_document_uid=? AND x.extracted_document_uid=? LIMIT 1`
+        )
+        .get(docUid, uid)
+      if (used) {
+        throw new BackendError(
+          'validation',
+          '成果物へ統合済みの②抽出データは取込元から外せません',
+          '対応する成果物要素を削除してから取込元を変更してください。'
+        )
+      }
+    }
+
+    const oldLinks = db
+      .prepare(
+        `SELECT t.uid FROM trace_link t JOIN extracted_document x ON x.uid=t.to_uid
+          WHERE t.from_uid=? AND t.relation_type='based_on' AND t.basis_kind='extracted'`
+      )
+      .all(docUid) as { uid: string }[]
+    for (const link of oldLinks) db.prepare(`DELETE FROM entity_registry WHERE uid=?`).run(link.uid)
+
+    structure.sources = sourceUids.map((uid, index) => ({ extracted_document_uid: uid, order: index + 1 }))
+    saveStructure(db, docUid, structure)
+    for (const uid of sourceUids) {
+      const link = registerEntity(db, { projectUid, entityType: 'trace_link', createdBy: 'rule' })
+      db.prepare(
+        `INSERT INTO trace_link (uid, from_uid, to_uid, relation_type, basis_kind, created_by, review_status)
+         VALUES (?, ?, ?, 'based_on', 'extracted', 'rule', 'approved')`
+      ).run(link.uid, docUid, uid)
+    }
+    return { sourceCount: sourceUids.length }
+  })
+
+  const result = txn()
+  eventBus.emit('intermediate.updated', { intermediateDocumentUid: docUid, kind: 'sources-updated' })
+  return result
+}
 /** 選択した②要素を、指定した③要素の前後へ統合する。文書 based_on は作成時に管理済み。 */
 export function insertExtractedItems(
   db: Database,

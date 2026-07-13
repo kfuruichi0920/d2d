@@ -22,6 +22,7 @@ import {
   getChunkText,
   listChunks,
   updateChunk,
+  updateIntermediateSources,
   mergeElements,
   reorderChunks,
   splitElement,
@@ -107,6 +108,16 @@ export function registerIntermediateApi(router: ApiRouter, jobs: JobManager): vo
     })
   })
 
+  /** Explorer から成果物の統合元②を再設定する（P7-1 / DATA-009）。 */
+  router.register('intermediate.updateSources', (params) => {
+    const p = asRecord(params)
+    const uid = requireString(p, 'uid')
+    const extractedDocumentUids = Array.isArray(p.extractedDocumentUids)
+      ? p.extractedDocumentUids.map((value) => String(value))
+      : []
+    const { db, info } = requireProject()
+    return updateIntermediateSources(db, info.projectUid, uid, extractedDocumentUids)
+  })
   router.register('intermediate.list', () => {
     const { db, info } = requireProject()
     const rows = db
