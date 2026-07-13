@@ -460,9 +460,9 @@ PDFのbbox編集、LLM OCR、表OCR、テキスト補正は、D2D上のレビュ
 
 `extracted_item.item_type` および `intermediate_item.item_type` は、抽出器の表示種別（paragraph、heading、list_item、caption等）ではなく、参照先の物理 `resource_*` テーブル名を保持する。画面上のResource種別表示も `item_type` を正本とする。
 
-Resource編集・種別変更は既存 `resource_*` 行を上書きせず、新しいResourceを作成して元Resourceへ `based_on` を登録する。中間要素の編集では `intermediate_item.item_type` と `resource_uid` を同一トランザクションで差し替え、`structure_json` は新Resourceのプレビュー用要約へ同期する。種別変更前の固有カラムは新Resourceへ暗黙変換せず、情報消失確認後に対象種別の4.6.x定義へ入力された値だけを保存する。
+Resource編集・種別変更は、保存直前にResourceの所有・参照状況をDBから判定する。現在の `intermediate_item` だけが参照し、`extracted_item`、他の `intermediate_item`、当該Resourceへの入力 `trace_link`、他Resourceの外部キー、`llm_run_ref` から参照されないResourceを「③専有Resource」とする。③専有Resourceの同種編集は同じ `resource_*` 行と `entity_registry` を上書きしUIDを維持する。③専有Resourceの種別変更は新Resourceを作成し、`intermediate_item.item_type/resource_uid` と `structure_json` を同一トランザクションで差し替えた後、旧Resourceを物理削除する。抽出由来または他要素・トレース・Resource・実行記録から参照されるResourceは「保護対象Resource」とし、上書き・削除しない。新Resourceを作成して現在の `intermediate_item` だけを差し替え、元Resourceへの `based_on (transform_note=edit-resource)` を保持する。種別変更前の固有カラムは新Resourceへ暗黙変換せず、情報消失確認後に対象種別の4.6.x定義へ入力された値だけを保存する。所有判定と更新・置換は同一DBトランザクション内で行い、UIから指定された保存方式だけを信用しない。
 
-複数の `intermediate_item` をマージする場合は、文書表示順先頭の位置・階層に新Resource／新 `intermediate_item` を作成し、全マージ元Resourceへ `based_on (transform_note=merge)` を登録する。元要素が持つ `intermediate_item` → `extracted_item` の `based_on` は和集合として新 `intermediate_item` へ張り直す。Resource Editor内のルール／LLMマージは保存前候補であり、保存時のみ新Resourceを作成する。LLM候補を保存した場合は `llm_run_uid` と `transform_note=llm-merge` を由来リンクに保持する。
+複数の `intermediate_item` をマージする場合は、文書表示順先頭の位置・階層に新Resource／新 `intermediate_item` を作成し、全マージ元Resourceへ `based_on (transform_note=merge)` を登録する。元要素が持つ `intermediate_item` → `extracted_item` の `based_on` は和集合として新 `intermediate_item` へ張り直す。Resource Editor内のルール／LLMマージは保存前候補であり、保存時に上記の所有判定へ従って上書きまたは新Resource作成を行う。LLM候補を保存した場合は `llm_run_uid` と `transform_note=llm-merge` を由来リンクに保持する。
 
 #### 4.6.1 resource_label
 

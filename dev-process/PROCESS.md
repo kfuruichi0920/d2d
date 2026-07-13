@@ -35,8 +35,8 @@
 - 実装順序: Backend サービス → ユニットテスト → API → `backend/index.ts` 配線 → UI → E2E。
 - 周辺コードの流儀（コメント密度・日本語コメント・命名・エラー契約 BackendError）に合わせる。
 - ファイル先頭コメントとコード中に**対応する SRS ID / タスク ID を明記**する（例: `EDIT-022〜025、TBD-04`）。
-- 守るべき不変条件は `dev-process/STATE.md` の「恒久制約」節を参照（preload は CJS、正本非破壊、
-  派生は新リソース + based_on、候補/正本は entity_registry.status、等）。
+- 守るべき不変条件は `dev-process/STATE.md` の「恒久制約」節を参照（preload は CJS、抽出由来・共有正本は非破壊、
+  派生は新リソース + based_on、③専有ResourceはMID-005の所有判定に従い上書き／置換、候補/正本は entity_registry.status、等）。
 - 対象外のリファクタや無関係ファイルの変更をしない。
 
 **完了条件**: フェーズ表の各タスクについて「実装した/意図的に見送った」のどちらかが言える。
@@ -115,6 +115,6 @@ npm rebuild better-sqlite3      # Node ABI に戻す
 - テスト失敗・lint エラーを残したままのコミット / 完了報告
 - `"type": "module"` を package.json へ追加（preload が壊れる）
 - 開いている project.db の削除（E2E で EBUSY）
-- 正本データの破壊的変更（編集は新リソース + based_on 由来リンク）
+- 抽出由来・共有・他エンティティ参照中の正本データの破壊的変更（編集は新リソース + based_on 由来リンク）。ただし、③で新規作成され現在の intermediate_item だけが参照するResourceは、MID-005の所有判定に従う同種上書き／異種置換を許可する
 - SRS/SDD にない仕様の発明（不明点は TBD として質問するか、明記して見送る）
 - prettier での docs/・tasks/ の整形

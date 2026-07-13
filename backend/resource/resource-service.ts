@@ -276,6 +276,69 @@ function definitionOf(type: string): ResourceTypeDefinition {
   return definition
 }
 
+export interface ResourceOwnership {
+  exclusiveIntermediate: boolean
+  intermediateItemUid?: string
+  protectionReasons: string[]
+}
+
+/**
+ * Resourceの所有関係を判定する（MID-005）。
+ * ③の単一intermediate_itemだけが保持し、②・他③・他Resource・受け側トレースから参照されない場合だけ専有とする。
+ */
+export function inspectResourceOwnership(
+  db: Database,
+  resourceUid: string,
+  expectedIntermediateItemUid?: string
+): ResourceOwnership {
+  const intermediateItems = db
+    .prepare(`SELECT uid FROM intermediate_item WHERE resource_uid=? ORDER BY uid`)
+    .all(resourceUid) as { uid: string }[]
+  const currentItemUid =
+    expectedIntermediateItemUid ?? (intermediateItems.length === 1 ? intermediateItems[0]!.uid : undefined)
+  const reasons: string[] = []
+  if (!currentItemUid || !intermediateItems.some((item) => item.uid === currentItemUid))
+    reasons.push('単一の中間要素に所有されていません')
+  const count = (sql: string, ...params: unknown[]): number =>
+    (db.prepare(sql).get(...params) as { count: number }).count
+  if (count(`SELECT COUNT(*) AS count FROM extracted_item WHERE resource_uid=?`, resourceUid) > 0)
+    reasons.push('②抽出データから参照されています')
+  if (
+    count(
+      `SELECT COUNT(*) AS count FROM intermediate_item WHERE resource_uid=? AND uid<>?`,
+      resourceUid,
+      currentItemUid ?? ''
+    ) > 0
+  )
+    reasons.push('他の中間要素から参照されています')
+  if (count(`SELECT COUNT(*) AS count FROM trace_link WHERE to_uid=? AND from_uid<>?`, resourceUid, resourceUid) > 0)
+    reasons.push('他のトレースから参照されています')
+  if (
+    count(
+      `SELECT COUNT(*) AS count FROM (
+         SELECT uid FROM entity_registry WHERE owner_uid=?
+         UNION ALL SELECT uid FROM resource_label WHERE target_resource_uid=?
+         UNION ALL SELECT uid FROM resource_figure WHERE caption_uid=?
+         UNION ALL SELECT uid FROM resource_reference WHERE source_resource_uid=? OR target_resource_uid=?
+         UNION ALL SELECT uid FROM resource_metadata WHERE target_resource_uid=?
+         UNION ALL SELECT uid FROM llm_run_ref WHERE input_ref_uid=?
+       )`,
+      resourceUid,
+      resourceUid,
+      resourceUid,
+      resourceUid,
+      resourceUid,
+      resourceUid,
+      resourceUid
+    ) > 0
+  )
+    reasons.push('他のResourceまたは実行証跡から参照されています')
+  return {
+    exclusiveIntermediate: Boolean(currentItemUid) && reasons.length === 0,
+    intermediateItemUid: currentItemUid,
+    protectionReasons: reasons
+  }
+}
 export function getResource(
   db: Database,
   uid: string
@@ -287,6 +350,7 @@ export function getResource(
   typeLabel: string
   values: Record<string, unknown>
   definitions: ResourceTypeDefinition[]
+  ownership: ResourceOwnership
 } {
   const entity = db
     .prepare(`SELECT uid, code, title, entity_type FROM entity_registry WHERE uid=? AND status<>'deleted'`)
@@ -303,7 +367,8 @@ export function getResource(
     type: definition.type,
     typeLabel: definition.label,
     values,
-    definitions: RESOURCE_TYPE_DEFINITIONS
+    definitions: RESOURCE_TYPE_DEFINITIONS,
+    ownership: inspectResourceOwnership(db, uid)
   }
 }
 
@@ -545,6 +610,12 @@ function addBasedOn(
   transformNote: string,
   llmRunUid?: string
 ): void {
+  const existing = db
+    .prepare(
+      `SELECT 1 FROM trace_link WHERE from_uid=? AND to_uid=? AND relation_type='based_on' AND COALESCE(transform_note,'')=? LIMIT 1`
+    )
+    .get(fromUid, toUid, transformNote)
+  if (existing) return
   const createdBy = llmRunUid ? 'llm' : 'human'
   const link = registerEntity(db, { projectUid, entityType: 'trace_link', createdBy })
   db.prepare(
@@ -641,6 +712,14 @@ export function createMergedResource(
   })
   return transaction()
 }
+export type ResourceSaveMode = 'updated' | 'created-replaced' | 'created-protected'
+
+/**
+ * Resourceを保存する（MID-005）。
+ * - ③専有 + 同種: 同じResource行を上書き
+ * - ③専有 + 異種: 新Resourceへ差し替え後、旧Resourceを物理削除
+ * - ②由来/他参照あり: 旧Resourceを保護し、新Resource + based_onへ差し替え
+ */
 export function reviseResource(
   db: Database,
   projectUid: string,
@@ -655,58 +734,114 @@ export function reviseResource(
     transformNote?: 'edit-resource' | 'merge' | 'llm-merge'
     llmRunUid?: string
   }
-): { uid: string; code: string; type: string } {
-  getResource(db, input.resourceUid)
+): {
+  uid: string
+  code: string
+  type: string
+  saveMode: ResourceSaveMode
+  protectionReasons: string[]
+} {
+  const original = getResource(db, input.resourceUid)
   const definition = definitionOf(input.targetType)
   const values = normalizedValues(definition, input.values)
+  const ownership = inspectResourceOwnership(db, input.resourceUid, input.intermediateItemUid)
+  const sameType = original.type === definition.type
   const primary = definition.fields.find((field) => field.required)?.name ?? definition.fields[0]?.name
+  const title = String(primary ? (values[primary] ?? definition.label) : definition.label).slice(0, 80)
+  const columns = definition.fields.map((field) => field.name)
+  const transformNote = input.transformNote ?? 'edit-resource'
+
   const transaction = db.transaction(() => {
-    const resource = registerEntity(db, {
-      projectUid,
-      entityType: definition.type as EntityType,
-      title: String(primary ? (values[primary] ?? definition.label) : definition.label).slice(0, 80),
-      createdBy: 'user'
-    })
-    const columns = definition.fields.map((field) => field.name)
-    db.prepare(
-      `INSERT INTO ${definition.type} (uid,${columns.join(',')}) VALUES (?${columns.map(() => ',?').join('')})`
-    ).run(resource.uid, ...columns.map((column) => values[column]))
-    for (const sourceUid of [...new Set([input.resourceUid, ...(input.basedOnResourceUids ?? [])])])
-      addBasedOn(db, projectUid, resource.uid, sourceUid, input.transformNote ?? 'edit-resource', input.llmRunUid)
-    if (input.intermediateDocumentUid || input.intermediateItemUid || input.elementId) {
-      if (!input.intermediateDocumentUid || !input.intermediateItemUid || !input.elementId)
-        throw new BackendError('validation', '中間要素の編集コンテキストが不完全です', '')
+    let result: { uid: string; code: string; type: string; saveMode: ResourceSaveMode }
+    if (ownership.exclusiveIntermediate && sameType) {
+      db.prepare(`UPDATE ${definition.type} SET ${columns.map((column) => `${column}=?`).join(',')} WHERE uid=?`).run(
+        ...columns.map((column) => values[column]),
+        original.uid
+      )
+      db.prepare(`UPDATE entity_registry SET title=?,updated_at=?,updated_by=? WHERE uid=?`).run(
+        title,
+        new Date().toISOString(),
+        input.llmRunUid ? 'llm' : 'user',
+        original.uid
+      )
+      for (const sourceUid of [...new Set(input.basedOnResourceUids ?? [])].filter(
+        (sourceUid) => sourceUid !== original.uid
+      ))
+        addBasedOn(db, projectUid, original.uid, sourceUid, transformNote, input.llmRunUid)
+      if (input.llmRunUid && !(input.basedOnResourceUids ?? []).some((uid) => uid !== original.uid))
+        addBasedOn(db, projectUid, original.uid, input.llmRunUid, transformNote, input.llmRunUid)
+      result = { uid: original.uid, code: original.code, type: definition.type, saveMode: 'updated' }
+    } else {
+      const resource = registerEntity(db, {
+        projectUid,
+        entityType: definition.type as EntityType,
+        title,
+        createdBy: input.llmRunUid ? 'llm' : 'user'
+      })
+      db.prepare(
+        `INSERT INTO ${definition.type} (uid,${columns.join(',')}) VALUES (?${columns.map(() => ',?').join('')})`
+      ).run(resource.uid, ...columns.map((column) => values[column]))
+      const sourceUids = ownership.exclusiveIntermediate
+        ? [...new Set(input.basedOnResourceUids ?? [])].filter((uid) => uid !== original.uid)
+        : [...new Set([original.uid, ...(input.basedOnResourceUids ?? [])])]
+      for (const sourceUid of sourceUids)
+        addBasedOn(db, projectUid, resource.uid, sourceUid, transformNote, input.llmRunUid)
+      if (input.llmRunUid && sourceUids.length === 0)
+        addBasedOn(db, projectUid, resource.uid, input.llmRunUid, transformNote, input.llmRunUid)
+      result = {
+        uid: resource.uid,
+        code: resource.code,
+        type: definition.type,
+        saveMode: ownership.exclusiveIntermediate ? 'created-replaced' : 'created-protected'
+      }
+    }
+
+    const itemUid = input.intermediateItemUid ?? ownership.intermediateItemUid
+    if (itemUid) {
       const item = db
-        .prepare(`SELECT resource_uid FROM intermediate_item WHERE uid=? AND intermediate_document_uid=?`)
-        .get(input.intermediateItemUid, input.intermediateDocumentUid) as { resource_uid: string } | undefined
-      if (!item || item.resource_uid !== input.resourceUid)
+        .prepare(`SELECT intermediate_document_uid,resource_uid FROM intermediate_item WHERE uid=?`)
+        .get(itemUid) as { intermediate_document_uid: string; resource_uid: string } | undefined
+      if (!item || item.resource_uid !== original.uid)
         throw new BackendError('conflict', '中間要素のResourceが更新されています', '再読込してください。')
+      if (input.intermediateDocumentUid && item.intermediate_document_uid !== input.intermediateDocumentUid)
+        throw new BackendError('validation', '中間要素の編集コンテキストが一致しません', '')
       db.prepare(`UPDATE intermediate_item SET item_type=?,resource_uid=? WHERE uid=?`).run(
         definition.type,
-        resource.uid,
-        input.intermediateItemUid
+        result.uid,
+        itemUid
       )
       const row = db
         .prepare(`SELECT structure_json FROM intermediate_document WHERE uid=?`)
-        .get(input.intermediateDocumentUid) as { structure_json: string } | undefined
-      if (!row) throw new BackendError('not_found', '中間文書が見つかりません', input.intermediateDocumentUid)
+        .get(item.intermediate_document_uid) as { structure_json: string } | undefined
+      if (!row) throw new BackendError('not_found', '中間文書が見つかりません', item.intermediate_document_uid)
       const structure = JSON.parse(row.structure_json) as { elements: Array<Record<string, unknown>> }
-      const element = structure.elements.find((candidate) => candidate.id === input.elementId)
-      if (!element) throw new BackendError('not_found', '中間要素が見つかりません', input.elementId)
-      Object.assign(element, summaryFor(definition.type, values), { resource_uid: resource.uid })
+      const element = input.elementId
+        ? structure.elements.find((candidate) => candidate.id === input.elementId)
+        : structure.elements.find((candidate) => candidate.resource_uid === original.uid)
+      if (!element) throw new BackendError('not_found', '中間要素が見つかりません', input.elementId ?? original.uid)
+      delete element.type
+      delete element.text
       delete element.rows
       delete element.image
-      Object.assign(element, summaryFor(definition.type, values))
+      Object.assign(element, summaryFor(definition.type, values), { resource_uid: result.uid })
       db.prepare(`UPDATE intermediate_document SET structure_json=? WHERE uid=?`).run(
         JSON.stringify(structure),
-        input.intermediateDocumentUid
+        item.intermediate_document_uid
       )
+    } else if (input.intermediateDocumentUid || input.elementId) {
+      throw new BackendError('validation', '中間要素の編集コンテキストが不完全です', '')
     }
-    return { uid: resource.uid, code: resource.code, type: definition.type }
+
+    if (result.saveMode === 'created-replaced') {
+      // 旧Resourceの由来は新Resourceへ移管し、物理削除後もトレースを維持する。
+      db.prepare(`UPDATE trace_link SET from_uid=? WHERE from_uid=?`).run(result.uid, original.uid)
+      db.prepare(`DELETE FROM entity_registry WHERE uid=?`).run(original.uid)
+    }
+    return { ...result, protectionReasons: ownership.protectionReasons }
   })
   const result = transaction()
   eventBus.emit('intermediate.updated', {
-    kind: 'resource-revised',
+    kind: result.saveMode === 'updated' ? 'resource-overwritten' : 'resource-revised',
     resourceUid: result.uid,
     intermediateDocumentUid: input.intermediateDocumentUid
   })

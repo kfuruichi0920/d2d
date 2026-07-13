@@ -75,6 +75,7 @@ describe('共通Resource Editor（P7-2/P7-3、MID-002/004/005）', () => {
       readonly: false,
       type: 'resource_text'
     })
+    expect(getResource(db, resourceUid).ownership).toMatchObject({ exclusiveIntermediate: true, protectionReasons: [] })
   })
 
   it('通常マージはDBを変更せず、同種本文と異種の必須文字列へ候補を構築する', () => {
@@ -92,7 +93,7 @@ describe('共通Resource Editor（P7-2/P7-3、MID-002/004/005）', () => {
       parseLlmMergeCandidate('resource_text', '```json\n{"text_body":"LLM候補","language":"ja"}\n```').text_body
     ).toBe('LLM候補')
   })
-  it('同種編集は旧Resourceを残し、新Resourceとbased_onへ差し替える', () => {
+  it('③専有の同種編集は同じResourceへ上書きする', () => {
     const revised = reviseResource(db, projectUid, {
       resourceUid,
       targetType: 'resource_text',
@@ -101,22 +102,38 @@ describe('共通Resource Editor（P7-2/P7-3、MID-002/004/005）', () => {
       intermediateItemUid: itemUid,
       elementId
     })
+    expect(revised).toMatchObject({ uid: resourceUid, type: 'resource_text', saveMode: 'updated' })
+    expect(
+      (db.prepare('SELECT text_body FROM resource_text WHERE uid=?').get(resourceUid) as { text_body: string })
+        .text_body
+    ).toBe('変更後本文')
+    expect(db.prepare(`SELECT uid FROM trace_link WHERE from_uid=?`).get(resourceUid)).toBeUndefined()
+  })
+
+  it('他の中間要素が共有するResourceは保護して新Resourceへ差し替える', () => {
+    const sharedItem = registerEntity(db, { projectUid, entityType: 'intermediate_item', createdBy: 'user' })
+    db.prepare(
+      `INSERT INTO intermediate_item (uid,intermediate_document_uid,item_type,resource_uid) VALUES (?,?,'resource_text',?)`
+    ).run(sharedItem.uid, documentUid, resourceUid)
+    const revised = reviseResource(db, projectUid, {
+      resourceUid,
+      targetType: 'resource_text',
+      values: { text_body: '変更後本文', text_role: 'body', language: 'ja' },
+      intermediateDocumentUid: documentUid,
+      intermediateItemUid: itemUid,
+      elementId
+    })
+    expect(revised.saveMode).toBe('created-protected')
     expect(revised.uid).not.toBe(resourceUid)
+    expect(revised.protectionReasons.join('')).toContain('他の中間要素')
     expect(
       (db.prepare('SELECT text_body FROM resource_text WHERE uid=?').get(resourceUid) as { text_body: string })
         .text_body
     ).toBe('変更前本文')
     expect(
-      (db.prepare('SELECT text_body FROM resource_text WHERE uid=?').get(revised.uid) as { text_body: string })
-        .text_body
-    ).toBe('変更後本文')
-    expect(
-      db
-        .prepare("SELECT uid FROM trace_link WHERE from_uid=? AND to_uid=? AND relation_type='based_on'")
-        .get(revised.uid, resourceUid)
+      db.prepare(`SELECT uid FROM trace_link WHERE from_uid=? AND to_uid=?`).get(revised.uid, resourceUid)
     ).toBeTruthy()
   })
-
   it('マージ候補の保存は全マージ元とLLM実行をbased_onへ記録する', () => {
     const other = addIntermediateElement(db, projectUid, documentUid, {
       targetElementId: elementId,
@@ -134,13 +151,23 @@ describe('共通Resource Editor（P7-2/P7-3、MID-002/004/005）', () => {
       basedOnResourceUids: [other.resourceUid],
       transformNote: 'merge'
     })
+    expect(revised).toMatchObject({ uid: resourceUid, saveMode: 'updated' })
     const links = db
       .prepare(`SELECT to_uid,transform_note FROM trace_link WHERE from_uid=? ORDER BY to_uid`)
       .all(revised.uid) as { to_uid: string; transform_note: string }[]
-    expect(links.map((link) => link.to_uid).sort()).toEqual([resourceUid, other.resourceUid].sort())
-    expect(new Set(links.map((link) => link.transform_note))).toEqual(new Set(['merge']))
+    expect(links).toEqual([{ to_uid: other.resourceUid, transform_note: 'merge' }])
   })
-  it('種別変更はitem_typeとstructure_jsonを新Resource種別へ同期する', () => {
+  it('種別変更はitem_typeとstructure_jsonを同期し、旧Resourceの由来を移管する', () => {
+    const origin = addIntermediateElement(db, projectUid, documentUid, {
+      targetElementId: elementId,
+      position: 'below',
+      type: 'paragraph',
+      text: '由来Resource'
+    })
+    const link = registerEntity(db, { projectUid, entityType: 'trace_link', createdBy: 'human' })
+    db.prepare(
+      `INSERT INTO trace_link (uid,from_uid,to_uid,relation_type,transform_note) VALUES (?,?,?,'based_on','duplicate')`
+    ).run(link.uid, resourceUid, origin.resourceUid)
     const revised = reviseResource(db, projectUid, {
       resourceUid,
       targetType: 'resource_formula',
@@ -153,7 +180,12 @@ describe('共通Resource Editor（P7-2/P7-3、MID-002/004/005）', () => {
       item_type: string
       resource_uid: string
     }
+    expect(revised.saveMode).toBe('created-replaced')
     expect(item).toEqual({ item_type: 'resource_formula', resource_uid: revised.uid })
+    expect(db.prepare(`SELECT uid FROM entity_registry WHERE uid=?`).get(resourceUid)).toBeUndefined()
+    expect(
+      db.prepare(`SELECT uid FROM trace_link WHERE from_uid=? AND to_uid=?`).get(revised.uid, origin.resourceUid)
+    ).toBeTruthy()
     const row = db.prepare('SELECT structure_json FROM intermediate_document WHERE uid=?').get(documentUid) as {
       structure_json: string
     }

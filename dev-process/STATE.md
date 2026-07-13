@@ -8,7 +8,7 @@
 - 完了: P0〜P13（クリティカルパス完走、MS6 相当まで）
 - 残り: **P14**（性能・オフライン確認・残 TBD-06〜08・パッケージング・商用版）、
   **P5 の他形式抽出**（Excel / PowerPoint / PDF / Visio / テキスト系、EXT-014/015）
-- テスト規模: ユニット 152 件 / pytest 10 件 / E2E 16 件（すべて成功の状態で引き渡し）
+- テスト規模: ユニット 153 件 / pytest 10 件 / E2E 16 件（すべて成功の状態で引き渡し）
 
 ## フェーズ履歴（要点のみ）
 
@@ -24,7 +24,7 @@
 | P11      | 検索（FTS5 + MeCab トグル）※別セッションで実装・マージ                              | 921a55d 等      |
 | P12      | DB to Text / SQLite dump / ZIP + manifest / 差分インポート / Git 参照 / ストア閲覧  | d2bc9c6         |
 | P13      | レポート出力（②③④→文書風、フィルタ、Markdown/HTML、report:// プレビュー）           | 1123e29         |
-| P7 追加  | 任意複数③マージ、由来/変更前＋保存候補2ペインResource Editor、通常/LLMマージ候補 | 本コミット      |
+| P7 追加  | 任意複数③マージ、2ペインResource Editor、所有判定による上書き／置換／保護派生       | 本コミット      |
 
 ## 恒久制約（違反するとビルド/実行が壊れる、または設計方針違反）
 
@@ -33,8 +33,8 @@
   `npm run rebuild:electron`。※P11 マージ以降 `rebuild:node` スクリプトは無く、
   `postinstall` が rebuild:electron を実行する（npm install 直後は Electron ABI）。
 - **候補と正本の区別は entity_registry.status**（draft=候補 / approved=正本）。
-- **正本は破壊しない**: 編集・マージ・分割・表編集は新リソース + `based_on` trace_link
-  （transform_note = edit / merge / split / edit-table）で由来を残す。旧リソースは残す。
+- **抽出由来・共有正本は破壊しない**: 編集・マージ・分割・表編集は新リソース + `based_on` trace_link
+  （transform_note = edit / merge / split / edit-table）で由来を残し、旧リソースを保護する。
 - **Main は Gateway/Shell のみ**。業務ロジックは backend/（utilityProcess）に置く。
   safeStorage は Main 専用 → backend からは main-bridge（逆方向 RPC）経由。
 - **API キー等の秘密情報は平文で保存・ログ出力しない**（settings-service が強制）。
@@ -62,10 +62,10 @@
 - ②抽出・③中間・チャンク編集の選択行は `--d2d-selection-bg` の薄青背景、`based_on` 対応行は warning 22% mix の黄色背景で統一する。チャンク表も共通の罫線・角丸を使い、太い選択枠を独自実装しない。
 - Explorer の②抽出データ行に③への統合ボタンは置かない。③中間データ見出しの `取込` から、取込先成果物を排他的に1件（未選択可）、承認済み②を複数選択する。既存成果物を選ぶと `structure_json.sources` の関係を初期チェックへ復元し、保存時は文書単位 `based_on` と同期する。統合済み要素の由来となる②は、対応する成果物要素を削除するまで取込元から外せない。成果物行の操作は `チャンク` のみ。
 - 中間文書エディタは同一Resource内で「中間データ取込編集画面」（統合元／成果物／プレビューの3ペイン）と「中間データ単独編集画面」（成果物／プレビューの2ペイン）を切り替える。成果物要素の追加・複製・削除・編集は両画面共通で、ダブルクリックまたはSpace／Enterから編集を開く。
-- 中間要素の追加・複製・編集は新Resourceを作成する。複製は元Resourceへ `transform_note=duplicate`、編集は `transform_note=edit` の `based_on` を保持し、②由来のアイテム単位トレースも引き継ぐ。基本種別編集は paragraph／heading／list_item／caption を対象とする。
-- 中間成果物とプレビューの種別表示は抽出器の `element.type` ではなく `intermediate_item.item_type` を正本とする。Resource編集は4.6の14種を定義駆動で共通化し、`resource://<uid>` からも開ける。保存は新Resource + 元Resourceへの `based_on (edit-resource)` とし、種別変更で非空の固有カラムが失われる場合は列挙確認後だけ適用する。
-- 中間要素の一覧マージはCtrl/Shiftの非連続を含む2件以上を文書表示順で処理し、先頭位置・階層へ集約する。同一Resource種別は同種の候補へ、異種は可読な esource_text へ変換し、全元Resourceへの ased_on (merge) と全 extracted_item 由来を維持する。
-- 中間要素から開くResource Editorは左を抽出由来（読取専用）または画面追加Resource（編集可能）、右を保存候補とする。通常/LLMマージは右フォームを更新するだけで、明示保存まではDBを変更しない。LLMマージは既存Provider・外部送信可否・マスキングを経由し、保存時は llm_run_uid と llm-merge を由来へ記録する。
+- 中間要素の追加・複製は新Resourceを作成する。複製は元Resourceへ `transform_note=duplicate` の `based_on` を保持し、②由来のアイテム単位トレースも引き継ぐ。基本種別編集は paragraph／heading／list_item／caption を対象とする。
+- Resource編集は4.6の14種を定義駆動で共通化し、`resource://<uid>` からも開ける。保存直前にDBで所有・参照状況を判定する。③で新規作成され現在の `intermediate_item` だけが参照するResourceは、同種なら同じUIDへ上書きし、異種なら現在要素を新Resourceへ差し替えて旧Resourceを物理削除する。抽出由来、共有、入力トレース、他Resource、LLM実行記録から参照されるResourceは保護し、新Resource + 元Resourceへの `based_on (edit-resource)` とする。
+- 中間要素の一覧マージはCtrl/Shiftの非連続を含む2件以上を文書表示順で処理し、先頭位置・階層へ集約する。同一Resource種別は同種の候補へ、異種は可読な `resource_text` へ変換し、全元Resourceへの `based_on (merge)` と全 `extracted_item` 由来を維持する。
+- 中間要素から開くResource Editorは左を抽出由来（読取専用）または画面追加Resource（編集可能）、右を保存候補とする。通常/LLMマージは右フォームを更新するだけで、明示保存まではDBを変更しない。LLMマージは既存Provider・外部送信可否・マスキングを経由し、保存時は `llm_run_uid` と `llm-merge` を由来へ記録する。
 
 ## E2E（Playwright）の注意
 

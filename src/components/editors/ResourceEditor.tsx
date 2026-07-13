@@ -27,6 +27,11 @@ interface ResourceData {
   typeLabel: string
   values: Record<string, unknown>
   definitions: TypeDefinition[]
+  ownership: {
+    exclusiveIntermediate: boolean
+    intermediateItemUid?: string
+    protectionReasons: string[]
+  }
 }
 interface ResourceContext {
   intermediateDocumentUid: string
@@ -284,7 +289,12 @@ export function ResourceEditor({
   const submit = async (): Promise<void> => {
     if (!data || !definition) return
     setSaving(true)
-    const result = await invoke<{ uid: string; type: string }>('resource.revise', {
+    const result = await invoke<{
+      uid: string
+      type: string
+      saveMode: 'updated' | 'created-replaced' | 'created-protected'
+      protectionReasons: string[]
+    }>('resource.revise', {
       resourceUid: data.uid,
       targetType,
       values,
@@ -297,7 +307,13 @@ export function ResourceEditor({
     setSaving(false)
     setConfirming(false)
     if (!result.ok) return notify('error', 'Resourceを保存できません', result.error.message)
-    notify('info', `${definition.label} Resourceを新しいIDで保存しました`)
+    const message =
+      result.result.saveMode === 'updated'
+        ? `${definition.label} Resourceを同じIDへ上書きしました`
+        : result.result.saveMode === 'created-replaced'
+          ? `旧Resourceを削除し、${definition.label} Resourceを新しいIDで保存しました`
+          : `共有元を保護し、${definition.label} Resourceを新しいIDで保存しました`
+    notify('info', message, result.result.protectionReasons.join(' '))
     if (context && onSaved) onSaved(result.result)
     else {
       setCurrentUid(result.result.uid)
@@ -305,6 +321,14 @@ export function ResourceEditor({
     }
   }
 
+  const saveLabel =
+    targetType === data?.type
+      ? data?.ownership.exclusiveIntermediate
+        ? '同じResourceへ上書き保存'
+        : '元Resourceを保護して新Resourceとして保存'
+      : data?.ownership.exclusiveIntermediate
+        ? '旧Resourceを削除して新Resourceとして保存'
+        : '元Resourceを保護して新Resourceとして保存'
   if (!data || !definition) return <div className="d2d-empty">Resourceを読込中…</div>
   return (
     <div className={`resource-editor${embedded ? ' embedded' : ''}`} data-testid="resource-editor">
@@ -330,7 +354,8 @@ export function ResourceEditor({
       </div>
       {targetType !== data.type && (
         <div className="resource-type-warning" data-testid="resource-type-warning">
-          種別変更: {data.typeLabel} → {definition.label}。左の変更前Resourceから保存前候補を生成できます。
+          種別変更: {data.typeLabel} → {definition.label}
+          。専有Resourceなら保存時に旧Resourceを削除し、共有Resourceなら元を保護します。
         </div>
       )}
       <div className={context ? 'resource-merge-layout' : undefined}>
@@ -393,7 +418,7 @@ export function ResourceEditor({
               onClick={() => (targetType !== data.type && lostFields.length > 0 ? setConfirming(true) : void submit())}
               data-testid="resource-save"
             >
-              {saving ? '保存中…' : '新Resourceとして保存'}
+              {saving ? '保存中…' : saveLabel}
             </button>
           </div>
         </section>
@@ -407,7 +432,11 @@ export function ResourceEditor({
               <li key={label}>{label}</li>
             ))}
           </ul>
-          <p>元Resourceは由来として保持されますが、新しい{definition.label}では上記情報を利用できません。</p>
+          <p>
+            {data.ownership.exclusiveIntermediate
+              ? `現在のResourceは③専有のため、保存時に削除されます。新しい${definition.label}では上記情報を利用できません。`
+              : `現在のResourceは共有されているため保護されますが、新しい${definition.label}では上記情報を利用できません。`}
+          </p>
           <div>
             <button type="button" className="d2d-btn" onClick={() => setConfirming(false)}>
               キャンセル
