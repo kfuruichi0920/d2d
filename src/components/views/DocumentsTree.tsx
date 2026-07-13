@@ -185,59 +185,70 @@ export function DocumentsTree(): React.JSX.Element {
                 return (
                   <div
                     key={artifact.uid}
-                    className="d2d-list-row"
-                    style={{ paddingLeft: 14 }}
                     data-testid={
                       doc
                         ? `intermediate-doc-${doc.code}`
                         : `artifact-slot-${phase.dev_phase_id}-${artifact.artifact_type_id}`
                     }
-                    onClick={() =>
-                      doc &&
-                      openResource(`intermediate://${doc.uid}`, `③: ${doc.title ?? artifact.artifact_name}`, {
-                        preview: true
-                      })
-                    }
+                    style={{ paddingLeft: 14, marginBottom: 3 }}
                   >
-                    {doc && <ReviewStatusBadge status={reviewStateFromEntityStatus(doc.status)} />}
-                    <span style={{ flex: 1 }}>
-                      {artifact.artifact_name}
-                      <small style={{ display: 'flex', flexDirection: 'column', color: 'var(--d2d-fg-muted)' }}>
-                        {sourceIds.length === 0 ? (
-                          <span>統合元未選択</span>
-                        ) : (
-                          sourceIds.map((id) => (
-                            <span key={id}>↳ {extracted.find((x) => x.uid === id)?.title ?? id}</span>
-                          ))
-                        )}
-                      </small>
-                    </span>
-                    <button
-                      type="button"
-                      className="d2d-btn small"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        setImportTarget({ artifact, phase })
-                        setSelectedSources(new Set(sourceIds))
-                      }}
+                    <div
+                      className="d2d-list-row"
+                      style={{ paddingLeft: 0, alignItems: 'center' }}
+                      onClick={() =>
+                        doc &&
+                        openResource(`intermediate://${doc.uid}`, `③: ${doc.title ?? artifact.artifact_name}`, {
+                          preview: true
+                        })
+                      }
                     >
-                      取込
-                    </button>{' '}
-                    {doc && (
+                      {doc && <ReviewStatusBadge status={reviewStateFromEntityStatus(doc.status)} />}
+                      <span style={{ flex: 1, minWidth: 0, fontWeight: 500 }}>{artifact.artifact_name}</span>
                       <button
                         type="button"
                         className="d2d-btn small"
-                        data-testid={`chunks-${doc.code}`}
                         onClick={(e) => {
                           e.stopPropagation()
-                          openResource(`chunk://${doc.uid}`, `チャンク: ${doc.title ?? artifact.artifact_name}`, {
-                            preview: false
-                          })
+                          setImportTarget({ artifact, phase })
+                          setSelectedSources(new Set(sourceIds))
                         }}
                       >
-                        チャンク
+                        取込
                       </button>
-                    )}
+                      {doc && (
+                        <button
+                          type="button"
+                          className="d2d-btn small"
+                          data-testid={`chunks-${doc.code}`}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            openResource(`chunk://${doc.uid}`, `チャンク: ${doc.title ?? artifact.artifact_name}`, {
+                              preview: false
+                            })
+                          }}
+                        >
+                          チャンク
+                        </button>
+                      )}
+                    </div>
+                    <div
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        padding: '1px 4px 3px 24px',
+                        color: 'var(--d2d-fg-muted)',
+                        fontSize: 11,
+                        overflowWrap: 'anywhere'
+                      }}
+                    >
+                      {sourceIds.length === 0 ? (
+                        <span>↳ 統合元未選択</span>
+                      ) : (
+                        sourceIds.map((id) => (
+                          <span key={id}>↳ {extracted.find((x) => x.uid === id)?.title ?? id}</span>
+                        ))
+                      )}
+                    </div>
                   </div>
                 )
               })}

@@ -66,6 +66,7 @@ export function ChunkEditor({ uid }: { uid: string }): React.JSX.Element {
   const [chunks, setChunks] = useState<ChunkRow[]>([])
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set())
   const [activeItem, setActiveItem] = useState<string | null>(null)
+  const [activePane, setActivePane] = useState<'item' | 'chunk'>('item')
   const [selectedChunk, setSelectedChunk] = useState<string | null>(null)
   const [detail, setDetail] = useState<ChunkDetail | null>(null)
   const [prompt, setPrompt] = useState('')
@@ -94,6 +95,7 @@ export function ChunkEditor({ uid }: { uid: string }): React.JSX.Element {
 
   const loadChunk = async (chunkUid: string): Promise<void> => {
     setSelectedChunk(chunkUid)
+    setActivePane('chunk')
     const result = await invoke<ChunkDetail>('chunk.get', { uid: chunkUid })
     if (!result.ok) return
     setDetail(result.result)
@@ -125,6 +127,7 @@ export function ChunkEditor({ uid }: { uid: string }): React.JSX.Element {
       return new Set([itemUid])
     })
     setActiveItem(itemUid)
+    setActivePane('item')
     previewRefs.current.get(itemUid)?.scrollIntoView({ block: 'nearest' })
   }
 
@@ -142,6 +145,7 @@ export function ChunkEditor({ uid }: { uid: string }): React.JSX.Element {
     const next = eligible[Math.max(0, Math.min(eligible.length - 1, current + delta))] ?? eligible[0]
     if (!next?.intermediate_item_uid) return
     setActiveItem(next.intermediate_item_uid)
+    setActivePane('item')
     setSelectedItems(new Set([next.intermediate_item_uid]))
     previewRefs.current.get(next.intermediate_item_uid)?.scrollIntoView({ block: 'nearest' })
   }
@@ -335,21 +339,16 @@ export function ChunkEditor({ uid }: { uid: string }): React.JSX.Element {
               {doc.elements.map((row, index) => {
                 const itemUid = row.intermediate_item_uid
                 const isLinked = Boolean(itemUid && linked.has(itemUid))
-                const selected = selectedItems.has(itemUid ?? '')
+                const selected = activePane === 'item' && selectedItems.has(itemUid ?? '')
+                const related = activePane === 'chunk' && isLinked
                 return (
                   <tr
                     key={row.id}
                     data-testid={`chunk-source-${row.id}`}
                     aria-selected={selected}
                     onClick={(event) => chooseItem(row, index, event)}
-                    style={{
-                      opacity: row.review?.status === 'approved' ? 1 : 0.45,
-                      background: selected
-                        ? 'var(--d2d-selection)'
-                        : isLinked
-                          ? 'color-mix(in srgb, var(--d2d-accent) 18%, transparent)'
-                          : undefined
-                    }}
+                    className={selected ? 'chunk-row-selected' : related ? 'chunk-row-related' : undefined}
+                    style={{ opacity: row.review?.status === 'approved' ? 1 : 0.45 }}
                   >
                     <td>
                       <ReviewStatusBadge status={reviewStateFromEntityStatus(row.review?.status ?? 'draft')} />
@@ -409,16 +408,15 @@ export function ChunkEditor({ uid }: { uid: string }): React.JSX.Element {
                 <tr
                   key={chunk.uid}
                   data-testid={`chunk-row-${chunk.code}`}
-                  aria-selected={chunk.uid === selectedChunk}
+                  aria-selected={activePane === 'chunk' && chunk.uid === selectedChunk}
                   onClick={() => void loadChunk(chunk.uid)}
-                  style={{
-                    background:
-                      chunk.uid === selectedChunk
-                        ? 'var(--d2d-selection)'
-                        : selectedChunksForItems.has(chunk.uid)
-                          ? 'color-mix(in srgb, var(--d2d-accent) 18%, transparent)'
-                          : undefined
-                  }}
+                  className={
+                    activePane === 'chunk' && chunk.uid === selectedChunk
+                      ? 'chunk-row-selected'
+                      : activePane === 'item' && selectedChunksForItems.has(chunk.uid)
+                        ? 'chunk-row-related'
+                        : undefined
+                  }
                 >
                   <td>{chunk.code}</td>
                   <td>{chunk.title ?? chunk.code}</td>
@@ -435,16 +433,9 @@ export function ChunkEditor({ uid }: { uid: string }): React.JSX.Element {
           <h3>中間文書プレビュー</h3>
           {doc.elements.map((row) => {
             const itemUid = row.intermediate_item_uid
-            const highlighted = Boolean(itemUid && (linked.has(itemUid) || selectedItems.has(itemUid)))
-            const common = {
-              padding: 8,
-              marginBottom: 4,
-              marginLeft: (row.level ?? 0) * 12,
-              borderLeft: highlighted
-                ? '4px solid var(--d2d-accent)'
-                : `${Math.max(1, row.level ?? 0)}px solid ${typeColors[row.type] ?? 'transparent'}`,
-              background: highlighted ? 'color-mix(in srgb, var(--d2d-accent) 12%, transparent)' : undefined
-            }
+            const selectedPreview = Boolean(itemUid && activePane === 'item' && selectedItems.has(itemUid))
+            const relatedPreview = Boolean(itemUid && activePane === 'chunk' && linked.has(itemUid))
+            const common = { marginLeft: (row.level ?? 0) * 12 }
             let body: React.JSX.Element
             if (row.type === 'figure') body = <FigurePreview resourceUid={row.resource_uid} alt={row.image} />
             else if (row.type === 'table' && row.rows)
@@ -471,6 +462,11 @@ export function ChunkEditor({ uid }: { uid: string }): React.JSX.Element {
                 ref={(node) => {
                   if (itemUid && node) previewRefs.current.set(itemUid, node)
                 }}
+                className={
+                  'extraction-preview-item' +
+                  (selectedPreview ? ' selected active' : '') +
+                  (relatedPreview ? ' related' : '')
+                }
                 style={common}
               >
                 <small className="d2d-badge">{row.type}</small>

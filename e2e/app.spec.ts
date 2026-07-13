@@ -351,6 +351,12 @@ test('②→③統合・編集・確定（P7）', async () => {
   await expect(
     page.getByTestId('chunk-editor').locator('.chunk-grid').nth(1).locator('tbody tr').first()
   ).toHaveAttribute('aria-selected', 'true')
+  const createdChunkRow = page.getByTestId('chunk-editor').locator('.chunk-grid').nth(1).locator('tbody tr').first()
+  await expect(createdChunkRow).toHaveClass(/chunk-row-selected/)
+  await expect(page.getByTestId('chunk-source-i1')).toHaveClass(/chunk-row-related/)
+  await page.getByTestId('chunk-source-i1').click()
+  await expect(page.getByTestId('chunk-source-i1')).toHaveClass(/chunk-row-selected/)
+  await expect(createdChunkRow).toHaveClass(/chunk-row-related/)
   await page.getByTestId('chunk-prompt-edit').click()
   await page.getByLabel('追加プロンプト').fill('安全性の観点を優先すること')
   await page.getByTestId('chunk-prompt-editor').getByRole('button', { name: '保存' }).click()
