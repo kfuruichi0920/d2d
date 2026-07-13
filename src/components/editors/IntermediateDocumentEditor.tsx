@@ -11,6 +11,8 @@ import { useProjectStore } from '../../stores/project-store'
 import { useSelectionStore } from '../../stores/selection-store'
 import { VirtualDataGrid } from '../common/VirtualDataGrid'
 import { StructuredJsonView } from '../common/StructuredJsonView'
+import { ResourceEditor } from './ResourceEditor'
+import { resourceTypeLabel } from '../../types/resource'
 import { reviewStateFromEntityStatus, ReviewStatusBadge } from '../common/review'
 
 interface IntermediateElement {
@@ -24,6 +26,8 @@ interface IntermediateElement {
   resource_uid?: string
   review?: { status: string }
   source_resource_uids?: string[]
+  item_type?: string
+  intermediate_item_uid?: string
 }
 
 interface IntermediateDoc {
@@ -108,6 +112,7 @@ export function IntermediateDocumentEditor({ uid }: { uid: string }): React.JSX.
   const [previewMode, setPreviewMode] = useState<'visual' | 'structure'>('visual')
   const previewRefs = useRef(new Map<string, HTMLElement>())
   const [elementEditor, setElementEditor] = useState<ElementEditorState | null>(null)
+  const [resourceEditing, setResourceEditing] = useState<IntermediateElement | null>(null)
   const [editCells, setEditCells] = useState<string[][] | null>(null)
   const [candidate, setCandidate] = useState<TextCandidate | null>(null)
   const [generating, setGenerating] = useState(false)
@@ -227,7 +232,11 @@ export function IntermediateDocumentEditor({ uid }: { uid: string }): React.JSX.
   }
 
   const openElementEditor = (element: IntermediateElement): void => {
-    setElementEditor({ action: 'edit', elementId: element.id, type: element.type, text: element.text ?? '' })
+    if (!element.resource_uid || !element.intermediate_item_uid || !element.item_type) {
+      notify('error', 'Resource編集を開けません', '中間要素のResource情報がありません。再読込してください。')
+      return
+    }
+    setResourceEditing(element)
   }
 
   const openAddEditor = (position: 'above' | 'below'): void => {
@@ -463,16 +472,22 @@ export function IntermediateDocumentEditor({ uid }: { uid: string }): React.JSX.
     },
     { header: 'ID', accessorKey: 'id', size: 50 },
     {
-      header: '種別',
-      accessorKey: 'type',
-      size: 80,
+      header: 'Resource種別',
+      accessorKey: 'item_type',
+      size: 132,
       cell: ({ row }) => (
-        <span
-          className="d2d-badge"
-          style={{ borderColor: typeColors[row.original.type], color: typeColors[row.original.type] }}
+        <button
+          type="button"
+          className="resource-type-button"
+          title="クリックしてResource種別・固有情報を編集"
+          data-testid={`resource-type-${row.original.id}`}
+          onClick={(event) => {
+            event.stopPropagation()
+            openElementEditor(row.original)
+          }}
         >
-          {row.original.type}
-        </span>
+          {resourceTypeLabel(row.original.item_type)}
+        </button>
       )
     },
     {
@@ -703,7 +718,31 @@ export function IntermediateDocumentEditor({ uid }: { uid: string }): React.JSX.
         </div>
       )}
 
-      {elementEditor && (
+      {resourceEditing?.resource_uid && resourceEditing.intermediate_item_uid && (
+        <div role="dialog" aria-modal="true" className="resource-editor-dialog" data-testid="resource-edit-dialog">
+          <div className="resource-editor-dialog-title">
+            <b>Resource編集: {resourceEditing.id}</b>
+            <button type="button" className="d2d-btn small" onClick={() => setResourceEditing(null)}>
+              閉じる
+            </button>
+          </div>
+          <ResourceEditor
+            embedded
+            resourceUid={resourceEditing.resource_uid}
+            context={{
+              intermediateDocumentUid: uid,
+              intermediateItemUid: resourceEditing.intermediate_item_uid,
+              elementId: resourceEditing.id
+            }}
+            onSaved={async () => {
+              setResourceEditing(null)
+              await load()
+            }}
+          />
+        </div>
+      )}
+
+      {elementEditor?.action === 'add' && (
         <div
           role="dialog"
           data-testid="element-edit-dialog"
@@ -1071,7 +1110,17 @@ export function IntermediateDocumentEditor({ uid }: { uid: string }): React.JSX.
                 onDoubleClick={() => openElementEditor(e)}
                 style={{ marginLeft: (e.level ?? 0) * 14 }}
               >
-                <span className="d2d-badge">{e.type}</span>
+                <button
+                  type="button"
+                  className="resource-type-button"
+                  title="クリックしてResource種別・固有情報を編集"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    openElementEditor(e)
+                  }}
+                >
+                  {resourceTypeLabel(e.item_type)}
+                </button>
                 {e.type === 'table' ? (
                   <table>
                     <tbody>

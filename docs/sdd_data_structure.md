@@ -456,6 +456,11 @@ PDFのbbox編集、LLM OCR、表OCR、テキスト補正は、D2D上のレビュ
 
 更新可否の原則は、ID、種別、生成元、ハッシュ、原本位置は作成後変更不可、タイトル、本文、状態、レビュー情報、メモ情報、説明は変更可である。自動生成対象は `uid`、`code`、`created_at`、`updated_at`、抽出器由来の `source_hash` である。
 
+#### 4.6.0 Resource編集とitem_typeの同期
+
+`extracted_item.item_type` および `intermediate_item.item_type` は、抽出器の表示種別（paragraph、heading、list_item、caption等）ではなく、参照先の物理 `resource_*` テーブル名を保持する。画面上のResource種別表示も `item_type` を正本とする。
+
+Resource編集・種別変更は既存 `resource_*` 行を上書きせず、新しいResourceを作成して元Resourceへ `based_on` を登録する。中間要素の編集では `intermediate_item.item_type` と `resource_uid` を同一トランザクションで差し替え、`structure_json` は新Resourceのプレビュー用要約へ同期する。種別変更前の固有カラムは新Resourceへ暗黙変換せず、情報消失確認後に対象種別の4.6.x定義へ入力された値だけを保存する。
 #### 4.6.1 resource_label
 
 | No | 論理名       | 物理名                   | 内容                     | データ型                 | PK  | NN  | UQ  | FK                     | DEFAULT | CHECK                                                    | 更新可否 | 自動生成            | 備考                             |

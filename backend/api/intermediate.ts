@@ -153,15 +153,15 @@ export function registerIntermediateApi(router: ApiRouter, jobs: JobManager): vo
       throw new BackendError('not_found', `中間文書が見つかりません: ${uid}`, '')
     }
     const structure = JSON.parse(doc.structure_json) as IntermediateStructure
-    const itemByResource = new Map<string, { uid: string; status: string }>(
+    const itemByResource = new Map<string, { uid: string; status: string; item_type: string }>(
       (
         db
           .prepare(
-            `SELECT i.resource_uid AS resource_uid, i.uid, e.status FROM intermediate_item i JOIN entity_registry e ON e.uid = i.uid
+            `SELECT i.resource_uid AS resource_uid, i.uid, i.item_type, e.status FROM intermediate_item i JOIN entity_registry e ON e.uid = i.uid
               WHERE i.intermediate_document_uid = ?`
           )
-          .all(uid) as { resource_uid: string; uid: string; status: string }[]
-      ).map((r) => [r.resource_uid, { uid: r.uid, status: r.status }])
+          .all(uid) as { resource_uid: string; uid: string; status: string; item_type: string }[]
+      ).map((r) => [r.resource_uid, { uid: r.uid, status: r.status, item_type: r.item_type }])
     )
     const sourceResourcesByResource = new Map<string, string[]>()
     const itemLinks = db
@@ -183,6 +183,7 @@ export function registerIntermediateApi(router: ApiRouter, jobs: JobManager): vo
       elements: structure.elements.map((e) => ({
         ...e,
         intermediate_item_uid: e.resource_uid ? itemByResource.get(e.resource_uid)?.uid : undefined,
+        item_type: e.resource_uid ? itemByResource.get(e.resource_uid)?.item_type : undefined,
         review: e.resource_uid ? { status: itemByResource.get(e.resource_uid)?.status ?? 'draft' } : undefined,
         source_resource_uids: e.resource_uid ? [...new Set(sourceResourcesByResource.get(e.resource_uid) ?? [])] : []
       }))
@@ -209,14 +210,16 @@ export function registerIntermediateApi(router: ApiRouter, jobs: JobManager): vo
       return parsed.elements.map((element) => {
         const item = element.resource_uid
           ? (db
-              .prepare(`SELECT uid FROM extracted_item WHERE extracted_document_uid=? AND resource_uid=?`)
-              .get(source.extracted_document_uid, element.resource_uid) as { uid: string } | undefined)
+              .prepare(`SELECT uid, item_type FROM extracted_item WHERE extracted_document_uid=? AND resource_uid=?`)
+              .get(source.extracted_document_uid, element.resource_uid) as
+              { uid: string; item_type: string } | undefined)
           : undefined
         return {
           ...element,
           id: `${source.extracted_document_uid}:${element.id}`,
           source_element_id: element.id,
           extracted_item_uid: item?.uid,
+          item_type: item?.item_type,
           source_document_uid: source.extracted_document_uid,
           source_title: extracted.title
         }

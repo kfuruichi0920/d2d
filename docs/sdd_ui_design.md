@@ -745,6 +745,13 @@ Status Bar の警告数やジョブ状態をクリックした場合は、対応
 ### P5-15/P7-7 文書構造表示の共通仕様
 
 抽出データと中間データのプレビューペインは、文書プレビューと `structure_json` の階層表示を同一ペイン内で切り替える。`structure_json` はファイル出力せず、object／arrayを折りたためるツリーとして表示し、キー、文字列、数値、真偽値、nullをデザイントークンによって色分けする。表示コンポーネントはWord固有要素を参照せずJSON互換値を入力とする共通部品とし、今後のExcel／PowerPoint／PDF／Visio／テキスト系抽出も同じ表示へ接続する。APIはDBのJSON文字列ではなく解析済み構造を返し、UIが保存形式へ依存しない境界を維持する。
+### P7-2/P7-3 共通Resource Editor
+
+中間データ取込編集画面と中間データ単独編集画面の成果物一覧、および中間文書プレビューは、抽出時の `element.type` ではなく `intermediate_item.item_type` をResource種別ラベルとして表示する。ラベルのクリック、成果物行のダブルクリック、選択行でのSpace／Enter、上部の編集ボタンは、すべて同じ共通Resource Editorを開く。
+
+共通Resource Editorは `sdd_data_structure.md` 4.6.1〜4.6.14のカラム定義を定義データとして受け取り、text／multiline／number／enum／JSONの入力部品を生成する。中間文書に埋め込む場合と `resource://<uid>` のEditor Providerとして単独表示する場合で同じコンポーネントを利用する。検索結果等でresource UIDを指定した場合は `resource://` を開く。
+
+保存は既存Resourceを更新せず、新しい `resource_*` 行と `entity_registry` を作成し、元Resourceへの `based_on (transform_note=edit-resource)` を保持する。中間要素から開いた場合は、その `intermediate_item.item_type/resource_uid` と `structure_json` の表示用要約だけを新Resourceへ差し替える。resource種別を変更するとき、元種別の非空カラムを失われる固有情報として列挙し、利用者が確認操作を行った場合だけ保存する。元Resource自体は削除しない。
 ### P7-1/P7-7 中間データ統合操作の補足
 
 Explorerの③中間データ見出しに「取込」を表示し、ダイアログでは取込先成果物をチェックボックスで排他的に1件（未選択可）、取込元の承認済み②抽出データを複数選択する。取込先に既存③成果物を選んだ場合は、文書単位 `based_on` と `structure_json.sources` に保持した取込関係を取込元の初期チェックへ復元する。抽出データ行には③への統合操作を置かない。

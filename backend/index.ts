@@ -29,6 +29,7 @@ import { registerTraceApi } from './api/trace'
 import { registerEditApi } from './api/edit'
 import { registerDataApi, registerDbToTextHook } from './api/data'
 import { registerSearchApi } from './api/search'
+import { registerResourceApi } from './api/resource'
 import { createArchive } from './export/archive-service'
 import { registerReportApi, toReportOptions } from './api/report'
 import { buildReportMarkdown, generateReport } from './report/report-service'
@@ -392,6 +393,7 @@ function main(): void {
   registerDataApi(router, jobs)
   registerReportApi(router, jobs)
   registerSearchApi(router, settings)
+  registerResourceApi(router)
   registerDbToTextHook()
 
   // Backend 内イベントを Renderer へ転送する（CORE-030〜032）

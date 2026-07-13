@@ -29,7 +29,7 @@ describe('P11 MeCab + FTS5 検索', () => {
     const target = text('ブレーキ制御要求', '車輪の滑りを検出して制動力を調整する')
     const response = searchElements(db, projectUid, '制動力', {})
     expect(response.tokenizer).toBe('unicode')
-    expect(response.results[0]).toMatchObject({ uid: target.uid, resourceUri: `design://${target.uid}` })
+    expect(response.results[0]).toMatchObject({ uid: target.uid, resourceUri: `resource://${target.uid}` })
     expect(response.indexCount).toBe(1)
   })
 

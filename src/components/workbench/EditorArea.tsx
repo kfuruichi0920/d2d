@@ -19,6 +19,7 @@ import { GlossaryEditor } from '../editors/GlossaryEditor'
 import { ModelPlaygroundEditor } from '../editors/ModelPlaygroundEditor'
 import { ArchiveDiffEditor, GitCommitViewer, StoreBrowserEditor } from '../views/HistoryViews'
 import { ReportPreviewEditor } from '../views/ReportViews'
+import { ResourceEditorPage } from '../editors/ResourceEditor'
 
 /** Resource URI → Editor Provider の解決（§10.2。P7 以降で Provider を追加する） */
 function resolveEditor(uri: string): React.JSX.Element {
@@ -33,6 +34,7 @@ function resolveEditor(uri: string): React.JSX.Element {
   if (uri.startsWith('chunk://')) return <ChunkEditor uid={uri.slice('chunk://'.length)} />
   if (uri.startsWith('candidate://')) return <CandidateSetReviewEditor llmRunUid={uri.slice('candidate://'.length)} />
   if (uri.startsWith('design://')) return <DesignElementViewer uid={uri.slice('design://'.length)} />
+  if (uri.startsWith('resource://')) return <ResourceEditorPage uid={uri.slice('resource://'.length)} />
   if (uri.startsWith('trace://graph/')) {
     const [rootUid, depth, direction] = uri.slice('trace://graph/'.length).split('/')
     return <TraceGraphEditor rootUid={rootUid ?? ''} depth={Number(depth ?? 3)} direction={direction ?? 'both'} />

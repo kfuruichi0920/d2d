@@ -328,12 +328,24 @@ test('②→③統合・編集・確定（P7）', async () => {
   await expect(page.getByTestId('intermediate-structure-json').locator('.structured-json-key').first()).toBeVisible()
   await page.getByTestId('intermediate-preview-visual').click()
 
-  // 要素編集（新ID割当・由来追跡）: 段落を選択して編集
-  await page.getByTestId('intermediate-grid').getByText('本書はテスト用の仕様書である。要求REQ-001を含む。').click()
+  // Resource編集（新ID割当・由来追跡）: item_typeを表示し、resource_text固有項目を編集
+  const textRow = page
+    .getByTestId('intermediate-grid')
+    .getByRole('row')
+    .filter({ hasText: '本書はテスト用の仕様書である。要求REQ-001を含む。' })
+  await expect(textRow).toContainText('テキスト')
+  await textRow.click()
   await page.getByTestId('element-edit-open').click()
-  await page.getByTestId('edit-textarea').fill('本書はテスト用の仕様書である。要求REQ-001および要求REQ-002を含む。')
-  await page.getByTestId('edit-save').click()
+  await expect(page.getByTestId('resource-edit-dialog')).toBeVisible()
+  await page
+    .getByTestId('resource-field-text_body')
+    .fill('本書はテスト用の仕様書である。要求REQ-001および要求REQ-002を含む。')
+  await page.getByTestId('resource-save').click()
+  await expect(page.getByTestId('resource-edit-dialog')).toHaveCount(0)
   await expect(page.getByTestId('intermediate-markdown')).toContainText('REQ-002')
+  await expect(
+    page.getByTestId('intermediate-markdown').getByRole('button', { name: 'テキスト' }).first()
+  ).toBeVisible()
 
   // 中間データ単独編集: 2ペイン切替、任意位置追加、Enter/ダブルクリック編集、複製、削除
   await page.getByTestId('intermediate-mode-standalone').click()
@@ -347,15 +359,18 @@ test('②→③統合・編集・確定（P7）', async () => {
   const addedRow = middleGrid.getByRole('row').filter({ hasText: '単独編集で追加した要素' })
   await addedRow.focus()
   await page.keyboard.press('Enter')
-  await expect(page.getByTestId('element-edit-dialog')).toBeVisible()
-  await page.getByTestId('element-edit-type').selectOption('heading')
-  await page.getByTestId('edit-textarea').fill('単独編集で追加した見出し')
-  await page.getByTestId('edit-save').click()
+  await expect(page.getByTestId('resource-edit-dialog')).toBeVisible()
+  await page.getByTestId('resource-type-select').selectOption('resource_label')
+  await page.getByTestId('resource-field-label_text').fill('単独編集で追加した見出し')
+  await page.getByTestId('resource-field-label_kind').selectOption('section')
+  await page.getByTestId('resource-save').click()
+  await expect(page.getByTestId('resource-loss-confirm')).toContainText('本文')
+  await page.getByTestId('resource-loss-confirm-apply').click()
   const headingRow = middleGrid.getByRole('row').filter({ hasText: '単独編集で追加した見出し' })
-  await expect(headingRow).toContainText('heading')
+  await expect(headingRow).toContainText('ラベル')
   await headingRow.dblclick()
-  await expect(page.getByTestId('element-edit-dialog')).toBeVisible()
-  await page.getByTestId('element-edit-dialog').getByRole('button', { name: 'キャンセル' }).click()
+  await expect(page.getByTestId('resource-edit-dialog')).toBeVisible()
+  await page.getByTestId('resource-edit-dialog').getByRole('button', { name: '閉じる' }).click()
 
   const rowsBeforeDuplicate = await middleGrid.getByRole('row').count()
   await headingRow.click()
@@ -381,6 +396,16 @@ test('②→③統合・編集・確定（P7）', async () => {
   expect(
     approvedIntermediate.ok && approvedIntermediate.result.elements.every((item) => item.review?.status !== 'draft')
   ).toBe(true)
+
+  // 中間画面外からResourceを指定して共通Editor Providerを開ける
+  await page.getByTestId('activity-search').click()
+  await page.getByTestId('search-input').fill('REQ-002')
+  await page.getByTestId('search-entity-type').selectOption('resource_text')
+  await page.getByTestId('search-sidebar').getByRole('button', { name: '検索' }).click()
+  await expect(page.getByTestId('search-results')).toContainText('REQ-002')
+  await page.getByTestId('search-results').getByText('REQ-002', { exact: false }).first().click()
+  await expect(page.getByTestId('resource-editor')).toBeVisible()
+  await expect(page.getByTestId('resource-type-select')).toHaveValue('resource_text')
 
   // 成果物単位のチャンク編集: 確認済み行を選択し、追加プロンプト付きで作成する
   await page.getByTestId('activity-explorer').click()
@@ -677,7 +702,11 @@ test('編集機能: 用語集・状態遷移・表編集・検証編集（P10）
   await expect(page.getByTestId('intermediate-markdown').locator('mark.d2d-term').first()).toHaveText('対象項目')
 
   // --- 表編集（P10-2）: セル修正→保存→Markdown へ反映（EDIT-022） ---
-  await page.getByTestId('intermediate-grid').getByText('table', { exact: true }).click()
+  await page
+    .getByTestId('intermediate-grid')
+    .getByRole('row')
+    .filter({ has: page.getByRole('button', { name: '表', exact: true }) })
+    .click()
   await page.getByTestId('edit-table-button').click()
   await expect(page.getByTestId('table-cell-editor')).toBeVisible()
   await page.getByTestId('cell-1-1').fill('150ms以内')
