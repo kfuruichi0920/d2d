@@ -24,7 +24,7 @@ body {
   background: var(--d2d-bg);
   color: var(--d2d-fg);
   font-family: 'Segoe UI', 'Yu Gothic UI', Meiryo, sans-serif;
-  font-size: 13px;
+  font-size: var(--d2d-font-size);
 }
 
 code {

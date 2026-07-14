@@ -1,6 +1,6 @@
 /**
- * Workbench レイアウト状態（P3-1/P3-7、UI-005/006/021/025、sdd_ui_design §3/§5）。
- * 作業モード（M0〜M5）ごとにレイアウトを保持し、プロジェクト単位で永続化・復元する。
+ * Workbenchレイアウト状態（P3-1/P3-7、UI-005/006/021/025/037/038/040）。
+ * 作業モードごとに外周パネルの表示・サイズ・Secondaryアコーディオンを保持する。
  */
 import { create } from 'zustand'
 import { DEFAULT_THEME, applyTheme, type ThemeState } from '../theme/theme'
@@ -18,74 +18,57 @@ export const WORK_MODES: { mode: WorkMode; label: string }[] = [
 ]
 
 export type Activity = 'explorer' | 'review' | 'search' | 'trace' | 'jobs' | 'reports' | 'history' | 'settings'
-
 export type PanelTab = 'problems' | 'output' | 'jobs' | 'search' | 'validation' | 'llm'
 export type SecondaryTab = 'properties' | 'evidence' | 'relations' | 'candidates' | 'review'
+
+const ALL_SECONDARY_SECTIONS: SecondaryTab[] = ['properties', 'evidence', 'relations', 'candidates', 'review']
 
 export interface ModeLayout {
   activity: Activity
   sideBarVisible: boolean
   secondaryVisible: boolean
   secondaryTab: SecondaryTab
+  secondaryExpanded: SecondaryTab[]
   panelVisible: boolean
   panelTab: PanelTab
+  primarySize: number
+  secondarySize: number
+  panelSize: number
+}
+
+function modeLayout(
+  activity: Activity,
+  secondaryVisible: boolean,
+  panelVisible: boolean,
+  secondaryTab: SecondaryTab,
+  panelTab: PanelTab
+): ModeLayout {
+  return {
+    activity,
+    sideBarVisible: true,
+    secondaryVisible,
+    secondaryTab,
+    secondaryExpanded: [...ALL_SECONDARY_SECTIONS],
+    panelVisible,
+    panelTab,
+    primarySize: 260,
+    secondarySize: 280,
+    panelSize: 200
+  }
 }
 
 const MODE_DEFAULT_LAYOUTS: Record<WorkMode, ModeLayout> = {
-  M0: {
-    activity: 'explorer',
-    sideBarVisible: true,
-    secondaryVisible: false,
-    secondaryTab: 'properties',
-    panelVisible: false,
-    panelTab: 'jobs'
-  },
-  M1: {
-    activity: 'explorer',
-    sideBarVisible: true,
-    secondaryVisible: true,
-    secondaryTab: 'properties',
-    panelVisible: true,
-    panelTab: 'jobs'
-  },
-  M2: {
-    activity: 'explorer',
-    sideBarVisible: true,
-    secondaryVisible: true,
-    secondaryTab: 'evidence',
-    panelVisible: false,
-    panelTab: 'problems'
-  },
-  M3: {
-    activity: 'review',
-    sideBarVisible: true,
-    secondaryVisible: true,
-    secondaryTab: 'candidates',
-    panelVisible: true,
-    panelTab: 'llm'
-  },
-  M4: {
-    activity: 'trace',
-    sideBarVisible: true,
-    secondaryVisible: true,
-    secondaryTab: 'relations',
-    panelVisible: true,
-    panelTab: 'problems'
-  },
-  M5: {
-    activity: 'history',
-    sideBarVisible: true,
-    secondaryVisible: false,
-    secondaryTab: 'properties',
-    panelVisible: false,
-    panelTab: 'output'
-  }
+  M0: modeLayout('explorer', false, false, 'properties', 'jobs'),
+  M1: modeLayout('explorer', true, true, 'properties', 'jobs'),
+  M2: modeLayout('explorer', true, false, 'evidence', 'problems'),
+  M3: modeLayout('review', true, true, 'candidates', 'llm'),
+  M4: modeLayout('trace', true, true, 'relations', 'problems'),
+  M5: modeLayout('history', false, false, 'properties', 'output')
 }
 
 interface PersistedLayout {
   workMode: WorkMode
   layouts: Record<WorkMode, ModeLayout>
-  theme?: ThemeState
 }
 
 interface WorkbenchState extends ModeLayout {
@@ -93,25 +76,46 @@ interface WorkbenchState extends ModeLayout {
   layouts: Record<WorkMode, ModeLayout>
   theme: ThemeState
   paletteOpen: boolean
-  /** レイアウト永続化キー（プロジェクト単位。未オープン時は global） */
   persistKey: string
-
   switchMode(mode: WorkMode): void
   resetLayout(): void
   setActivity(activity: Activity): void
   toggleSideBar(): void
   toggleSecondary(): void
   setSecondaryTab(tab: SecondaryTab): void
+  toggleSecondarySection(tab: SecondaryTab): void
   togglePanel(): void
   setPanelTab(tab: PanelTab): void
   openPanel(tab: PanelTab): void
+  setPrimarySize(size: number): void
+  setSecondarySize(size: number): void
+  setPanelSize(size: number): void
   setTheme(theme: Partial<ThemeState>): void
   setPaletteOpen(open: boolean): void
   loadPersisted(persistKey: string): void
 }
 
 function storageKey(persistKey: string): string {
-  return `d2d.workbench.${persistKey}`
+  return 'd2d.workbench.' + persistKey
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, Math.round(value)))
+}
+
+function currentLayout(state: ModeLayout): ModeLayout {
+  return {
+    activity: state.activity,
+    sideBarVisible: state.sideBarVisible,
+    secondaryVisible: state.secondaryVisible,
+    secondaryTab: state.secondaryTab,
+    secondaryExpanded: [...state.secondaryExpanded],
+    panelVisible: state.panelVisible,
+    panelTab: state.panelTab,
+    primarySize: state.primarySize,
+    secondarySize: state.secondarySize,
+    panelSize: state.panelSize
+  }
 }
 
 function persist(state: WorkbenchState): void {
@@ -122,18 +126,7 @@ function persist(state: WorkbenchState): void {
   try {
     localStorage.setItem(storageKey(state.persistKey), JSON.stringify(data))
   } catch {
-    // 永続化失敗は無視（UI 動作を優先）
-  }
-}
-
-function currentLayout(state: ModeLayout): ModeLayout {
-  return {
-    activity: state.activity,
-    sideBarVisible: state.sideBarVisible,
-    secondaryVisible: state.secondaryVisible,
-    secondaryTab: state.secondaryTab,
-    panelVisible: state.panelVisible,
-    panelTab: state.panelTab
+    // 永続化失敗はUI操作を妨げない。
   }
 }
 
@@ -147,7 +140,6 @@ export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
 
   switchMode: (mode) => {
     const state = get()
-    // 現在モードのレイアウトを保存してから切替（§5.2 レイアウト独立）
     const layouts = { ...state.layouts, [state.workMode]: currentLayout(state) }
     set({ workMode: mode, layouts, ...layouts[mode] })
     persist(get())
@@ -155,19 +147,18 @@ export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
 
   resetLayout: () => {
     const state = get()
-    const def = MODE_DEFAULT_LAYOUTS[state.workMode]
-    set({ ...def, layouts: { ...state.layouts, [state.workMode]: { ...def } } })
+    const definition = structuredClone(MODE_DEFAULT_LAYOUTS[state.workMode])
+    set({ ...definition, layouts: { ...state.layouts, [state.workMode]: definition } })
     persist(get())
   },
 
   setActivity: (activity) => {
-    // 同じ Activity の再クリックで Side Bar をトグル（IDE 慣習）
     const state = get()
-    if (state.activity === activity && state.sideBarVisible) {
-      set({ sideBarVisible: false })
-    } else {
-      set({ activity, sideBarVisible: true })
-    }
+    set(
+      state.activity === activity && state.sideBarVisible
+        ? { sideBarVisible: false }
+        : { activity, sideBarVisible: true }
+    )
     persist(get())
   },
 
@@ -182,7 +173,17 @@ export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
   },
 
   setSecondaryTab: (tab) => {
-    set({ secondaryTab: tab, secondaryVisible: true })
+    const expanded = get().secondaryExpanded.includes(tab) ? get().secondaryExpanded : [...get().secondaryExpanded, tab]
+    set({ secondaryTab: tab, secondaryVisible: true, secondaryExpanded: expanded })
+    persist(get())
+  },
+
+  toggleSecondarySection: (tab) => {
+    const state = get()
+    const expanded = state.secondaryExpanded.includes(tab)
+      ? state.secondaryExpanded.filter((candidate) => candidate !== tab)
+      : [...state.secondaryExpanded, tab]
+    set({ secondaryTab: tab, secondaryExpanded: expanded })
     persist(get())
   },
 
@@ -201,6 +202,21 @@ export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
     persist(get())
   },
 
+  setPrimarySize: (size) => {
+    set({ primarySize: clamp(size, 160, 600) })
+    persist(get())
+  },
+
+  setSecondarySize: (size) => {
+    set({ secondarySize: clamp(size, 180, 600) })
+    persist(get())
+  },
+
+  setPanelSize: (size) => {
+    set({ panelSize: clamp(size, 100, 600) })
+    persist(get())
+  },
+
   setTheme: (partial) => {
     const theme = { ...get().theme, ...partial }
     set({ theme })
@@ -208,6 +224,7 @@ export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
     persist(get())
     void invoke('settings.set', { key: 'theme.displayMode', value: theme.displayMode })
     void invoke('settings.set', { key: 'theme.colorTheme', value: theme.colorTheme })
+    void invoke('settings.set', { key: 'theme.fontSize', value: theme.fontSize })
   },
 
   setPaletteOpen: (open) => set({ paletteOpen: open }),
@@ -221,13 +238,21 @@ export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
       data = null
     }
     if (data) {
-      const layouts = { ...structuredClone(MODE_DEFAULT_LAYOUTS), ...data.layouts }
-      set({
-        persistKey,
-        workMode: data.workMode,
-        layouts,
-        ...layouts[data.workMode]
-      })
+      const layouts = Object.fromEntries(
+        (Object.keys(MODE_DEFAULT_LAYOUTS) as WorkMode[]).map((mode) => {
+          const definition = MODE_DEFAULT_LAYOUTS[mode]
+          const saved = data?.layouts?.[mode]
+          return [
+            mode,
+            {
+              ...definition,
+              ...saved,
+              secondaryExpanded: saved?.secondaryExpanded ?? definition.secondaryExpanded
+            }
+          ]
+        })
+      ) as Record<WorkMode, ModeLayout>
+      set({ persistKey, workMode: data.workMode, layouts, ...layouts[data.workMode] })
     } else {
       set({ persistKey })
     }

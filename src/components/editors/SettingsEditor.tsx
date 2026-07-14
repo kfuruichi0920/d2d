@@ -109,6 +109,20 @@ export function SettingsEditor(): React.JSX.Element {
           ))}
         </select>
       </div>
+      <div style={rowStyle}>
+        <label style={{ width: 120, color: 'var(--d2d-fg-muted)' }}>文字サイズ</label>
+        <input
+          type="range"
+          min={10}
+          max={20}
+          step={1}
+          value={theme.fontSize}
+          onChange={(event) => setTheme({ fontSize: Number(event.target.value) })}
+          data-testid="setting-font-size"
+          aria-label="ツール全体の文字サイズ"
+        />
+        <output data-testid="setting-font-size-value">{theme.fontSize}px</output>
+      </div>
 
       <AppSettingsStorageNotice />
       <PlantUmlSettingsSection />

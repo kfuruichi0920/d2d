@@ -1,34 +1,39 @@
 /**
- * Workbench Shell（P3-1、sdd_ui_design §3）。
- * Title Bar / Pipeline Navigator / Activity Bar / Side Bars / Editor Area / Panel / Status Bar を構成し、
- * Backend イベントを UI ストアへ橋渡しする。
+ * Workbench Shell（P3-1、UI-025/037〜040、sdd_ui_design §3）。
+ * 外周パネルのリサイズ、Editor再帰分割、設定・Backendイベントを各UIストアへ接続する。
  */
 import { useEffect } from 'react'
 import { installKeybindings } from '../../services/command-registry'
 import { getCommandContext, registerBuiltinCommands } from '../../services/builtin-commands'
 import { invoke, onBackendEvent } from '../../services/backend'
+import { useEditorStore } from '../../stores/editor-store'
 import { useJobsStore, type JobRecord } from '../../stores/jobs-store'
 import { useProjectStore, type ProjectInfo } from '../../stores/project-store'
 import { useWorkbenchStore } from '../../stores/workbench-store'
 import { COLOR_THEMES, DISPLAY_MODES, watchSystemTheme, type ThemeState } from '../../theme/theme'
-import { TitleBar } from './TitleBar'
-import { PipelineNavigator } from './PipelineNavigator'
 import { ActivityBar } from './ActivityBar'
-import { PrimarySideBar } from './PrimarySideBar'
-import { EditorArea } from './EditorArea'
-import { SecondarySideBar } from './SecondarySideBar'
-import { PanelArea } from './PanelArea'
-import { StatusBar } from './StatusBar'
 import { CommandPalette } from './CommandPalette'
+import { EditorArea } from './EditorArea'
 import { Notifications } from './Notifications'
+import { PanelArea } from './PanelArea'
+import { PipelineNavigator } from './PipelineNavigator'
+import { PrimarySideBar } from './PrimarySideBar'
+import { ResizeHandle } from './ResizeHandle'
+import { SecondarySideBar } from './SecondarySideBar'
+import { StatusBar } from './StatusBar'
+import { TitleBar } from './TitleBar'
 
 let commandsRegistered = false
 
 export function WorkbenchShell(): React.JSX.Element {
-  const sideBarVisible = useWorkbenchStore((s) => s.sideBarVisible)
-  const secondaryVisible = useWorkbenchStore((s) => s.secondaryVisible)
-  const panelVisible = useWorkbenchStore((s) => s.panelVisible)
-  const loadPersisted = useWorkbenchStore((s) => s.loadPersisted)
+  const sideBarVisible = useWorkbenchStore((state) => state.sideBarVisible)
+  const secondaryVisible = useWorkbenchStore((state) => state.secondaryVisible)
+  const panelVisible = useWorkbenchStore((state) => state.panelVisible)
+  const primarySize = useWorkbenchStore((state) => state.primarySize)
+  const secondarySize = useWorkbenchStore((state) => state.secondarySize)
+  const panelSize = useWorkbenchStore((state) => state.panelSize)
+  const loadPersisted = useWorkbenchStore((state) => state.loadPersisted)
+  const loadEditorPersisted = useEditorStore((state) => state.loadPersisted)
 
   useEffect(() => {
     if (!commandsRegistered) {
@@ -36,10 +41,12 @@ export function WorkbenchShell(): React.JSX.Element {
       commandsRegistered = true
     }
     loadPersisted('global')
+    loadEditorPersisted('global')
     void Promise.all([
       invoke<unknown>('settings.get', { key: 'theme.displayMode' }),
-      invoke<unknown>('settings.get', { key: 'theme.colorTheme' })
-    ]).then(([displayModeResult, colorThemeResult]) => {
+      invoke<unknown>('settings.get', { key: 'theme.colorTheme' }),
+      invoke<unknown>('settings.get', { key: 'theme.fontSize' })
+    ]).then(([displayModeResult, colorThemeResult, fontSizeResult]) => {
       const theme: Partial<ThemeState> = {}
       if (displayModeResult.ok && DISPLAY_MODES.includes(displayModeResult.result as (typeof DISPLAY_MODES)[number])) {
         theme.displayMode = displayModeResult.result as ThemeState['displayMode']
@@ -47,23 +54,31 @@ export function WorkbenchShell(): React.JSX.Element {
       if (colorThemeResult.ok && COLOR_THEMES.includes(colorThemeResult.result as (typeof COLOR_THEMES)[number])) {
         theme.colorTheme = colorThemeResult.result as ThemeState['colorTheme']
       }
+      if (
+        fontSizeResult.ok &&
+        typeof fontSizeResult.result === 'number' &&
+        fontSizeResult.result >= 10 &&
+        fontSizeResult.result <= 20
+      ) {
+        theme.fontSize = fontSizeResult.result
+      }
       if (Object.keys(theme).length > 0) useWorkbenchStore.getState().setTheme(theme)
     })
 
     const uninstallKeys = installKeybindings(getCommandContext)
     const unwatchTheme = watchSystemTheme(() => useWorkbenchStore.getState().theme)
-
-    // Backend イベント → UI ストア（sdd_ui_design §4.3 の変換の入口）
     const offEvents = onBackendEvent((event, payload) => {
       if (event === 'job.updated') {
         useJobsStore.getState().applyUpdate(payload as JobRecord)
       } else if (event === 'project.opened') {
         const info = payload as ProjectInfo
         useProjectStore.getState().setProject(info)
-        // レイアウト永続化キーをプロジェクト単位へ切替（UI-025）
         useWorkbenchStore.getState().loadPersisted(info.projectUid)
+        useEditorStore.getState().loadPersisted(info.projectUid)
       } else if (event === 'project.closed') {
         useProjectStore.getState().setProject(null)
+        useWorkbenchStore.getState().loadPersisted('global')
+        useEditorStore.getState().loadPersisted('global')
       } else if (
         [
           'source.imported',
@@ -78,7 +93,6 @@ export function WorkbenchShell(): React.JSX.Element {
       }
     })
 
-    // 起動時に既存状態を取得（Backend 再起動後の再表示にも対応）
     void useProjectStore.getState().refresh()
     void useJobsStore.getState().refresh()
 
@@ -87,7 +101,7 @@ export function WorkbenchShell(): React.JSX.Element {
       unwatchTheme()
       offEvents()
     }
-  }, [loadPersisted])
+  }, [loadEditorPersisted, loadPersisted])
 
   return (
     <div className="wb-root" data-testid="workbench">
@@ -95,12 +109,59 @@ export function WorkbenchShell(): React.JSX.Element {
       <PipelineNavigator />
       <div className="wb-main">
         <ActivityBar />
-        {sideBarVisible && <PrimarySideBar />}
+        {sideBarVisible && (
+          <>
+            <div className="wb-primary-slot" style={{ width: primarySize }}>
+              <PrimarySideBar />
+            </div>
+            <ResizeHandle
+              axis="x"
+              label="Primary Side Barの幅変更"
+              testId="primary-resize-handle"
+              onDelta={(delta) => {
+                const state = useWorkbenchStore.getState()
+                state.setPrimarySize(state.primarySize + delta)
+              }}
+            />
+          </>
+        )}
         <div className="wb-center">
           <EditorArea />
-          {panelVisible && <PanelArea />}
+          {panelVisible && (
+            <>
+              <ResizeHandle
+                axis="y"
+                reverse
+                label="下段Panelの高さ変更"
+                testId="panel-resize-handle"
+                onDelta={(delta) => {
+                  const state = useWorkbenchStore.getState()
+                  state.setPanelSize(state.panelSize + delta)
+                }}
+              />
+              <div className="wb-panel-slot" style={{ height: panelSize }}>
+                <PanelArea />
+              </div>
+            </>
+          )}
         </div>
-        {secondaryVisible && <SecondarySideBar />}
+        {secondaryVisible && (
+          <>
+            <ResizeHandle
+              axis="x"
+              reverse
+              label="Secondary Side Barの幅変更"
+              testId="secondary-resize-handle"
+              onDelta={(delta) => {
+                const state = useWorkbenchStore.getState()
+                state.setSecondarySize(state.secondarySize + delta)
+              }}
+            />
+            <div className="wb-secondary-slot" style={{ width: secondarySize }}>
+              <SecondarySideBar />
+            </div>
+          </>
+        )}
       </div>
       <StatusBar />
       <CommandPalette />

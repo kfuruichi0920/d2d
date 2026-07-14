@@ -1,7 +1,9 @@
 /**
- * Editor Area（P3-1、sdd_ui_design §10）。Resource URI に応じた Editor Provider を表示する。
+ * Editor Area（P3-1、UI-006/022/039/040、sdd_ui_design §10）。
+ * Resource Providerを再帰Editor Groupへ表示し、分割リサイズとタブDnDを提供する。
  */
-import { useEditorStore, type EditorGroup } from '../../stores/editor-store'
+import { useRef } from 'react'
+import { useEditorStore, type EditorGroup, type EditorLayoutNode } from '../../stores/editor-store'
 import { DashboardEditor } from '../editors/DashboardEditor'
 import { SettingsEditor } from '../editors/SettingsEditor'
 import { ProjectSettingsEditor } from '../editors/ProjectSettingsEditor'
@@ -20,8 +22,10 @@ import { ModelPlaygroundEditor } from '../editors/ModelPlaygroundEditor'
 import { ArchiveDiffEditor, GitCommitViewer, StoreBrowserEditor } from '../views/HistoryViews'
 import { ReportPreviewEditor } from '../views/ReportViews'
 import { ResourceEditorPage } from '../editors/ResourceEditor'
+import { ResizeHandle } from './ResizeHandle'
 
-/** Resource URI → Editor Provider の解決（§10.2。P7 以降で Provider を追加する） */
+const TAB_DRAG_TYPE = 'application/x-d2d-editor-tab'
+
 function resolveEditor(uri: string): React.JSX.Element {
   if (uri === 'project://current') return <DashboardEditor />
   if (uri.startsWith('settings://')) return <SettingsEditor />
@@ -54,9 +58,9 @@ function resolveEditor(uri: string): React.JSX.Element {
 }
 
 export function EditorArea(): React.JSX.Element {
-  const groups = useEditorStore((s) => s.groups)
-  const hasAnyTab = groups.some((g) => g.tabs.length > 0)
-
+  const groups = useEditorStore((state) => state.groups)
+  const layout = useEditorStore((state) => state.layout)
+  const hasAnyTab = groups.some((group) => group.tabs.length > 0)
   if (!hasAnyTab) {
     return (
       <div className="wb-editor-area" data-testid="editor-area">
@@ -68,42 +72,99 @@ export function EditorArea(): React.JSX.Element {
       </div>
     )
   }
-
   return (
     <div className="wb-editor-area" data-testid="editor-area">
-      {groups.map((group) => (
-        <GroupView key={group.id} group={group} />
-      ))}
+      <LayoutNodeView node={layout} />
+    </div>
+  )
+}
+
+function LayoutNodeView({ node }: { node: EditorLayoutNode }): React.JSX.Element | null {
+  const groups = useEditorStore((state) => state.groups)
+  const resizeSplit = useEditorStore((state) => state.resizeSplit)
+  const containerRef = useRef<HTMLDivElement>(null)
+  if (node.kind === 'group') {
+    const group = groups.find((candidate) => candidate.id === node.groupId)
+    return group ? <GroupView group={group} /> : null
+  }
+  const horizontal = node.direction === 'horizontal'
+  return (
+    <div
+      ref={containerRef}
+      className={'wb-editor-split ' + node.direction}
+      data-testid={'editor-split-' + node.id}
+      data-direction={node.direction}
+    >
+      <div className="wb-editor-split-child" style={{ flexBasis: node.ratio * 100 + '%' }}>
+        <LayoutNodeView node={node.first} />
+      </div>
+      <ResizeHandle
+        axis={horizontal ? 'x' : 'y'}
+        label={horizontal ? 'Editor左右分割のサイズ変更' : 'Editor上下分割のサイズ変更'}
+        testId={'editor-split-handle-' + node.id}
+        onDelta={(delta) => {
+          const size = horizontal ? containerRef.current?.clientWidth : containerRef.current?.clientHeight
+          if (size && size > 0) resizeSplit(node.id, delta / size)
+        }}
+      />
+      <div className="wb-editor-split-child" style={{ flexBasis: (1 - node.ratio) * 100 + '%' }}>
+        <LayoutNodeView node={node.second} />
+      </div>
     </div>
   )
 }
 
 function GroupView({ group }: { group: EditorGroup }): React.JSX.Element {
-  const activateTab = useEditorStore((s) => s.activateTab)
-  const closeTab = useEditorStore((s) => s.closeTab)
-  const pinTab = useEditorStore((s) => s.pinTab)
-  const activeTab = group.tabs.find((t) => t.uri === group.activeUri)
+  const activateTab = useEditorStore((state) => state.activateTab)
+  const closeTab = useEditorStore((state) => state.closeTab)
+  const pinTab = useEditorStore((state) => state.pinTab)
+  const splitGroup = useEditorStore((state) => state.splitGroup)
+  const moveTab = useEditorStore((state) => state.moveTab)
+  const activeTab = group.tabs.find((tab) => tab.uri === group.activeUri)
+
+  const acceptDrop = (event: React.DragEvent): void => {
+    event.preventDefault()
+    const raw = event.dataTransfer.getData(TAB_DRAG_TYPE)
+    if (!raw) return
+    try {
+      const data = JSON.parse(raw) as { uri: string; groupId: number }
+      moveTab(data.uri, data.groupId, group.id)
+    } catch {
+      // D2D内部タブ以外のdropは無視する。
+    }
+  }
 
   return (
-    <div className="wb-editor-group" data-testid={`editor-group-${group.id}`}>
+    <div
+      className="wb-editor-group"
+      data-testid={'editor-group-' + group.id}
+      onDragOver={(event) => event.preventDefault()}
+      onDrop={acceptDrop}
+    >
       <div className="wb-tabs" role="tablist">
         {group.tabs.map((tab) => (
           <span
             key={tab.uri}
             role="tab"
             aria-selected={tab.uri === group.activeUri}
-            className={`wb-tab ${tab.uri === group.activeUri ? 'active' : ''}`}
+            className={'wb-tab ' + (tab.uri === group.activeUri ? 'active' : '')}
+            draggable
+            onDragStart={(event) => {
+              event.dataTransfer.effectAllowed = 'move'
+              event.dataTransfer.setData(TAB_DRAG_TYPE, JSON.stringify({ uri: tab.uri, groupId: group.id }))
+            }}
             onClick={() => activateTab(tab.uri, group.id)}
             onDoubleClick={() => pinTab(tab.uri)}
+            title={tab.title}
           >
-            <span className={tab.preview ? 'preview' : ''}>{tab.title}</span>
+            <span className={'wb-tab-title ' + (tab.preview ? 'preview' : '')}>{tab.title}</span>
             {tab.dirty && <span className="dirty-dot">●</span>}
             <button
               type="button"
               className="close"
-              aria-label={`${tab.title} を閉じる`}
-              onClick={(e) => {
-                e.stopPropagation()
+              aria-label={tab.title + ' を閉じる'}
+              onClick={(event) => {
+                event.stopPropagation()
                 closeTab(tab.uri, group.id)
               }}
             >
@@ -111,8 +172,30 @@ function GroupView({ group }: { group: EditorGroup }): React.JSX.Element {
             </button>
           </span>
         ))}
+        <span className="wb-tab-actions">
+          <button
+            type="button"
+            title="左右に分割"
+            aria-label="左右に分割"
+            data-testid={'editor-split-horizontal-' + group.id}
+            onClick={() => splitGroup(group.id, 'horizontal')}
+          >
+            ◫
+          </button>
+          <button
+            type="button"
+            title="上下に分割"
+            aria-label="上下に分割"
+            data-testid={'editor-split-vertical-' + group.id}
+            onClick={() => splitGroup(group.id, 'vertical')}
+          >
+            ⊟
+          </button>
+        </span>
       </div>
-      <div className="wb-editor-body">{activeTab ? resolveEditor(activeTab.uri) : null}</div>
+      <div className="wb-editor-body">
+        {activeTab ? resolveEditor(activeTab.uri) : <div className="d2d-empty">タブをここへドロップ</div>}
+      </div>
     </div>
   )
 }

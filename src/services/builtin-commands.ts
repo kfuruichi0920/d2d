@@ -95,9 +95,24 @@ export function registerBuiltinCommands(): void {
 
   registerCommand({
     id: 'editor.split',
-    title: 'Editor を分割する',
+    title: 'Editor を左右に分割する',
     keybinding: 'Ctrl+\\',
-    run: () => editor().splitActiveGroup()
+    run: () => editor().splitActiveGroup('horizontal')
+  })
+  registerCommand({
+    id: 'editor.splitVertical',
+    title: 'Editor を上下に分割する',
+    run: () => editor().splitActiveGroup('vertical')
+  })
+  registerCommand({
+    id: 'editor.moveTabToNextGroup',
+    title: 'アクティブタブを次のEditor Groupへ移動',
+    run: () => editor().moveActiveTab(1)
+  })
+  registerCommand({
+    id: 'editor.moveTabToPreviousGroup',
+    title: 'アクティブタブを前のEditor Groupへ移動',
+    run: () => editor().moveActiveTab(-1)
   })
 
   // プロジェクト操作
@@ -179,6 +194,25 @@ export function registerBuiltinCommands(): void {
       run: () => wb().setTheme({ colorTheme: color })
     })
   }
+
+  registerCommand({
+    id: 'theme.fontSize.increase',
+    title: '文字サイズを大きくする',
+    category: 'テーマ',
+    run: () => wb().setTheme({ fontSize: Math.min(20, wb().theme.fontSize + 1) })
+  })
+  registerCommand({
+    id: 'theme.fontSize.decrease',
+    title: '文字サイズを小さくする',
+    category: 'テーマ',
+    run: () => wb().setTheme({ fontSize: Math.max(10, wb().theme.fontSize - 1) })
+  })
+  registerCommand({
+    id: 'theme.fontSize.reset',
+    title: '文字サイズを標準に戻す',
+    category: 'テーマ',
+    run: () => wb().setTheme({ fontSize: 13 })
+  })
 
   // ジョブ（UI-009）
   registerCommand({
