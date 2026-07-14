@@ -4,12 +4,14 @@
 import { useEditorStore, type EditorGroup } from '../../stores/editor-store'
 import { DashboardEditor } from '../editors/DashboardEditor'
 import { SettingsEditor } from '../editors/SettingsEditor'
+import { ProjectSettingsEditor } from '../editors/ProjectSettingsEditor'
 import { JobLogEditor } from '../editors/JobLogEditor'
 import { WelcomeEditor } from '../editors/WelcomeEditor'
 import { ExtractionReviewEditor } from '../editors/ExtractionReviewEditor'
 import { OriginalViewer } from '../views/DocumentsTree'
 import { LlmRunViewer } from '../views/LlmViews'
 import { IntermediateDocumentEditor } from '../editors/IntermediateDocumentEditor'
+import { ChunkEditor } from '../editors/ChunkEditor'
 import { CandidateSetReviewEditor } from '../editors/CandidateSetReviewEditor'
 import { DesignElementViewer } from '../views/DesignModelViews'
 import { BasisChainEditor, TraceGraphEditor, TraceMatrixEditor } from '../views/TraceViews'
@@ -17,18 +19,22 @@ import { GlossaryEditor } from '../editors/GlossaryEditor'
 import { ModelPlaygroundEditor } from '../editors/ModelPlaygroundEditor'
 import { ArchiveDiffEditor, GitCommitViewer, StoreBrowserEditor } from '../views/HistoryViews'
 import { ReportPreviewEditor } from '../views/ReportViews'
+import { ResourceEditorPage } from '../editors/ResourceEditor'
 
 /** Resource URI → Editor Provider の解決（§10.2。P7 以降で Provider を追加する） */
 function resolveEditor(uri: string): React.JSX.Element {
   if (uri === 'project://current') return <DashboardEditor />
   if (uri.startsWith('settings://')) return <SettingsEditor />
+  if (uri.startsWith('project-settings://')) return <ProjectSettingsEditor />
   if (uri.startsWith('log://job/')) return <JobLogEditor jobId={uri.slice('log://job/'.length)} />
   if (uri.startsWith('log://llm/')) return <LlmRunViewer uid={uri.slice('log://llm/'.length)} />
   if (uri.startsWith('original://')) return <OriginalViewer uid={uri.slice('original://'.length)} />
   if (uri.startsWith('extracted://')) return <ExtractionReviewEditor uid={uri.slice('extracted://'.length)} />
   if (uri.startsWith('intermediate://')) return <IntermediateDocumentEditor uid={uri.slice('intermediate://'.length)} />
+  if (uri.startsWith('chunk://')) return <ChunkEditor uid={uri.slice('chunk://'.length)} />
   if (uri.startsWith('candidate://')) return <CandidateSetReviewEditor llmRunUid={uri.slice('candidate://'.length)} />
   if (uri.startsWith('design://')) return <DesignElementViewer uid={uri.slice('design://'.length)} />
+  if (uri.startsWith('resource://')) return <ResourceEditorPage uid={uri.slice('resource://'.length)} />
   if (uri.startsWith('trace://graph/')) {
     const [rootUid, depth, direction] = uri.slice('trace://graph/'.length).split('/')
     return <TraceGraphEditor rootUid={rootUid ?? ''} depth={Number(depth ?? 3)} direction={direction ?? 'both'} />

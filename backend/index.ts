@@ -29,6 +29,8 @@ import { registerTraceApi } from './api/trace'
 import { registerEditApi } from './api/edit'
 import { registerDataApi, registerDbToTextHook } from './api/data'
 import { registerSearchApi } from './api/search'
+import { registerResourceApi } from './api/resource'
+import { parseLlmMergeCandidate, RESOURCE_TYPE_DEFINITIONS } from './resource/resource-service'
 import { createArchive } from './export/archive-service'
 import { registerReportApi, toReportOptions } from './api/report'
 import { buildReportMarkdown, generateReport } from './report/report-service'
@@ -256,6 +258,11 @@ function main(): void {
 
     ctx.reportProgress(10, '入力チャンクを構築中')
     const chunkText = getChunkText(db, chunkUid)
+    const chunkPrompt =
+      (
+        db.prepare('SELECT additional_prompt FROM chunk WHERE uid=?').get(chunkUid) as
+          { additional_prompt: string } | undefined
+      )?.additional_prompt ?? ''
 
     const systemPrompt = [
       'あなたは設計文書から設計モデル候補を抽出するAIです。',
@@ -277,7 +284,7 @@ function main(): void {
         processName: 'design-candidates',
         messages: [
           { role: 'system', content: systemPrompt },
-          { role: 'user', content: chunkText }
+          { role: 'user', content: chunkPrompt ? chunkText + '\n\n追加指示:\n' + chunkPrompt : chunkText }
         ],
         jsonMode: true,
         inputRefUid: chunkUid,
@@ -309,6 +316,51 @@ function main(): void {
   })
 
   // ZIP アーカイブ生成ジョブ（P12-3、DATA-030。blob 量に応じて長時間化するためジョブ化）
+  // Resource EditorのLLMマージ候補。候補を返すだけで正本は保存しない（MID-005）。
+  jobs.registerExecutor('resource.mergeCandidate', async (params, ctx) => {
+    const { targetType, sources } = params as {
+      targetType: string
+      sources: Array<{ resourceUid?: string; type: string; values: Record<string, unknown> }>
+    }
+    const { db, info } = requireProject()
+    const definition = RESOURCE_TYPE_DEFINITIONS.find((candidate) => candidate.type === targetType)
+    if (!definition) throw new BackendError('validation', `未対応のResource種別です: ${targetType}`, '')
+    ctx.reportProgress(20, 'ResourceのLLMマージ候補を生成中')
+    const result = await runLlm(
+      db,
+      settings,
+      { projectUid: info.projectUid, rootPath: info.rootPath },
+      {
+        processName: 'resource-merge',
+        messages: [
+          {
+            role: 'system',
+            content:
+              'あなたは設計情報の統合支援AIです。入力Resource群を意味を失わずに統合し、指定された出力フィールドだけを持つJSONオブジェクトを返してください。説明やMarkdownは出力しないでください。'
+          },
+          {
+            role: 'user',
+            content: JSON.stringify({
+              targetType,
+              outputFields: definition.fields.map((field) => ({ name: field.name, kind: field.kind })),
+              sources
+            })
+          }
+        ],
+        jsonMode: true,
+        inputRefUid: sources[0]?.resourceUid,
+        signal: ctx.signal
+      }
+    )
+    return {
+      status: 'success',
+      output: {
+        values: parseLlmMergeCandidate(targetType, result.content),
+        warnings: [] as string[],
+        llmRunUid: result.llmRunUid
+      }
+    }
+  })
   jobs.registerExecutor('archive.create', async (params, ctx) => {
     const { name } = (params as { name?: string }) ?? {}
     const { db, info } = requireProject()
@@ -387,6 +439,7 @@ function main(): void {
   registerDataApi(router, jobs)
   registerReportApi(router, jobs)
   registerSearchApi(router, settings)
+  registerResourceApi(router, jobs)
   registerDbToTextHook()
 
   // Backend 内イベントを Renderer へ転送する（CORE-030〜032）

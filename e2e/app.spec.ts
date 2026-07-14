@@ -208,13 +208,45 @@ test('原本取込→Word抽出→レビュー→②正本確定の全経路（P
   await expect(page.getByTestId('extracted-doc-EXDOC-000001')).toBeVisible({ timeout: 60_000 })
   await expect(page.getByTestId('stage-extracted')).toContainText('1')
 
-  // 抽出レビュー Editor（P5-6）: 要素一覧 + Markdown 対照表示
+  // 抽出レビュー Editor（P5-6）: 共通要素一覧 + 構造プレビュー + Selection/Properties
+  await page.getByTestId('stage-extracted').click()
   await page.getByTestId('extracted-doc-EXDOC-000001').click()
   await expect(page.getByTestId('extraction-review-editor')).toBeVisible()
-  await expect(page.getByTestId('element-grid')).toContainText('1. 概要')
-  await expect(page.getByTestId('element-grid')).toContainText('heading')
+  const elementGrid = page.getByTestId('element-grid')
+  const rows = elementGrid.locator('tbody tr.d2d-grid-row')
+  await expect(elementGrid).toContainText('1. 概要')
+  await expect(elementGrid).toContainText('見出し')
   await expect(page.getByTestId('review-markdown')).toContainText('1.1 対象範囲')
   await expect(page.getByTestId('review-markdown')).toContainText('100ms以内')
+  await expect(page.getByTestId('review-markdown').getByRole('img')).toBeVisible()
+  await page.getByTestId('extraction-preview-structure').click()
+  await expect(page.getByTestId('extraction-structure-json')).toContainText('elements')
+  await expect(page.getByTestId('extraction-structure-json').locator('.structured-json-key').first()).toBeVisible()
+  await page.getByTestId('extraction-preview-visual').click()
+  await expect(page.getByTestId('preview-item-e1')).toHaveClass(/selected/)
+
+  // キーボード選択: ↓で次要素へ移動し、プレビューとPropertiesを同期する。
+  await rows.first().focus()
+  await page.keyboard.press('ArrowDown')
+  await expect(rows.nth(1)).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByTestId('preview-item-e2')).toHaveClass(/active/)
+  await expect(page.getByTestId('extracted-item-properties')).toContainText('e2')
+  await expect(page.getByTestId('extracted-item-properties')).toContainText('paragraph')
+
+  // Ctrlで非連続複数選択し、選択中要素だけを一括で要修正にする。
+  await rows.nth(3).click({ modifiers: ['Control'] })
+  await expect(page.getByTestId('extraction-review-editor')).toContainText('2 選択')
+  await page.getByTestId('selected-needsfix').click()
+  await expect(rows.nth(1).locator('.review-needsfix')).toBeVisible()
+  await expect(rows.nth(3).locator('.review-needsfix')).toBeVisible()
+
+  // Shiftで連続範囲を選択できる。
+  await rows.nth(5).click({ modifiers: ['Shift'] })
+  await expect(page.getByTestId('extraction-review-editor')).toContainText('3 選択')
+
+  // 状態セルはクリックごとにサイクリック更新する（未確認→確認済）。
+  await page.getByTestId('cycle-status-e1').click()
+  await expect(rows.first().locator('.review-confirmed')).toBeVisible()
 
   // 採用確定 → ②正本化（extraction.completed）
   await page.getByTestId('approve-all-button').click()
@@ -227,29 +259,217 @@ test('原本取込→Word抽出→レビュー→②正本確定の全経路（P
 })
 
 test('②→③統合・編集・確定（P7）', async () => {
-  // Explorer の「③へ統合」で intermediate_document を生成
-  await expect(page.getByTestId('compose-EXDOC-000001')).toBeVisible()
-  await page.getByTestId('compose-EXDOC-000001').click()
+  // プロジェクト設定でフェーズ・成果物を定義する
+  await page.keyboard.press('Control+Shift+P')
+  await page.getByTestId('palette-input').fill('プロジェクト設定を開く')
+  await page.keyboard.press('Enter')
+  await expect(page.getByTestId('project-settings-editor')).toBeVisible()
+  await page.evaluate(async () =>
+    window.api.invoke('project.saveArtifactSetting', { artifactName: 'フェーズ未定義成果物', artifactTypeId: 'orphan' })
+  )
+  await page.getByTestId('phase-name').fill('詳細設計')
+  await page.getByTestId('phase-id').fill('DD')
+  await page.getByTestId('phase-add').click()
+  await page.getByTestId('artifact-name').fill('統合設計書')
+  await page.getByTestId('artifact-type').fill('design_doc')
+  await page.getByTestId('artifact-phase').selectOption('DD')
+  await page.getByTestId('artifact-add').click()
+
+  // Explorer の③見出し「取込」で、取込先成果物1件と取込元②複数件を選択する
+  await expect(page.getByTestId('documents-tree')).not.toContainText('フェーズ未定義成果物')
+  await expect(page.getByTestId('documents-tree')).not.toContainText('③へ統合')
+  await expect(page.getByTestId('artifact-slot-DD-design_doc')).toBeVisible()
+  await page.getByTestId('intermediate-import-button').click()
+  const sourceDialog = page.getByTestId('intermediate-source-dialog')
+  await expect(sourceDialog).toBeVisible()
+  await expect(sourceDialog).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+  await expect(sourceDialog.getByRole('button', { name: 'キャンセル' })).toBeVisible()
+  const targetCheckbox = page.getByTestId('intermediate-target-DD-design_doc')
+  const sourceCheckbox = sourceDialog.getByTestId('intermediate-source-EXDOC-000001')
+  await expect(sourceCheckbox).toBeDisabled()
+  await targetCheckbox.check()
+  await sourceCheckbox.check()
+  await sourceDialog.getByRole('button', { name: '選択して取込' }).click()
   await expect(page.getByTestId('intermediate-doc-IMDOC-000001')).toBeVisible({ timeout: 15_000 })
   await expect(page.getByTestId('stage-intermediate')).toContainText('1')
+
+  // 既存の取込関係は、取込先成果物を選択した時点で取込元チェックへ復元する
+  await page.getByTestId('intermediate-import-button').click()
+  await page.getByTestId('intermediate-target-DD-design_doc').check()
+  await expect(page.getByTestId('intermediate-source-EXDOC-000001')).toBeChecked()
+  await page.getByTestId('intermediate-source-dialog').getByRole('button', { name: 'キャンセル' }).click()
 
   // Intermediate Document Editor を開く
   await page.getByTestId('intermediate-doc-IMDOC-000001').click()
   await expect(page.getByTestId('intermediate-editor')).toBeVisible()
   await expect(page.getByTestId('intermediate-editor')).toContainText('design_doc / DD')
+  // 空の成果物へ統合元要素を明示統合する
+  const sourceGrid = page.getByTestId('intermediate-source-grid')
+  await sourceGrid.getByRole('row').nth(1).click()
+  await sourceGrid
+    .getByRole('row')
+    .last()
+    .click({ modifiers: ['Shift'] })
+  await page.getByRole('button', { name: '選択②を最初に統合' }).click()
   await expect(page.getByTestId('intermediate-grid')).toContainText('1. 概要')
+  await expect(page.getByTestId('intermediate-source-grid').getByRole('row').nth(1)).toContainText('統合済')
+  const middleGrid = page.getByTestId('intermediate-grid')
+  await middleGrid.getByRole('row').nth(1).getByTitle('クリックで状態を切替').click()
+  await expect(middleGrid.getByRole('row').nth(1)).toContainText('確認済')
+  for (let i = 0; i < 3; i++) await middleGrid.getByRole('row').nth(1).getByTitle('クリックで状態を切替').click()
+  await expect(middleGrid.getByRole('row').nth(1)).toContainText('未確認')
+  await middleGrid.getByRole('row').nth(1).focus()
+  await page.keyboard.press('ArrowDown')
+  await expect(middleGrid.getByRole('row').nth(2)).toHaveAttribute('aria-selected', 'true')
+  await expect(middleGrid.getByRole('row').nth(1)).toHaveAttribute('aria-selected', 'false')
   await expect(page.getByTestId('intermediate-markdown')).toContainText('対象項目その1')
+  await page.getByTestId('intermediate-preview-structure').click()
+  await expect(page.getByTestId('intermediate-structure-json')).toContainText('sources')
+  await expect(page.getByTestId('intermediate-structure-json').locator('.structured-json-key').first()).toBeVisible()
+  await page.getByTestId('intermediate-preview-visual').click()
 
-  // 要素編集（新ID割当・由来追跡）: 段落を選択して編集
-  await page.getByTestId('intermediate-grid').getByText('本書はテスト用の仕様書である。要求REQ-001を含む。').click()
-  await page.getByTestId('element-toolbar').getByRole('button', { name: '編集', exact: true }).click()
-  await page.getByTestId('edit-textarea').fill('本書はテスト用の仕様書である。要求REQ-001および要求REQ-002を含む。')
-  await page.getByTestId('edit-save').click()
+  // Resource編集（新ID割当・由来追跡）: item_typeを表示し、resource_text固有項目を編集
+  const textRow = page
+    .getByTestId('intermediate-grid')
+    .getByRole('row')
+    .filter({ hasText: '本書はテスト用の仕様書である。要求REQ-001を含む。' })
+  await expect(textRow).toContainText('テキスト')
+  await textRow.click()
+  await page.getByTestId('element-edit-open').click()
+  await expect(page.getByTestId('resource-edit-dialog')).toBeVisible()
+  await expect(page.getByTestId('resource-merge-source')).toContainText('抽出元')
+  await expect(page.getByTestId('resource-merge-target')).toBeVisible()
+  await page.getByTestId('resource-rule-merge').click()
+  await page
+    .getByTestId('resource-merge-target')
+    .getByTestId('resource-field-text_body')
+    .fill('本書はテスト用の仕様書である。要求REQ-001および要求REQ-002を含む。')
+  await expect(page.getByTestId('resource-save')).toHaveText('元Resourceを保護して新Resourceとして保存')
+  await page.getByTestId('resource-save').click()
+  await expect(page.getByTestId('resource-edit-dialog')).toHaveCount(0)
   await expect(page.getByTestId('intermediate-markdown')).toContainText('REQ-002')
+  await expect(
+    page.getByTestId('intermediate-markdown').getByRole('button', { name: 'テキスト' }).first()
+  ).toBeVisible()
+
+  // 中間データ単独編集: 2ペイン切替、任意位置追加、Enter/ダブルクリック編集、複製、削除
+  await page.getByTestId('intermediate-mode-standalone').click()
+  await expect(page.getByTestId('intermediate-standalone-layout')).toBeVisible()
+  await expect(page.getByTestId('intermediate-source-grid')).toHaveCount(0)
+  await page.getByTestId('element-add-below').click()
+  await page.getByTestId('edit-textarea').fill('単独編集で追加した要素')
+  await page.getByTestId('edit-save').click()
+  await expect(middleGrid).toContainText('単独編集で追加した要素')
+
+  const addedRow = middleGrid.getByRole('row').filter({ hasText: '単独編集で追加した要素' })
+  await addedRow.focus()
+  await page.keyboard.press('Enter')
+  await expect(page.getByTestId('resource-edit-dialog')).toBeVisible()
+  await expect(page.getByTestId('resource-save')).toHaveText('同じResourceへ上書き保存')
+  await page
+    .getByTestId('resource-merge-target')
+    .getByTestId('resource-field-text_body')
+    .fill('単独編集で追加した要素（上書き）')
+  await page.getByTestId('resource-save').click()
+  await expect(page.getByTestId('resource-edit-dialog')).toHaveCount(0)
+  const overwrittenRow = middleGrid.getByRole('row').filter({ hasText: '単独編集で追加した要素（上書き）' })
+  await overwrittenRow.focus()
+  await page.keyboard.press('Enter')
+  await expect(page.getByTestId('resource-edit-dialog')).toBeVisible()
+  await page.getByTestId('resource-type-select').selectOption('resource_label')
+  await expect(page.getByTestId('resource-save')).toHaveText('旧Resourceを削除して新Resourceとして保存')
+  await page.getByTestId('resource-field-label_text').fill('単独編集で追加した見出し')
+  await page.getByTestId('resource-field-label_kind').selectOption('section')
+  await page.getByTestId('resource-save').click()
+  await expect(page.getByTestId('resource-loss-confirm')).toContainText('本文')
+  await page.getByTestId('resource-loss-confirm-apply').click()
+  const headingRow = middleGrid.getByRole('row').filter({ hasText: '単独編集で追加した見出し' })
+  await expect(headingRow).toContainText('ラベル')
+  await headingRow.dblclick()
+  await expect(page.getByTestId('resource-edit-dialog')).toBeVisible()
+  await page.getByTestId('resource-edit-dialog').getByRole('button', { name: '閉じる' }).click()
+
+  const rowsBeforeDuplicate = await middleGrid.getByRole('row').count()
+  await headingRow.click()
+  await page.getByTestId('element-duplicate').click()
+  await expect(middleGrid.getByRole('row')).toHaveCount(rowsBeforeDuplicate + 1)
+  await page.getByTestId('element-delete').click()
+  await expect(middleGrid.getByRole('row')).toHaveCount(rowsBeforeDuplicate)
+  // 後続テストが参照するi2を保ったまま、Ctrl非連続選択を表示順先頭へマージする
+  await middleGrid.getByRole('row').nth(1).click()
+  for (const text of ['複数マージA', '選択しない中間行', '複数マージC']) {
+    await page.getByTestId('element-add-below').click()
+    await page.getByTestId('edit-textarea').fill(text)
+    await page.getByTestId('edit-save').click()
+  }
+  const mergeRowA = middleGrid.getByRole('row').filter({ hasText: '複数マージA' })
+  const mergeRowC = middleGrid.getByRole('row').filter({ hasText: '複数マージC' })
+  await mergeRowA.click()
+  await mergeRowC.click({ modifiers: ['Control'] })
+  await expect(page.getByTestId('merge-button')).toBeVisible()
+  await page.getByTestId('merge-button').click()
+  await expect(middleGrid).toContainText('複数マージA')
+  await expect(middleGrid).toContainText('複数マージC')
+  await expect(middleGrid).toContainText('選択しない中間行')
+  await page.getByTestId('intermediate-mode-import').click()
+  await expect(page.getByTestId('intermediate-import-layout')).toBeVisible()
+  await expect(page.getByTestId('intermediate-source-grid')).toBeVisible()
 
   // ③正本確定 → intermediate.updated
   await page.getByTestId('intermediate-approve').click()
   await expect(page.getByTestId('intermediate-approve')).toContainText('正本確定済み')
+  const approvedIntermediate = await page.evaluate(async () =>
+    window.api.invoke<{ elements: { review?: { status: string } }[] }>('intermediate.get', {
+      uid: (await window.api.invoke<{ uid: string }[]>('intermediate.list')).ok
+        ? ((await window.api.invoke<{ uid: string }[]>('intermediate.list')) as { ok: true; result: { uid: string }[] })
+            .result[0]!.uid
+        : ''
+    })
+  )
+  expect(
+    approvedIntermediate.ok && approvedIntermediate.result.elements.every((item) => item.review?.status !== 'draft')
+  ).toBe(true)
+
+  // 中間画面外からResourceを指定して共通Editor Providerを開ける
+  await page.getByTestId('activity-search').click()
+  await page.getByTestId('search-input').fill('REQ-002')
+  await page.getByTestId('search-entity-type').selectOption('resource_text')
+  await page.getByTestId('search-sidebar').getByRole('button', { name: '検索' }).click()
+  await expect(page.getByTestId('search-results')).toContainText('REQ-002')
+  await page.getByTestId('search-results').getByText('REQ-002', { exact: false }).first().click()
+  await expect(page.getByTestId('resource-editor')).toBeVisible()
+  await expect(page.getByTestId('resource-type-select')).toHaveValue('resource_text')
+
+  // 成果物単位のチャンク編集: 確認済み行を選択し、追加プロンプト付きで作成する
+  await page.getByTestId('activity-explorer').click()
+  if (
+    !(await page
+      .getByTestId('documents-tree')
+      .isVisible()
+      .catch(() => false))
+  ) {
+    await page.getByTestId('activity-explorer').click()
+  }
+  await expect(page.getByTestId('intermediate-doc-IMDOC-000001').getByRole('button')).toHaveText(['チャンク'])
+  await page.getByTestId('chunks-IMDOC-000001').click()
+  await expect(page.getByTestId('chunk-editor')).toBeVisible()
+  await expect(page.getByTestId('chunk-source-i1').getByRole('checkbox')).toHaveCount(0)
+  await page.getByTestId('chunk-source-i1').click()
+  await page.getByRole('button', { name: 'チャンク作成' }).click()
+  await expect(page.getByTestId('chunk-editor')).toContainText('1')
+  await expect(
+    page.getByTestId('chunk-editor').locator('.chunk-grid').nth(1).locator('tbody tr').first()
+  ).toHaveAttribute('aria-selected', 'true')
+  const createdChunkRow = page.getByTestId('chunk-editor').locator('.chunk-grid').nth(1).locator('tbody tr').first()
+  await expect(createdChunkRow).toHaveClass(/chunk-row-selected/)
+  await expect(page.getByTestId('chunk-source-i1')).toHaveClass(/chunk-row-related/)
+  await page.getByTestId('chunk-source-i1').click()
+  await expect(page.getByTestId('chunk-source-i1')).toHaveClass(/chunk-row-selected/)
+  await expect(createdChunkRow).toHaveClass(/chunk-row-related/)
+  await page.getByTestId('chunk-prompt-edit').click()
+  await page.getByLabel('追加プロンプト').fill('安全性の観点を優先すること')
+  await page.getByTestId('chunk-prompt-editor').getByRole('button', { name: '保存' }).click()
+  await expect(page.getByTestId('chunk-editor')).toContainText('安全性の観点を優先すること')
 })
 
 test('LLM 実行（モック Ollama）→ ログビューまでの全経路（P6）', async () => {
@@ -515,7 +735,11 @@ test('編集機能: 用語集・状態遷移・表編集・検証編集（P10）
   await expect(page.getByTestId('intermediate-markdown').locator('mark.d2d-term').first()).toHaveText('対象項目')
 
   // --- 表編集（P10-2）: セル修正→保存→Markdown へ反映（EDIT-022） ---
-  await page.getByTestId('intermediate-grid').getByText('table', { exact: true }).click()
+  await page
+    .getByTestId('intermediate-grid')
+    .getByRole('row')
+    .filter({ has: page.getByRole('button', { name: '表', exact: true }) })
+    .click()
   await page.getByTestId('edit-table-button').click()
   await expect(page.getByTestId('table-cell-editor')).toBeVisible()
   await page.getByTestId('cell-1-1').fill('150ms以内')

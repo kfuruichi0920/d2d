@@ -86,6 +86,7 @@ function resourceUri(db: Database, type: string, uid: string): string {
   if (type === 'extracted_document') return `extracted://${uid}`
   if (type === 'intermediate_document') return `intermediate://${uid}`
   if (type === 'resource_glossary' || type === 'resource_glossary_synonym') return 'glossary://workspace'
+  if (type.startsWith('resource_')) return `resource://${uid}`
   const intermediate = db
     .prepare(`SELECT intermediate_document_uid FROM intermediate_item WHERE resource_uid = ? LIMIT 1`)
     .get(uid) as { intermediate_document_uid: string } | undefined

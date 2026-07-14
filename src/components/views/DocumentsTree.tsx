@@ -27,6 +27,20 @@ export interface ExtractedDocumentItem {
   source_document_uid: string
 }
 
+interface ArtifactSetting {
+  uid: string
+  artifact_name: string
+  artifact_type_id: string
+  dev_phase_id: string | null
+  is_active: number
+}
+interface DevPhaseSetting {
+  uid: string
+  dev_phase_id: string
+  dev_phase_name: string
+  is_active: number
+}
+
 export interface IntermediateDocumentItem {
   uid: string
   code: string
@@ -35,24 +49,34 @@ export interface IntermediateDocumentItem {
   artifact_type_id: string
   dev_phase_id: string
   item_count: number
+  sources?: { extracted_document_uid: string; order: number }[]
 }
 
 export function DocumentsTree(): React.JSX.Element {
   const [sources, setSources] = useState<SourceDocumentItem[]>([])
   const [extracted, setExtracted] = useState<ExtractedDocumentItem[]>([])
   const [intermediates, setIntermediates] = useState<IntermediateDocumentItem[]>([])
+  const [artifacts, setArtifacts] = useState<ArtifactSetting[]>([])
+  const [phases, setPhases] = useState<DevPhaseSetting[]>([])
+  const [importDialogOpen, setImportDialogOpen] = useState(false)
+  const [selectedArtifactUid, setSelectedArtifactUid] = useState<string | null>(null)
+  const [selectedSources, setSelectedSources] = useState<Set<string>>(new Set())
   const openResource = useEditorStore((s) => s.openResource)
   const notify = useJobsStore((s) => s.notify)
 
   const refresh = useCallback(async () => {
-    const [docs, exts, mids] = await Promise.all([
+    const [docs, exts, mids, arts, devs] = await Promise.all([
       invoke<SourceDocumentItem[]>('document.list'),
       invoke<ExtractedDocumentItem[]>('extracted.list'),
-      invoke<IntermediateDocumentItem[]>('intermediate.list')
+      invoke<IntermediateDocumentItem[]>('intermediate.list'),
+      invoke<ArtifactSetting[]>('project.listArtifactSettings'),
+      invoke<DevPhaseSetting[]>('project.listDevPhases')
     ])
     if (docs.ok) setSources(docs.result)
     if (exts.ok) setExtracted(exts.result)
     if (mids.ok) setIntermediates(mids.result)
+    if (arts.ok) setArtifacts(arts.result)
+    if (devs.ok) setPhases(devs.result)
   }, [])
 
   useEffect(() => {
@@ -126,52 +150,225 @@ export function DocumentsTree(): React.JSX.Element {
           <ReviewStatusBadge status={reviewStateFromEntityStatus(doc.status)} />
           <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{doc.title ?? doc.code}</span>
           <span style={{ color: 'var(--d2d-fg-muted)', fontSize: 11 }}>{doc.item_count}要素</span>
-          {doc.status === 'approved' && (
-            <button
-              type="button"
-              className="d2d-btn small"
-              title="承認済み②から③中間データ（統合設計書）を生成"
-              data-testid={`compose-${doc.code}`}
-              onClick={(e) => {
-                e.stopPropagation()
-                void composeIntermediate(doc.uid)
-              }}
-            >
-              ③へ統合
-            </button>
-          )}
         </div>
       ))}
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 4px 2px' }}>
         <span style={{ fontWeight: 700 }}>③中間データ</span>
         <span style={{ color: 'var(--d2d-fg-muted)' }}>{intermediates.length}</span>
-      </div>
-      {intermediates.map((doc) => (
-        <div
-          key={doc.uid}
-          className="d2d-list-row"
-          data-testid={`intermediate-doc-${doc.code}`}
-          onClick={() => openResource(`intermediate://${doc.uid}`, `③: ${doc.title ?? doc.code}`, { preview: true })}
+        <span style={{ flex: 1 }} />
+        <button
+          type="button"
+          className="d2d-btn small"
+          data-testid="intermediate-import-button"
+          onClick={() => {
+            setSelectedArtifactUid(null)
+            setSelectedSources(new Set())
+            setImportDialogOpen(true)
+          }}
         >
-          <ReviewStatusBadge status={reviewStateFromEntityStatus(doc.status)} />
-          <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{doc.title ?? doc.code}</span>
-          <span style={{ color: 'var(--d2d-fg-muted)', fontSize: 11 }}>
-            {doc.artifact_type_id}/{doc.dev_phase_id}
-          </span>
+          取込
+        </button>
+      </div>
+      {phases
+        .filter((p) => p.is_active === 1)
+        .map((phase) => (
+          <div key={phase.uid} data-testid={`phase-${phase.dev_phase_id}`}>
+            <div style={{ padding: '5px 4px 2px', fontWeight: 600 }}>▾ {phase.dev_phase_name}</div>
+            {artifacts
+              .filter((a) => a.is_active === 1 && a.dev_phase_id === phase.dev_phase_id)
+              .map((artifact) => {
+                const doc = intermediates.find(
+                  (m) => m.dev_phase_id === phase.dev_phase_id && m.artifact_type_id === artifact.artifact_type_id
+                )
+                const sourceIds = doc?.sources?.map((x) => x.extracted_document_uid) ?? []
+                return (
+                  <div
+                    key={artifact.uid}
+                    data-testid={
+                      doc
+                        ? `intermediate-doc-${doc.code}`
+                        : `artifact-slot-${phase.dev_phase_id}-${artifact.artifact_type_id}`
+                    }
+                    style={{ paddingLeft: 14, marginBottom: 3 }}
+                  >
+                    <div
+                      className="d2d-list-row"
+                      style={{ paddingLeft: 0, alignItems: 'center' }}
+                      onClick={() =>
+                        doc &&
+                        openResource(`intermediate://${doc.uid}`, `③: ${doc.title ?? artifact.artifact_name}`, {
+                          preview: true
+                        })
+                      }
+                    >
+                      {doc && <ReviewStatusBadge status={reviewStateFromEntityStatus(doc.status)} />}
+                      <span style={{ flex: 1, minWidth: 0, fontWeight: 500 }}>{artifact.artifact_name}</span>
+                      {doc && (
+                        <button
+                          type="button"
+                          className="d2d-btn small"
+                          data-testid={`chunks-${doc.code}`}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            openResource(`chunk://${doc.uid}`, `チャンク: ${doc.title ?? artifact.artifact_name}`, {
+                              preview: false
+                            })
+                          }}
+                        >
+                          チャンク
+                        </button>
+                      )}
+                    </div>
+                    <div
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        padding: '1px 4px 3px 24px',
+                        color: 'var(--d2d-fg-muted)',
+                        fontSize: 11,
+                        overflowWrap: 'anywhere'
+                      }}
+                    >
+                      {sourceIds.length === 0 ? (
+                        <span>↳ 統合元未選択</span>
+                      ) : (
+                        sourceIds.map((id) => (
+                          <span key={id}>↳ {extracted.find((x) => x.uid === id)?.title ?? id}</span>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+          </div>
+        ))}
+      {importDialogOpen && (
+        <div
+          role="dialog"
+          data-testid="intermediate-source-dialog"
+          style={{
+            position: 'fixed',
+            inset: '12% 20%',
+            zIndex: 20,
+            background: 'var(--d2d-surface-raised)',
+            color: 'var(--d2d-fg)',
+            border: '1px solid var(--d2d-border)',
+            borderRadius: 'var(--d2d-radius)',
+            padding: 16,
+            boxShadow: '0 8px 30px #0008',
+            overflow: 'auto'
+          }}
+        >
+          <h3 style={{ marginTop: 0 }}>③中間データへ取込</h3>
+          <section data-testid="intermediate-import-targets">
+            <b>取込先（③中間データの成果物・1件選択）</b>
+            {phases
+              .filter((phase) => phase.is_active === 1)
+              .flatMap((phase) =>
+                artifacts
+                  .filter((artifact) => artifact.is_active === 1 && artifact.dev_phase_id === phase.dev_phase_id)
+                  .map((artifact) => {
+                    const checked = selectedArtifactUid === artifact.uid
+                    return (
+                      <label key={artifact.uid} style={{ display: 'block', padding: 6 }}>
+                        <input
+                          type="checkbox"
+                          data-testid={`intermediate-target-${phase.dev_phase_id}-${artifact.artifact_type_id}`}
+                          checked={checked}
+                          onChange={(event) => {
+                            if (!event.target.checked) {
+                              setSelectedArtifactUid(null)
+                              setSelectedSources(new Set())
+                              return
+                            }
+                            const existing = intermediates.find(
+                              (doc) =>
+                                doc.dev_phase_id === phase.dev_phase_id &&
+                                doc.artifact_type_id === artifact.artifact_type_id
+                            )
+                            setSelectedArtifactUid(artifact.uid)
+                            setSelectedSources(
+                              new Set(existing?.sources?.map((source) => source.extracted_document_uid) ?? [])
+                            )
+                          }}
+                        />{' '}
+                        {phase.dev_phase_name} / {artifact.artifact_name}
+                      </label>
+                    )
+                  })
+              )}
+          </section>
+          <section data-testid="intermediate-import-sources" style={{ marginTop: 12 }}>
+            <b>取込元（②抽出データ・複数選択可）</b>
+            {extracted
+              .filter((item) => item.status === 'approved')
+              .map((item) => (
+                <label key={item.uid} style={{ display: 'block', padding: 6 }}>
+                  <input
+                    type="checkbox"
+                    data-testid={`intermediate-source-${item.code}`}
+                    disabled={!selectedArtifactUid}
+                    checked={selectedSources.has(item.uid)}
+                    onChange={(event) =>
+                      setSelectedSources((current) => {
+                        const next = new Set(current)
+                        if (event.target.checked) next.add(item.uid)
+                        else next.delete(item.uid)
+                        return next
+                      })
+                    }
+                  />{' '}
+                  {item.title ?? item.code}
+                </label>
+              ))}
+          </section>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
+            <button className="d2d-btn" onClick={() => setImportDialogOpen(false)}>
+              キャンセル
+            </button>
+            <button
+              className="d2d-btn primary"
+              disabled={!selectedArtifactUid || selectedSources.size === 0}
+              onClick={() => void saveArtifactSources()}
+            >
+              選択して取込
+            </button>
+          </div>
         </div>
-      ))}
-
+      )}
       <DesignModelTree />
     </div>
   )
 
-  async function composeIntermediate(extractedUid: string): Promise<void> {
-    const res = await invoke<{ code: string }>('intermediate.create', { extractedDocumentUids: [extractedUid] })
+  async function saveArtifactSources(): Promise<void> {
+    const artifact = artifacts.find((item) => item.uid === selectedArtifactUid)
+    const phase = artifact ? phases.find((item) => item.dev_phase_id === artifact.dev_phase_id) : undefined
+    if (!artifact || !phase || selectedSources.size === 0) return
+
+    const existing = intermediates.find(
+      (doc) => doc.dev_phase_id === phase.dev_phase_id && doc.artifact_type_id === artifact.artifact_type_id
+    )
+    const res = existing
+      ? await invoke<{ sourceCount: number }>('intermediate.updateSources', {
+          uid: existing.uid,
+          extractedDocumentUids: [...selectedSources]
+        })
+      : await invoke<{ code: string }>('intermediate.create', {
+          extractedDocumentUids: [...selectedSources],
+          artifactTypeId: artifact.artifact_type_id,
+          devPhaseId: phase.dev_phase_id,
+          title: artifact.artifact_name,
+          importItems: false
+        })
     if (res.ok) {
-      notify('info', `③中間データを生成しました: ${res.result.code}`)
+      notify('info', existing ? '③中間データの取込元を更新しました' : '③中間データを作成しました')
+      setImportDialogOpen(false)
+      setSelectedArtifactUid(null)
+      setSelectedSources(new Set())
+      await refresh()
     } else {
-      notify('error', '③中間データを生成できませんでした', res.error.message)
+      notify('error', '③中間データへ取込できませんでした', res.error.message)
     }
   }
 }

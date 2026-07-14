@@ -50,6 +50,42 @@ export const MIGRATIONS: Migration[] = [
         CREATE INDEX IF NOT EXISTS idx_resource_table_cell_table ON resource_table_cell(table_uid, row_no, col_no);
       `)
     }
+  },
+  {
+    // P7-1: 成果物は開発フェーズ配下に所属する。既存行は未割当として移行し、UIで再設定する。
+    version: '1.2.0',
+    description: '成果物設定への開発フェーズ紐付け追加（P7-1）',
+    apply(db) {
+      const columns = db.prepare(`PRAGMA table_info(project_artifact_setting)`).all() as { name: string }[]
+      if (!columns.some((column) => column.name === 'dev_phase_id'))
+        db.exec(`ALTER TABLE project_artifact_setting ADD COLUMN dev_phase_id TEXT;`)
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_project_artifact_setting_phase ON project_artifact_setting(project_uid, dev_phase_id, sort_order);`
+      )
+    }
+  },
+  {
+    // P7-5 / MID-032: チャンクごとの補足プロンプトをDB正本として保持する。
+    version: '1.3.0',
+    description: 'チャンク追加プロンプトの追加（MID-032）',
+    apply(db) {
+      const columns = db.prepare('PRAGMA table_info(chunk)').all() as { name: string }[]
+      if (!columns.some((column) => column.name === 'additional_prompt'))
+        db.exec("ALTER TABLE chunk ADD COLUMN additional_prompt TEXT NOT NULL DEFAULT '';")
+    }
+  },
+  {
+    // P7-5: チャンクIDを変えずに成果物内の表示順を編集する。
+    version: '1.4.0',
+    description: 'チャンク表示順の追加（MID-031）',
+    apply(db) {
+      const columns = db.prepare('PRAGMA table_info(chunk)').all() as { name: string }[]
+      if (!columns.some((column) => column.name === 'sort_order'))
+        db.exec('ALTER TABLE chunk ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0 CHECK (sort_order >= 0);')
+      db.exec(
+        'UPDATE chunk SET sort_order = (SELECT ranked.rn - 1 FROM (SELECT c2.uid, ROW_NUMBER() OVER (PARTITION BY c2.intermediate_document_uid ORDER BY c2.created_at, e.code) AS rn FROM chunk c2 JOIN entity_registry e ON e.uid=c2.uid) ranked WHERE ranked.uid=chunk.uid)'
+      )
+    }
   }
 ]
 

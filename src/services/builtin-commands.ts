@@ -142,9 +142,17 @@ export function registerBuiltinCommands(): void {
 
   registerCommand({
     id: 'settings.open',
-    title: '設定を開く',
+    title: 'ツール設定を開く',
     category: '設定',
-    run: () => editor().openResource('settings://workspace', '設定')
+    run: () => editor().openResource('settings://tool', 'ツール設定')
+  })
+
+  registerCommand({
+    id: 'projectSettings.open',
+    title: 'プロジェクト設定を開く',
+    category: '設定',
+    isEnabled: (ctx) => ctx.hasProject,
+    run: () => editor().openResource('project-settings://current', 'プロジェクト設定')
   })
 
   registerCommand({

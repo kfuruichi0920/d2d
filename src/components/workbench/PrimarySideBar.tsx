@@ -89,14 +89,23 @@ function ExplorerView(): React.JSX.Element {
 }
 
 function SettingsShortcutView(): React.JSX.Element {
+  const hasProject = useProjectStore((s) => s.project !== null)
   return (
-    <div style={{ padding: 8 }}>
+    <div style={{ padding: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
       <button
         type="button"
         className="d2d-btn"
         onClick={() => void executeCommand('settings.open', undefined, getCommandContext())}
       >
-        設定エディタを開く
+        ツール設定を開く
+      </button>
+      <button
+        type="button"
+        className="d2d-btn"
+        disabled={!hasProject}
+        onClick={() => void executeCommand('projectSettings.open', undefined, getCommandContext())}
+      >
+        プロジェクト設定を開く
       </button>
     </div>
   )

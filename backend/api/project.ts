@@ -1,10 +1,13 @@
 import type { ApiRouter } from './router'
 import { BackendError } from './errors'
+import { eventBus } from '../events/event-bus'
 import { closeProject, createProject, currentProject, openProject, requireProject } from '../project/project-service'
 import {
   addArtifactRelation,
   deactivateArtifactRelation,
   deactivateArtifactSetting,
+  deleteArtifactSetting,
+  deleteDevPhase,
   listArtifactRelations,
   listArtifactSettings,
   listDevPhases,
@@ -95,13 +98,16 @@ export function registerProjectApi(router: ApiRouter): void {
   router.register('project.saveArtifactSetting', (params) => {
     const p = asRecord(params)
     const { db, info } = requireProject()
-    return saveArtifactSetting(db, info.projectUid, {
+    const saved = saveArtifactSetting(db, info.projectUid, {
       uid: p.uid === undefined ? undefined : String(p.uid),
       artifactName: String(p.artifactName ?? ''),
       artifactTypeId: String(p.artifactTypeId ?? ''),
+      devPhaseId: p.devPhaseId === undefined ? undefined : String(p.devPhaseId),
       sortOrder: p.sortOrder === undefined ? undefined : Number(p.sortOrder),
       isActive: p.isActive === undefined ? undefined : Boolean(p.isActive)
     } satisfies SaveArtifactSettingInput)
+    eventBus.emit('artifact.updated', { kind: 'artifact-setting' })
+    return saved
   })
 
   router.register('project.deactivateArtifactSetting', (params) => {
@@ -109,6 +115,22 @@ export function registerProjectApi(router: ApiRouter): void {
     const { db, info } = requireProject()
     deactivateArtifactSetting(db, info.projectUid, String(p.uid ?? ''))
     return { deactivated: true }
+  })
+
+  router.register('project.deleteArtifactSetting', (params) => {
+    const p = asRecord(params)
+    const { db, info } = requireProject()
+    const result = deleteArtifactSetting(db, info.projectUid, String(p.uid ?? ''))
+    eventBus.emit('artifact.updated', { kind: 'artifact-deleted' })
+    return result
+  })
+
+  router.register('project.deleteDevPhase', (params) => {
+    const p = asRecord(params)
+    const { db, info } = requireProject()
+    const result = deleteDevPhase(db, info.projectUid, String(p.uid ?? ''))
+    eventBus.emit('artifact.updated', { kind: 'phase-deleted' })
+    return result
   })
 
   router.register('project.listArtifactRelations', () => {
@@ -141,12 +163,14 @@ export function registerProjectApi(router: ApiRouter): void {
   router.register('project.saveDevPhase', (params) => {
     const p = asRecord(params)
     const { db, info } = requireProject()
-    return saveDevPhase(db, info.projectUid, {
+    const saved = saveDevPhase(db, info.projectUid, {
       uid: p.uid === undefined ? undefined : String(p.uid),
       devPhaseId: String(p.devPhaseId ?? ''),
       devPhaseName: String(p.devPhaseName ?? ''),
       sortOrder: p.sortOrder === undefined ? undefined : Number(p.sortOrder),
       isActive: p.isActive === undefined ? undefined : Boolean(p.isActive)
     } satisfies SaveDevPhaseInput)
+    eventBus.emit('artifact.updated', { kind: 'dev-phase-setting' })
+    return saved
   })
 }

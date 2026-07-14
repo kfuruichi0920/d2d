@@ -20,7 +20,12 @@ export interface VirtualDataGridProps<T> {
   data: T[]
   rowHeight?: number
   height?: number | string
-  onRowClick?: (row: T) => void
+  onRowClick?: (row: T, event: React.MouseEvent<HTMLTableRowElement>) => void
+  onRowKeyDown?: (row: T, event: React.KeyboardEvent<HTMLTableRowElement>) => void
+  selectedRowIds?: ReadonlySet<string>
+  activeRowId?: string | null
+  relatedRowIds?: ReadonlySet<string>
+  isRowDisabled?: (row: T) => boolean
   getRowId?: (row: T, index: number) => string
   testId?: string
 }
@@ -31,6 +36,11 @@ export function VirtualDataGrid<T>({
   rowHeight = 26,
   height = '100%',
   onRowClick,
+  onRowKeyDown,
+  selectedRowIds,
+  activeRowId,
+  relatedRowIds,
+  isRowDisabled,
   getRowId,
   testId
 }: VirtualDataGridProps<T>): React.JSX.Element {
@@ -61,7 +71,7 @@ export function VirtualDataGrid<T>({
       data-testid={testId}
       style={{ height, overflow: 'auto', border: '1px solid var(--d2d-border)', borderRadius: 'var(--d2d-radius)' }}
     >
-      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+      <table style={{ width: 'max-content', minWidth: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
         <thead
           style={{
             position: 'sticky',
@@ -100,8 +110,31 @@ export function VirtualDataGrid<T>({
             return (
               <tr
                 key={row.id}
-                onClick={() => onRowClick?.(row.original)}
-                style={{ height: rowHeight, cursor: onRowClick ? 'pointer' : 'default' }}
+                onClick={(event) => onRowClick?.(row.original, event)}
+                onKeyDown={(event) => onRowKeyDown?.(row.original, event)}
+                tabIndex={onRowKeyDown ? 0 : undefined}
+                aria-selected={selectedRowIds?.has(row.id) ?? false}
+                aria-disabled={isRowDisabled?.(row.original) ?? false}
+                data-row-id={row.id}
+                style={{
+                  height: rowHeight,
+                  cursor: isRowDisabled?.(row.original) ? 'not-allowed' : onRowClick ? 'pointer' : 'default',
+                  opacity: isRowDisabled?.(row.original) ? 0.5 : 1,
+                  background: selectedRowIds?.has(row.id)
+                    ? row.id === activeRowId
+                      ? 'var(--d2d-selection-bg)'
+                      : 'color-mix(in srgb, var(--d2d-selection-bg) 65%, transparent)'
+                    : relatedRowIds?.has(row.id)
+                      ? 'color-mix(in srgb, var(--d2d-warning) 22%, var(--d2d-surface-raised))'
+                      : undefined,
+                  outline:
+                    row.id === activeRowId
+                      ? '1px solid var(--d2d-accent)'
+                      : relatedRowIds?.has(row.id)
+                        ? '1px dashed var(--d2d-warning)'
+                        : undefined,
+                  outlineOffset: -1
+                }}
                 className="d2d-grid-row"
               >
                 {row.getVisibleCells().map((cell) => (

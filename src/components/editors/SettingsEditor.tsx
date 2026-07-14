@@ -78,7 +78,7 @@ export function SettingsEditor(): React.JSX.Element {
 
   return (
     <div style={{ padding: 20, maxWidth: 640 }} data-testid="settings-editor">
-      <h1 style={{ fontSize: 18, marginTop: 0 }}>設定</h1>
+      <h1 style={{ fontSize: 18, marginTop: 0 }}>ツール設定</h1>
 
       <h2 style={{ fontSize: 14 }}>テーマ（UI-001 / UI-027）</h2>
       <div style={rowStyle}>
@@ -160,10 +160,10 @@ export function SettingsEditor(): React.JSX.Element {
         </button>
       </div>
 
-      {hasProject && <LlmSettingsSection />}
+      {hasProject && <LlmSettingsSection showExternalSend={false} />}
       {!hasProject && (
         <p style={{ color: 'var(--d2d-fg-muted)', marginTop: 20 }}>
-          LLM Provider 設定はプロジェクトを開くと表示されます（外部送信可否はプロジェクト単位のため）。
+          LLM Provider 設定はプロジェクトを開くと表示されます。外部送信可否は「プロジェクト設定」で管理します。
         </p>
       )}
     </div>

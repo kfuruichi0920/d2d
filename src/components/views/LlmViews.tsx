@@ -29,7 +29,7 @@ interface LlmPreview {
 const PROVIDERS = ['ollama', 'openai', 'gemini', 'azure']
 
 /** Settings Editor 内の LLM Provider 設定（LLM-005、V-12） */
-export function LlmSettingsSection(): React.JSX.Element {
+export function LlmSettingsSection({ showExternalSend = true }: { showExternalSend?: boolean }): React.JSX.Element {
   const [config, setConfig] = useState<LlmSettings | null>(null)
   const [preview, setPreview] = useState<LlmPreview | null>(null)
   const notify = useJobsStore((s) => s.notify)
@@ -137,16 +137,18 @@ export function LlmSettingsSection(): React.JSX.Element {
           onChange={(e) => void setSetting('llm.preferLocal', e.target.checked)}
         />
       </div>
-      <div style={rowStyle}>
-        <label style={labelStyle}>外部送信可否（LLM-042）</label>
-        <input
-          type="checkbox"
-          data-testid="llm-external-allowed"
-          checked={config.externalSendAllowed}
-          onChange={(e) => void setProjectAllowed(e.target.checked)}
-        />
-        <span style={{ color: 'var(--d2d-fg-muted)', fontSize: 11 }}>プロジェクト単位・既定は不可</span>
-      </div>
+      {showExternalSend && (
+        <div style={rowStyle}>
+          <label style={labelStyle}>外部送信可否（LLM-042）</label>
+          <input
+            type="checkbox"
+            data-testid="llm-external-allowed"
+            checked={config.externalSendAllowed}
+            onChange={(e) => void setProjectAllowed(e.target.checked)}
+          />
+          <span style={{ color: 'var(--d2d-fg-muted)', fontSize: 11 }}>プロジェクト単位・既定は不可</span>
+        </div>
+      )}
       {config.external && !config.hasApiKey && (
         <p style={{ color: 'var(--d2d-warning)', fontSize: 11.5 }}>
           APIキー未登録です。上の「機密情報」で {config.provider}_api_key を登録してください。

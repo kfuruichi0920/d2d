@@ -8,6 +8,8 @@ import {
   addArtifactRelation,
   deactivateArtifactRelation,
   deactivateArtifactSetting,
+  deleteArtifactSetting,
+  deleteDevPhase,
   listArtifactRelations,
   listArtifactSettings,
   listDevPhases,
@@ -48,6 +50,24 @@ describe('プロジェクト設定 CRUD（P2-1、CORE-012）', () => {
     const list = listArtifactSettings(db, projectUid)
     expect(list).toHaveLength(1)
     expect(list[0]!.is_active).toBe(0)
+  })
+
+  it('成果物を開発フェーズへ紐付け、成果物・フェーズを物理削除できる', () => {
+    const phase = saveDevPhase(db, projectUid, { devPhaseId: 'DD', devPhaseName: '詳細設計' })
+    const artifact = saveArtifactSetting(db, projectUid, {
+      artifactName: '詳細設計書',
+      artifactTypeId: 'detail',
+      devPhaseId: 'DD'
+    })
+    expect(listArtifactSettings(db, projectUid)[0]!.dev_phase_id).toBe('DD')
+    expect(deleteArtifactSetting(db, projectUid, artifact.uid)).toEqual({ deletedDocuments: 0 })
+    const artifact2 = saveArtifactSetting(db, projectUid, {
+      artifactName: '別紙',
+      artifactTypeId: 'appendix',
+      devPhaseId: 'DD'
+    })
+    expect(deleteDevPhase(db, projectUid, phase.uid)).toEqual({ deletedArtifacts: 1, deletedDocuments: 0 })
+    expect(listArtifactSettings(db, projectUid).find((a) => a.uid === artifact2.uid)).toBeUndefined()
   })
 
   it('同名成果物は conflict になる', () => {
