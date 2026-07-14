@@ -76,7 +76,9 @@ export function registerDocumentApi(router: ApiRouter, jobs: JobManager): void {
       .prepare(
         `SELECT e.uid, e.code, e.title, e.status, x.extraction_status, x.extractor_name, x.extractor_version,
                 x.extracted_at, x.source_document_uid,
-                (SELECT COUNT(*) FROM extracted_item i WHERE i.extracted_document_uid = x.uid) AS item_count
+                (SELECT COUNT(*) FROM extracted_item i WHERE i.extracted_document_uid = x.uid) AS item_count,
+                (SELECT COUNT(*) FROM extracted_item i JOIN entity_registry ir ON ir.uid = i.resource_uid
+                  WHERE i.extracted_document_uid = x.uid AND ir.status NOT IN ('approved', 'deleted')) AS unconfirmed_count
            FROM extracted_document x
            JOIN entity_registry e ON e.uid = x.uid
           WHERE e.project_uid = ? AND e.status <> 'deleted'

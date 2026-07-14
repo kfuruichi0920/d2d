@@ -126,7 +126,9 @@ export function registerIntermediateApi(router: ApiRouter, jobs: JobManager): vo
     const rows = db
       .prepare(
         `SELECT e.uid, e.code, e.title, e.status, d.artifact_type_id, d.dev_phase_id, d.intermediate_status, d.generated_at, d.structure_json,
-                (SELECT COUNT(*) FROM intermediate_item i WHERE i.intermediate_document_uid = d.uid) AS item_count
+                (SELECT COUNT(*) FROM intermediate_item i WHERE i.intermediate_document_uid = d.uid) AS item_count,
+                (SELECT COUNT(*) FROM intermediate_item i JOIN entity_registry ir ON ir.uid = i.uid
+                  WHERE i.intermediate_document_uid = d.uid AND ir.status NOT IN ('approved', 'deleted')) AS unconfirmed_count
            FROM intermediate_document d JOIN entity_registry e ON e.uid = d.uid
           WHERE e.project_uid = ? AND e.status <> 'deleted'
           ORDER BY d.generated_at DESC`

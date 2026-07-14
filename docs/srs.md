@@ -761,6 +761,9 @@ EDIT-007 は欠番（削除済み）とする。
 | UI-038 | Primary Side Bar、Secondary Side Bar、Editor Area、下段Panelは境界のドラッグでサイズ変更でき、内容が表示領域を超える場合は必要な方向のスクロールバーで操作できること |
 | UI-039 | Editor Areaは左右・上下へ再帰的に分割でき、分割境界をドラッグして比率変更できること。タブはドラッグ＆ドロップまたはCommandで任意のEditor Groupへ移動できること |
 | UI-040 | Secondary Side BarのProperties、Evidence、Relations、Candidates、Reviewはタブではなく縦アコーディオンで同時参照できること。Editor Groupのタブは最大幅を設けて省略表示し、収まらない場合は多段表示すること |
+| UI-041 | Primary Side Bar、Secondary Side Bar、下段Panelは上部右側の視認可能なボタンとCommandの両方から表示／非表示を切り替えられること |
+| UI-042 | Explorerの②抽出データと③中間データは、正本確定していない要素数をBadgeで表示すること |
+| UI-043 | Activity BarはSettingsを下端へ固定し、その他のActivityをドラッグ＆ドロップで並べ替え、その順序を復元できること。選択中Activityは視覚的に識別できること |
 
 ### 13.2 主要ビュー
 

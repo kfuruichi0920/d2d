@@ -8,7 +8,7 @@
 - 完了: P0〜P13（クリティカルパス完走、MS6 相当まで）
 - 残り: **P14**（性能・オフライン確認・残 TBD-06〜08・パッケージング・商用版）、
   **P5 の他形式抽出**（Excel / PowerPoint / PDF / Visio / テキスト系、EXT-014/015）
-- テスト規模: ユニット 157 件 / pytest 10 件 / E2E 17 件（すべて成功の状態で引き渡し）
+- テスト規模: ユニット 158 件 / pytest 10 件 / E2E 18 件（すべて成功の状態で引き渡し）
 
 ## フェーズ履歴（要点のみ）
 
@@ -25,7 +25,8 @@
 | P12      | DB to Text / SQLite dump / ZIP + manifest / 差分インポート / Git 参照 / ストア閲覧  | d2bc9c6         |
 | P13      | レポート出力（②③④→文書風、フィルタ、Markdown/HTML、report:// プレビュー）           | 1123e29         |
 | P7 追加  | 任意複数③マージ、2ペインResource Editor、所有判定による上書き／置換／保護派生       | aa9e815         |
-| P3 追加  | 文字サイズ一括変更、可変パネル、Secondaryアコーディオン、再帰分割・タブ移動         | 本コミット      |
+| P3 追加  | 文字サイズ一括変更、可変パネル、Secondaryアコーディオン、再帰分割・タブ移動         | f59cadc         |
+| P3 追加  | パネル表示切替、未確定Badge、Activity並べ替え・Settings下端固定・選択表示           | 本コミット      |
 
 ## 恒久制約（違反するとビルド/実行が壊れる、または設計方針違反）
 
@@ -47,6 +48,8 @@
 - Workbench の文字サイズはツール全体設定 `theme.fontSize`（10〜20px、既定13px）で管理し、通常UIとMonacoへ即時反映する。
 - Primary／Secondary／下段パネルの寸法とSecondaryアコーディオン開閉は作業モード単位、再帰的なEditor分割木・分割比・タブ配置はプロジェクト単位（未選択時はglobal）でlocalStorageへ保持する。各境界はポインタと矢印キーで変更でき、領域内の表示超過は必要時だけ縦横スクロールする。
 - SecondaryはProperties／Evidence／Relations／Candidateを独立開閉できる縦アコーディオンとする。Editorタブは最大220pxで省略表示し、収まらない場合は複数段へ折り返す。タブは分割区分へのドラッグ＆ドロップまたはコマンドで移動する。
+- Primary／Secondary／下段PanelはTitle Bar右側ボタンとCommandの双方から表示切替する。Activity BarはSettingsを下端固定し、それ以外のDnD順序をプロジェクト単位に保存する。選択ActivityはPrimary非表示時も選択色を維持する。保存レイアウトがないプロジェクトへ切り替えた場合は、直前プロジェクトの状態を持ち越さずM0既定値へ初期化する。
+- Explorer未確定Badgeは文書状態ではなく要素単位で集計し、extracted_itemはresource_uid、intermediate_itemはitem uidに対応するentity_registry.statusがapproved／deleted以外の件数を表示する。
 - prettier は docs/ と tasks/ を対象外（.prettierignore）。
 - LLM 外部送信はプロジェクト設定 `llm.externalSendAllowed`（既定 false）でブロックされる。
 - Settings はツール全体設定（`settings://tool`）とプロジェクト設定（`project-settings://current`）を分離する。
@@ -73,6 +76,7 @@
 
 ## E2E（Playwright）の注意
 
+- E2E開始時はElectron userDataに前回実行のレイアウトが残り得るため、`d2d.workbench.*`／`d2d.editors.*` のlocalStorageだけを削除してRendererを再読込する。設定Backendやプロジェクト正本は削除しない。
 - `e2e/app.spec.ts` は**逐次実行・状態共有**（beforeAll で 1 プロジェクト作成、afterAll で
   app.close 後に削除。開いている project.db を rmSync すると EBUSY）。
 - Activity Bar のボタンは**再クリックでサイドバーが閉じる**トグル。クリック前に

@@ -18,6 +18,16 @@ export const WORK_MODES: { mode: WorkMode; label: string }[] = [
 ]
 
 export type Activity = 'explorer' | 'review' | 'search' | 'trace' | 'jobs' | 'reports' | 'history' | 'settings'
+export const DEFAULT_ACTIVITY_ORDER: Activity[] = [
+  'explorer',
+  'review',
+  'search',
+  'trace',
+  'jobs',
+  'reports',
+  'history',
+  'settings'
+]
 export type PanelTab = 'problems' | 'output' | 'jobs' | 'search' | 'validation' | 'llm'
 export type SecondaryTab = 'properties' | 'evidence' | 'relations' | 'candidates' | 'review'
 
@@ -69,17 +79,20 @@ const MODE_DEFAULT_LAYOUTS: Record<WorkMode, ModeLayout> = {
 interface PersistedLayout {
   workMode: WorkMode
   layouts: Record<WorkMode, ModeLayout>
+  activityOrder?: Activity[]
 }
 
 interface WorkbenchState extends ModeLayout {
   workMode: WorkMode
   layouts: Record<WorkMode, ModeLayout>
   theme: ThemeState
+  activityOrder: Activity[]
   paletteOpen: boolean
   persistKey: string
   switchMode(mode: WorkMode): void
   resetLayout(): void
   setActivity(activity: Activity): void
+  moveActivity(source: Activity, target: Activity): void
   toggleSideBar(): void
   toggleSecondary(): void
   setSecondaryTab(tab: SecondaryTab): void
@@ -121,7 +134,8 @@ function currentLayout(state: ModeLayout): ModeLayout {
 function persist(state: WorkbenchState): void {
   const data: PersistedLayout = {
     workMode: state.workMode,
-    layouts: { ...state.layouts, [state.workMode]: currentLayout(state) }
+    layouts: { ...state.layouts, [state.workMode]: currentLayout(state) },
+    activityOrder: state.activityOrder
   }
   try {
     localStorage.setItem(storageKey(state.persistKey), JSON.stringify(data))
@@ -134,6 +148,7 @@ export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
   workMode: 'M0',
   layouts: structuredClone(MODE_DEFAULT_LAYOUTS),
   theme: DEFAULT_THEME,
+  activityOrder: [...DEFAULT_ACTIVITY_ORDER],
   paletteOpen: false,
   persistKey: 'global',
   ...MODE_DEFAULT_LAYOUTS.M0,
@@ -159,6 +174,16 @@ export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
         ? { sideBarVisible: false }
         : { activity, sideBarVisible: true }
     )
+    persist(get())
+  },
+
+  moveActivity: (source, target) => {
+    if (source === target || source === 'settings' || target === 'settings') return
+    const order = get().activityOrder.filter((item) => item !== source && item !== 'settings')
+    const targetIndex = order.indexOf(target)
+    if (targetIndex < 0) return
+    order.splice(targetIndex, 0, source)
+    set({ activityOrder: [...order, 'settings'] })
     persist(get())
   },
 
@@ -252,9 +277,22 @@ export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
           ]
         })
       ) as Record<WorkMode, ModeLayout>
-      set({ persistKey, workMode: data.workMode, layouts, ...layouts[data.workMode] })
+      const savedOrder = data.activityOrder?.filter((item) => DEFAULT_ACTIVITY_ORDER.includes(item)) ?? []
+      const activityOrder = [
+        ...savedOrder.filter((item) => item !== 'settings'),
+        ...DEFAULT_ACTIVITY_ORDER.filter((item) => item !== 'settings' && !savedOrder.includes(item)),
+        'settings' as const
+      ]
+      set({ persistKey, workMode: data.workMode, layouts, activityOrder, ...layouts[data.workMode] })
     } else {
-      set({ persistKey })
+      const layouts = structuredClone(MODE_DEFAULT_LAYOUTS)
+      set({
+        persistKey,
+        workMode: 'M0',
+        layouts,
+        activityOrder: [...DEFAULT_ACTIVITY_ORDER],
+        ...layouts.M0
+      })
     }
     applyTheme(get().theme)
   }

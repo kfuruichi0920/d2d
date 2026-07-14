@@ -1015,3 +1015,78 @@ mark.d2d-term {
 .wb-root textarea {
   font-family: inherit;
 }
+
+/* Workbench表示切替・Activity並べ替え・未確定Badge（P3-1、UI-041〜043） */
+.wb-layout-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  -webkit-app-region: no-drag;
+}
+.wb-layout-controls button {
+  min-width: 72px;
+  padding: 3px 7px;
+  border: 1px solid var(--d2d-border);
+  border-radius: var(--d2d-radius);
+  background: var(--d2d-bg);
+  color: var(--d2d-fg-muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.wb-layout-controls button:hover {
+  color: var(--d2d-fg);
+  background: var(--d2d-surface-hover);
+}
+.wb-layout-controls button.active {
+  color: var(--d2d-accent);
+  border-color: var(--d2d-accent);
+  background: var(--d2d-selection-bg);
+}
+.wb-activitybar-top,
+.wb-activitybar-bottom {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+.wb-activitybar-bottom {
+  margin-top: auto;
+  padding-bottom: 4px;
+}
+.wb-activitybar-top .wb-activity-btn {
+  cursor: grab;
+}
+.wb-activitybar-top .wb-activity-btn:active {
+  cursor: grabbing;
+}
+.wb-activity-btn.active {
+  border-left-color: var(--d2d-accent);
+  box-shadow: inset 2px 0 0 var(--d2d-accent);
+}
+.d2d-unconfirmed-badge {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  padding: 1px 6px;
+  border: 1px solid color-mix(in srgb, var(--d2d-warning) 55%, var(--d2d-border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--d2d-warning) 18%, transparent);
+  color: var(--d2d-fg);
+  font-size: 10px;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+.d2d-unconfirmed-badge.is-zero {
+  border-color: var(--d2d-border);
+  background: var(--d2d-surface-raised);
+  color: var(--d2d-fg-muted);
+}
+@media (max-width: 900px) {
+  .wb-layout-controls button {
+    min-width: 28px;
+    max-width: 34px;
+    overflow: hidden;
+    white-space: nowrap;
+  }
+}

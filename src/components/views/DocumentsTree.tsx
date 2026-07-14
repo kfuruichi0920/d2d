@@ -24,6 +24,7 @@ export interface ExtractedDocumentItem {
   title: string | null
   status: string
   item_count: number
+  unconfirmed_count: number
   source_document_uid: string
 }
 
@@ -49,6 +50,7 @@ export interface IntermediateDocumentItem {
   artifact_type_id: string
   dev_phase_id: string
   item_count: number
+  unconfirmed_count: number
   sources?: { extracted_document_uid: string; order: number }[]
 }
 
@@ -63,6 +65,8 @@ export function DocumentsTree(): React.JSX.Element {
   const [selectedSources, setSelectedSources] = useState<Set<string>>(new Set())
   const openResource = useEditorStore((s) => s.openResource)
   const notify = useJobsStore((s) => s.notify)
+  const extractedUnconfirmed = extracted.reduce((total, document) => total + document.unconfirmed_count, 0)
+  const intermediateUnconfirmed = intermediates.reduce((total, document) => total + document.unconfirmed_count, 0)
 
   const refresh = useCallback(async () => {
     const [docs, exts, mids, arts, devs] = await Promise.all([
@@ -139,6 +143,13 @@ export function DocumentsTree(): React.JSX.Element {
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 4px 2px' }}>
         <span style={{ fontWeight: 700 }}>②抽出データ</span>
         <span style={{ color: 'var(--d2d-fg-muted)' }}>{extracted.length}</span>
+        <span
+          className={`d2d-unconfirmed-badge ${extractedUnconfirmed === 0 ? 'is-zero' : ''}`}
+          data-testid="extracted-unconfirmed-badge"
+          title="正本確定していない抽出要素数"
+        >
+          未確定 {extractedUnconfirmed}
+        </span>
       </div>
       {extracted.map((doc) => (
         <div
@@ -149,6 +160,12 @@ export function DocumentsTree(): React.JSX.Element {
         >
           <ReviewStatusBadge status={reviewStateFromEntityStatus(doc.status)} />
           <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{doc.title ?? doc.code}</span>
+          <span
+            className={`d2d-unconfirmed-badge ${doc.unconfirmed_count === 0 ? 'is-zero' : ''}`}
+            data-testid={`extracted-unconfirmed-${doc.code}`}
+          >
+            未確定 {doc.unconfirmed_count}
+          </span>
           <span style={{ color: 'var(--d2d-fg-muted)', fontSize: 11 }}>{doc.item_count}要素</span>
         </div>
       ))}
@@ -156,6 +173,13 @@ export function DocumentsTree(): React.JSX.Element {
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 4px 2px' }}>
         <span style={{ fontWeight: 700 }}>③中間データ</span>
         <span style={{ color: 'var(--d2d-fg-muted)' }}>{intermediates.length}</span>
+        <span
+          className={`d2d-unconfirmed-badge ${intermediateUnconfirmed === 0 ? 'is-zero' : ''}`}
+          data-testid="intermediate-unconfirmed-badge"
+          title="正本確定していない中間要素数"
+        >
+          未確定 {intermediateUnconfirmed}
+        </span>
         <span style={{ flex: 1 }} />
         <button
           type="button"
@@ -204,6 +228,14 @@ export function DocumentsTree(): React.JSX.Element {
                     >
                       {doc && <ReviewStatusBadge status={reviewStateFromEntityStatus(doc.status)} />}
                       <span style={{ flex: 1, minWidth: 0, fontWeight: 500 }}>{artifact.artifact_name}</span>
+                      {doc && (
+                        <span
+                          className={`d2d-unconfirmed-badge ${doc.unconfirmed_count === 0 ? 'is-zero' : ''}`}
+                          data-testid={`intermediate-unconfirmed-${doc.code}`}
+                        >
+                          未確定 {doc.unconfirmed_count}
+                        </span>
+                      )}
                       {doc && (
                         <button
                           type="button"
