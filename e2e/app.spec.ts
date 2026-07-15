@@ -450,18 +450,50 @@ test('②→③統合・編集・確定（P7）', async () => {
   await page.getByTestId('intermediate-import-layout-handle-0').focus()
   await page.keyboard.press('ArrowRight')
   await expect.poll(async () => (await importFirstPane.boundingBox())!.width).toBeGreaterThan(importWidthBefore)
-  // 空の成果物へ統合元要素を明示統合する
+  // 空の成果物へ統合元要素を明示追加する。選択列ではなく抽出状態を表示する。
   const sourceGrid = page.getByTestId('intermediate-source-grid')
-  await sourceGrid.getByRole('row').nth(1).click()
+  await expect(sourceGrid.getByRole('columnheader').first()).toContainText('状態')
+  await expect(sourceGrid.getByRole('checkbox')).toHaveCount(0)
+  const sourceItemCount = (await sourceGrid.getByRole('row').count()) - 1
+  const firstSourceRow = sourceGrid.getByRole('row').nth(1)
+  await expect(firstSourceRow).toContainText('未確認')
+  await firstSourceRow.click()
   await sourceGrid
     .getByRole('row')
     .last()
     .click({ modifiers: ['Shift'] })
-  await page.getByRole('button', { name: '選択②を最初に統合' }).click()
-  await expect(page.getByTestId('intermediate-grid')).toContainText('1. 概要')
-  await expect(page.getByTestId('intermediate-source-grid').getByRole('row').nth(1)).toContainText('統合済')
-  await expect(page.getByTestId('intermediate-unconfirmed-IMDOC-000001')).toContainText(/未確定 [1-9]/)
+  await page.getByTestId('source-add-below').click()
   const middleGrid = page.getByTestId('intermediate-grid')
+  await expect(middleGrid).toContainText('1. 概要')
+  await expect(page.getByTestId('source-link-summary')).toContainText(
+    `紐付済 ${sourceItemCount} / 全 ${sourceItemCount}`
+  )
+  await expect(firstSourceRow).toHaveAttribute('data-linked', 'true')
+  await expect(firstSourceRow).not.toHaveAttribute('aria-disabled', 'true')
+
+  // 取込済み行も選択でき、Shift+上下で範囲選択し、成果物とプレビューをbased_onで強調する。
+  await firstSourceRow.click()
+  await firstSourceRow.focus()
+  await page.keyboard.press('Shift+ArrowDown')
+  await expect(firstSourceRow).toHaveAttribute('aria-selected', 'true')
+  await expect(sourceGrid.getByRole('row').nth(2)).toHaveAttribute('aria-selected', 'true')
+  await expect(middleGrid.getByRole('row').nth(1)).toHaveCSS('outline-style', 'dashed')
+  await expect(page.getByTestId('intermediate-markdown').locator('.extraction-preview-item').first()).toHaveClass(
+    /related/
+  )
+
+  // 同じ統合元を別成果物要素へ再利用でき、紐付解除は当該統合元のbased_onだけを外す。
+  await firstSourceRow.click()
+  const artifactRowsBeforeReuse = await middleGrid.getByRole('row').count()
+  await page.getByTestId('source-add-below').click()
+  await expect(middleGrid.getByRole('row')).toHaveCount(artifactRowsBeforeReuse + 1)
+  await page.getByTestId('source-unlink').click()
+  await expect(firstSourceRow).not.toHaveAttribute('data-linked', 'true')
+  await expect(page.getByTestId('source-link-summary')).toContainText(
+    `紐付済 ${sourceItemCount - 1} / 全 ${sourceItemCount}`
+  )
+  await expect(middleGrid.getByRole('row')).toHaveCount(artifactRowsBeforeReuse + 1)
+  await expect(page.getByTestId('intermediate-unconfirmed-IMDOC-000001')).toContainText(/未確定 [1-9]/)
   await middleGrid.getByRole('row').nth(1).getByTitle('クリックで状態を切替').click()
   await expect(middleGrid.getByRole('row').nth(1)).toContainText('確認済')
   for (let i = 0; i < 3; i++) await middleGrid.getByRole('row').nth(1).getByTitle('クリックで状態を切替').click()
@@ -482,8 +514,7 @@ test('②→③統合・編集・確定（P7）', async () => {
     .getByRole('row')
     .filter({ hasText: '本書はテスト用の仕様書である。要求REQ-001を含む。' })
   await expect(textRow).toContainText('テキスト')
-  await textRow.click()
-  await page.getByTestId('element-edit-open').click()
+  await textRow.dblclick()
   await expect(page.getByTestId('resource-edit-dialog')).toBeVisible()
   await expect(page.getByTestId('resource-editor-layout-handle-0')).toBeVisible()
   const resourceSourcePane = page.getByTestId('resource-editor-layout').locator(':scope > .d2d-resizable-pane').first()
@@ -551,27 +582,38 @@ test('②→③統合・編集・確定（P7）', async () => {
   await expect(middleGrid.getByRole('row')).toHaveCount(rowsBeforeDuplicate + 1)
   await page.getByTestId('element-delete').click()
   await expect(middleGrid.getByRole('row')).toHaveCount(rowsBeforeDuplicate)
-  // 後続テストが参照するi2を保ったまま、Ctrl非連続選択を表示順先頭へマージする
+  // 整理した②成果物操作から、選択行を直下行へ統合する。
   await middleGrid.getByRole('row').nth(1).click()
-  for (const text of ['複数マージA', '選択しない中間行', '複数マージC']) {
+  for (const text of ['下統合A', '下統合B', '統合しない中間行']) {
     await page.getByTestId('element-add-below').click()
     await page.getByTestId('edit-textarea').fill(text)
     await page.getByTestId('edit-save').click()
   }
-  const mergeRowA = middleGrid.getByRole('row').filter({ hasText: '複数マージA' })
-  const mergeRowC = middleGrid.getByRole('row').filter({ hasText: '複数マージC' })
+  const mergeRowA = middleGrid.getByRole('row').filter({ hasText: '下統合A' })
   await mergeRowA.click()
-  await mergeRowC.click({ modifiers: ['Control'] })
-  await expect(page.getByTestId('merge-button')).toBeVisible()
-  await page.getByTestId('merge-button').click()
-  await expect(middleGrid).toContainText('複数マージA')
-  await expect(middleGrid).toContainText('複数マージC')
-  await expect(middleGrid).toContainText('選択しない中間行')
+  await page.getByTestId('merge-down').click()
+  await expect(middleGrid).toContainText('下統合A')
+  await expect(middleGrid).toContainText('下統合B')
+  await expect(middleGrid).toContainText('統合しない中間行')
   await page.getByTestId('intermediate-mode-import').click()
   await expect(page.getByTestId('intermediate-import-layout')).toBeVisible()
   await expect(page.getByTestId('intermediate-source-grid')).toBeVisible()
 
-  // ③正本確定 → intermediate.updated
+  // 操作バーは3群だけとし、旧編集・Resource固有・一括レビュー・④候補生成ボタンを表示しない。
+  await expect(page.getByTestId('source-link-actions')).toBeVisible()
+  await expect(page.getByTestId('artifact-compose-actions')).toBeVisible()
+  await expect(page.getByTestId('artifact-layout-actions')).toBeVisible()
+  await expect(page.getByTestId('element-edit-open')).toHaveCount(0)
+  await expect(page.getByTestId('element-toolbar')).toHaveCount(0)
+  await expect(page.getByTestId('generate-design-candidates')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '確認済みにする' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '要修正' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '棄却', exact: true })).toHaveCount(0)
+
+  // ③正本確定はdraftだけでなく、要修正・棄却を含む全成果物項目を確認済みにする。
+  const statusCell = middleGrid.getByRole('row').nth(1).getByTitle('クリックで状態を切替')
+  for (let i = 0; i < 3; i++) await statusCell.click()
+  await expect(middleGrid.getByRole('row').nth(1)).toContainText('棄却')
   await page.getByTestId('intermediate-approve').click()
   await expect(page.getByTestId('intermediate-approve')).toContainText('正本確定済み')
   const approvedIntermediate = await page.evaluate(async () =>
@@ -583,7 +625,7 @@ test('②→③統合・編集・確定（P7）', async () => {
     })
   )
   expect(
-    approvedIntermediate.ok && approvedIntermediate.result.elements.every((item) => item.review?.status !== 'draft')
+    approvedIntermediate.ok && approvedIntermediate.result.elements.every((item) => item.review?.status === 'approved')
   ).toBe(true)
   await expect(page.getByTestId('intermediate-unconfirmed-IMDOC-000001')).toContainText('未確定 0')
 
@@ -791,7 +833,7 @@ test('③→④候補生成→候補レビュー→採用の全経路（P8）', 
       [`http://127.0.0.1:${port}`]
     )
 
-    // ③エディタから「④モデル候補を生成」→ 候補セットレビュー Editor が開く
+    // ④候補生成は中間編集画面に置かず、成果物単位のチャンク編集から実行する。
     if (
       !(await page
         .getByTestId('documents-tree')
@@ -800,9 +842,10 @@ test('③→④候補生成→候補レビュー→採用の全経路（P8）', 
     ) {
       await page.getByTestId('activity-explorer').click()
     }
-    await page.getByTestId('intermediate-doc-IMDOC-000001').click()
-    await expect(page.getByTestId('intermediate-editor')).toBeVisible()
-    await page.getByTestId('generate-design-candidates').click()
+    await page.getByTestId('chunks-IMDOC-000001').click()
+    await expect(page.getByTestId('chunk-editor')).toBeVisible()
+    await page.getByTestId('chunk-editor').locator('.chunk-grid').nth(1).locator('tbody tr').first().click()
+    await page.getByRole('button', { name: '④モデル候補生成' }).click()
     await expect(page.getByTestId('candidate-editor')).toBeVisible({ timeout: 60_000 })
 
     // 候補が表形式で表示され、要素名変更が関係 From/To 表示へ追従する（MODEL-008）
@@ -907,15 +950,16 @@ test('編集機能: 用語集・状態遷移・表編集・検証編集（P10）
   await expect(page.getByTestId('intermediate-markdown').locator('mark.d2d-term').first()).toHaveText('対象項目')
 
   // --- 表編集（P10-2）: セル修正→保存→Markdown へ反映（EDIT-022） ---
-  await page
+  const tableRow = page
     .getByTestId('intermediate-grid')
     .getByRole('row')
     .filter({ has: page.getByRole('button', { name: '表', exact: true }) })
-    .click()
-  await page.getByTestId('edit-table-button').click()
-  await expect(page.getByTestId('table-cell-editor')).toBeVisible()
-  await page.getByTestId('cell-1-1').fill('150ms以内')
-  await page.getByTestId('table-save').click()
+  await tableRow.dblclick()
+  await expect(page.getByTestId('resource-edit-dialog')).toBeVisible()
+  const cellsJson = page.getByTestId('resource-merge-target').getByTestId('resource-field-cells_json')
+  await cellsJson.fill((await cellsJson.inputValue()).replace('100ms以内', '150ms以内'))
+  await page.getByTestId('resource-save').click()
+  await expect(page.getByTestId('resource-edit-dialog')).toHaveCount(0)
   await expect(page.getByTestId('intermediate-markdown')).toContainText('150ms以内')
 
   // --- 状態遷移（P10-4）: 作成→状態/イベント/遷移追加→検出→シミュレーション ---

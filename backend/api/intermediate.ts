@@ -12,6 +12,7 @@ import {
   createChunk,
   createIntermediateDocument,
   insertExtractedItems,
+  unlinkExtractedItems,
   deleteIntermediateItems,
   duplicateIntermediateElement,
   reorderIntermediateItems,
@@ -155,43 +156,58 @@ export function registerIntermediateApi(router: ApiRouter, jobs: JobManager): vo
       throw new BackendError('not_found', `中間文書が見つかりません: ${uid}`, '')
     }
     const structure = JSON.parse(doc.structure_json) as IntermediateStructure
-    const itemByResource = new Map<string, { uid: string; status: string; item_type: string }>(
-      (
-        db
-          .prepare(
-            `SELECT i.resource_uid AS resource_uid, i.uid, i.item_type, e.status FROM intermediate_item i JOIN entity_registry e ON e.uid = i.uid
-              WHERE i.intermediate_document_uid = ?`
-          )
-          .all(uid) as { resource_uid: string; uid: string; status: string; item_type: string }[]
-      ).map((r) => [r.resource_uid, { uid: r.uid, status: r.status, item_type: r.item_type }])
-    )
-    const sourceResourcesByResource = new Map<string, string[]>()
+    const itemRows = db
+      .prepare(
+        `SELECT i.resource_uid, i.uid, i.item_type, e.status FROM intermediate_item i JOIN entity_registry e ON e.uid = i.uid
+          WHERE i.intermediate_document_uid = ?`
+      )
+      .all(uid) as { resource_uid: string; uid: string; status: string; item_type: string }[]
+    const itemByUid = new Map(itemRows.map((row) => [row.uid, row]))
+    const itemByResource = new Map(itemRows.map((row) => [row.resource_uid, row]))
+    const sourceResourcesByItem = new Map<string, string[]>()
+    const sourceItemsByItem = new Map<string, string[]>()
     const itemLinks = db
       .prepare(
-        `SELECT i.resource_uid, x.resource_uid AS source_resource_uid FROM intermediate_item i JOIN trace_link t ON t.from_uid=i.uid AND t.relation_type='based_on' JOIN extracted_item x ON x.uid=t.to_uid WHERE i.intermediate_document_uid=?`
+        `SELECT i.uid AS intermediate_item_uid, x.uid AS source_extracted_item_uid, x.resource_uid AS source_resource_uid FROM intermediate_item i JOIN trace_link t ON t.from_uid=i.uid AND t.relation_type='based_on' JOIN extracted_item x ON x.uid=t.to_uid WHERE i.intermediate_document_uid=?`
       )
-      .all(uid) as { resource_uid: string; source_resource_uid: string }[]
-    for (const link of itemLinks)
-      sourceResourcesByResource.set(link.resource_uid, [
-        ...(sourceResourcesByResource.get(link.resource_uid) ?? []),
+      .all(uid) as {
+      intermediate_item_uid: string
+      source_extracted_item_uid: string
+      source_resource_uid: string
+    }[]
+    for (const link of itemLinks) {
+      sourceResourcesByItem.set(link.intermediate_item_uid, [
+        ...(sourceResourcesByItem.get(link.intermediate_item_uid) ?? []),
         link.source_resource_uid
       ])
+      sourceItemsByItem.set(link.intermediate_item_uid, [
+        ...(sourceItemsByItem.get(link.intermediate_item_uid) ?? []),
+        link.source_extracted_item_uid
+      ])
+    }
     return {
       ...doc,
       structure_json: undefined,
       structure,
       metadata: structure.metadata,
       sources: structure.sources,
-      elements: structure.elements.map((e) => ({
-        ...e,
-        intermediate_item_uid: e.resource_uid ? itemByResource.get(e.resource_uid)?.uid : undefined,
-        item_type: e.resource_uid ? itemByResource.get(e.resource_uid)?.item_type : undefined,
-        review: e.resource_uid ? { status: itemByResource.get(e.resource_uid)?.status ?? 'draft' } : undefined,
-        source_resource_uids: e.resource_uid ? [...new Set(sourceResourcesByResource.get(e.resource_uid) ?? [])] : []
-      }))
+      elements: structure.elements.map((element) => {
+        const item = element.intermediate_item_uid
+          ? itemByUid.get(element.intermediate_item_uid)
+          : element.resource_uid
+            ? itemByResource.get(element.resource_uid)
+            : undefined
+        return {
+          ...element,
+          intermediate_item_uid: item?.uid,
+          item_type: item?.item_type,
+          review: { status: item?.status ?? 'draft' },
+          source_resource_uids: item ? [...new Set(sourceResourcesByItem.get(item.uid) ?? [])] : [],
+          source_extracted_item_uids: item ? [...new Set(sourceItemsByItem.get(item.uid) ?? [])] : []
+        }
+      })
     }
   })
-
   router.register('intermediate.getSourceItems', (params) => {
     const p = asRecord(params)
     const uid = requireString(p, 'uid')
@@ -212,9 +228,11 @@ export function registerIntermediateApi(router: ApiRouter, jobs: JobManager): vo
       return parsed.elements.map((element) => {
         const item = element.resource_uid
           ? (db
-              .prepare(`SELECT uid, item_type FROM extracted_item WHERE extracted_document_uid=? AND resource_uid=?`)
+              .prepare(
+                `SELECT i.uid, i.item_type, e.status FROM extracted_item i JOIN entity_registry e ON e.uid=i.uid WHERE i.extracted_document_uid=? AND i.resource_uid=?`
+              )
               .get(source.extracted_document_uid, element.resource_uid) as
-              { uid: string; item_type: string } | undefined)
+              { uid: string; item_type: string; status: string } | undefined)
           : undefined
         return {
           ...element,
@@ -222,6 +240,7 @@ export function registerIntermediateApi(router: ApiRouter, jobs: JobManager): vo
           source_element_id: element.id,
           extracted_item_uid: item?.uid,
           item_type: item?.item_type,
+          review: { status: item?.status ?? 'draft' },
           source_document_uid: source.extracted_document_uid,
           source_title: extracted.title
         }
@@ -236,9 +255,18 @@ export function registerIntermediateApi(router: ApiRouter, jobs: JobManager): vo
       db,
       info.projectUid,
       requireString(p, 'uid'),
-      Array.isArray(p.resourceUids) ? (p.resourceUids as string[]) : [],
+      Array.isArray(p.extractedItemUids) ? (p.extractedItemUids as string[]) : [],
       p.targetElementId === undefined ? undefined : String(p.targetElementId),
       p.position === 'above' ? 'above' : 'below'
+    )
+  })
+  router.register('intermediate.unlinkExtractedItems', (params) => {
+    const p = asRecord(params)
+    const { db } = requireProject()
+    return unlinkExtractedItems(
+      db,
+      requireString(p, 'uid'),
+      Array.isArray(p.extractedItemUids) ? p.extractedItemUids.map(String) : []
     )
   })
   router.register('intermediate.deleteItems', (params) => {
@@ -378,7 +406,7 @@ export function registerIntermediateApi(router: ApiRouter, jobs: JobManager): vo
       return db
         .prepare(
           `UPDATE entity_registry SET status = 'approved', updated_by = 'user', updated_at = ?
-            WHERE status = 'draft'
+            WHERE status <> 'deleted'
               AND uid IN (SELECT uid FROM intermediate_item WHERE intermediate_document_uid = ?)`
         )
         .run(ts, uid).changes

@@ -25,6 +25,7 @@ export interface VirtualDataGridProps<T> {
   selectedRowIds?: ReadonlySet<string>
   activeRowId?: string | null
   relatedRowIds?: ReadonlySet<string>
+  accentRowIds?: ReadonlySet<string>
   isRowDisabled?: (row: T) => boolean
   getRowId?: (row: T, index: number) => string
   testId?: string
@@ -40,6 +41,7 @@ export function VirtualDataGrid<T>({
   selectedRowIds,
   activeRowId,
   relatedRowIds,
+  accentRowIds,
   isRowDisabled,
   getRowId,
   testId
@@ -116,10 +118,12 @@ export function VirtualDataGrid<T>({
                 aria-selected={selectedRowIds?.has(row.id) ?? false}
                 aria-disabled={isRowDisabled?.(row.original) ?? false}
                 data-row-id={row.id}
+                data-linked={accentRowIds?.has(row.id) ? 'true' : undefined}
                 style={{
                   height: rowHeight,
                   cursor: isRowDisabled?.(row.original) ? 'not-allowed' : onRowClick ? 'pointer' : 'default',
                   opacity: isRowDisabled?.(row.original) ? 0.5 : 1,
+                  color: accentRowIds?.has(row.id) ? 'var(--d2d-accent)' : undefined,
                   background: selectedRowIds?.has(row.id)
                     ? row.id === activeRowId
                       ? 'var(--d2d-selection-bg)'

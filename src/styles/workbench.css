@@ -1131,6 +1131,41 @@ mark.d2d-term {
   color: var(--d2d-fg);
 }
 
+/* 中間データ取込編集の操作群と統合元状態（P7-7、UI-012） */
+.intermediate-operation-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  padding: 5px 12px;
+  border-bottom: 1px solid var(--d2d-border);
+}
+.intermediate-operation-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding-right: 12px;
+  border-right: 1px solid var(--d2d-border);
+}
+.intermediate-operation-group b {
+  font-size: 11px;
+  white-space: nowrap;
+}
+.intermediate-edit-hint {
+  color: var(--d2d-fg-muted);
+  font-size: 11px;
+}
+.intermediate-source-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  min-height: 40px;
+  font-size: 11px;
+}
+.intermediate-source-linked-legend {
+  color: var(--d2d-accent);
+}
 /* 編集画面内の可変ペイン（P3-1、UI-038） */
 .d2d-resizable-pane-group {
   display: flex;

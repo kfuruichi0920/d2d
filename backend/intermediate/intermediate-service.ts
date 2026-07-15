@@ -16,6 +16,7 @@ import { createMergedResource, getResource } from '../resource/resource-service'
 
 export interface IntermediateElement extends ExtractionElement {
   resource_uid?: string
+  intermediate_item_uid?: string
 }
 
 export interface IntermediateStructure {
@@ -77,6 +78,7 @@ function addIntermediateItem(
   db.prepare(
     `INSERT INTO intermediate_item (uid, intermediate_document_uid, item_type, resource_uid) VALUES (?, ?, ?, ?)`
   ).run(item.uid, docUid, itemType ?? itemTypeOf(element), element.resource_uid)
+  element.intermediate_item_uid = item.uid
   return item.uid
 }
 
@@ -114,17 +116,28 @@ function sourceExtractedItemUids(db: Database, docUid: string, resourceUids: str
   ).map((row) => row.uid)
 }
 
-/** intermediate_item（対応行）を物理削除する。リソース本体と②の対応は残る */
-function removeIntermediateItems(db: Database, docUid: string, resourceUids: string[]): void {
-  const rows = db
-    .prepare(
-      `SELECT uid FROM intermediate_item WHERE intermediate_document_uid = ? AND resource_uid IN (${resourceUids.map(() => '?').join(',')})`
-    )
-    .all(docUid, ...resourceUids) as { uid: string }[]
-  const del = db.prepare(`DELETE FROM entity_registry WHERE uid = ?`) // CASCADE で intermediate_item も消える
-  for (const row of rows) del.run(row.uid)
+/** intermediate_item（対応行）を物理削除する。リソース本体と②の対応は残る。 */
+function removeIntermediateItems(db: Database, docUid: string, elements: IntermediateElement[]): void {
+  const directItemUids = elements
+    .map((element) => element.intermediate_item_uid)
+    .filter((itemUid): itemUid is string => Boolean(itemUid))
+  const legacyResourceUids = elements
+    .filter((element) => !element.intermediate_item_uid)
+    .map((element) => element.resource_uid)
+    .filter((resourceUid): resourceUid is string => Boolean(resourceUid))
+  const fallbackItemUids =
+    legacyResourceUids.length === 0
+      ? []
+      : (
+          db
+            .prepare(
+              `SELECT uid FROM intermediate_item WHERE intermediate_document_uid = ? AND resource_uid IN (${legacyResourceUids.map(() => '?').join(',')})`
+            )
+            .all(docUid, ...legacyResourceUids) as { uid: string }[]
+        ).map((row) => row.uid)
+  const remove = db.prepare(`DELETE FROM entity_registry WHERE uid = ?`)
+  for (const itemUid of [...new Set([...directItemUids, ...fallbackItemUids])]) remove.run(itemUid)
 }
-
 /** 由来リンク: 新リソース → 元リソース（EXT-015。マージ・分割・編集の元 ID 追跡） */
 function addDerivationLink(
   db: Database,
@@ -144,11 +157,19 @@ function addDerivationLink(
 
 /** 既存③データへアイテム単位 based_on を補完する（resource由来リンクを再帰探索）。 */
 export function ensureIntermediateItemTraceLinks(db: Database, projectUid: string, docUid: string): number {
-  const items = db
-    .prepare(
-      `SELECT i.uid,i.resource_uid FROM intermediate_item i WHERE i.intermediate_document_uid=? AND NOT EXISTS (SELECT 1 FROM trace_link t JOIN extracted_item x ON x.uid=t.to_uid WHERE t.from_uid=i.uid AND t.relation_type='based_on')`
-    )
-    .all(docUid) as { uid: string; resource_uid: string }[]
+  const structure = loadStructure(db, docUid)
+  const exactItemUids = new Set(
+    structure.elements
+      .map((element) => element.intermediate_item_uid)
+      .filter((itemUid): itemUid is string => Boolean(itemUid))
+  )
+  const items = (
+    db
+      .prepare(
+        `SELECT i.uid,i.resource_uid FROM intermediate_item i WHERE i.intermediate_document_uid=? AND NOT EXISTS (SELECT 1 FROM trace_link t JOIN extracted_item x ON x.uid=t.to_uid WHERE t.from_uid=i.uid AND t.relation_type='based_on')`
+      )
+      .all(docUid) as { uid: string; resource_uid: string }[]
+  ).filter((item) => !exactItemUids.has(item.uid))
   let added = 0
   for (const item of items) {
     const sources = db
@@ -252,6 +273,7 @@ export function createIntermediateDocument(
       if (element.resource_uid)
         addItemBasedOnLinks(db, projectUid, itemUid, extractedItemUidsForResource(db, element.resource_uid))
     }
+    saveStructure(db, doc.uid, structure)
 
     // ③→② の根拠リンクを sources と同期して自動生成する（§2.11）
     for (const source of sources) {
@@ -349,42 +371,50 @@ export function insertExtractedItems(
   db: Database,
   projectUid: string,
   docUid: string,
-  resourceUids: string[],
+  extractedItemUids: string[],
   targetElementId: string | undefined,
   position: 'above' | 'below'
 ): { inserted: number } {
-  if (resourceUids.length === 0) throw new BackendError('validation', '統合する抽出要素を選択してください', '')
+  const uniqueUids = [...new Set(extractedItemUids)]
+  if (uniqueUids.length === 0) throw new BackendError('validation', '統合する抽出要素を選択してください', '')
   const txn = db.transaction(() => {
     const structure = loadStructure(db, docUid)
-    const sourceRows = structure.sources
-      .map((source) => {
-        const row = db
-          .prepare(`SELECT structure_json FROM extracted_document WHERE uid = ?`)
-          .get(source.extracted_document_uid) as { structure_json: string } | undefined
-        return row ? (JSON.parse(row.structure_json) as { elements: IntermediateElement[] }).elements : []
-      })
-      .flat()
-    const byUid = new Map(sourceRows.filter((e) => e.resource_uid).map((e) => [e.resource_uid!, e]))
-    const selected = resourceUids
-      .map((resourceUid) => byUid.get(resourceUid))
-      .filter((e): e is IntermediateElement => Boolean(e))
-    if (selected.length !== resourceUids.length)
+    const sourceByItemUid = new Map<string, IntermediateElement>()
+    for (const source of structure.sources) {
+      const row = db
+        .prepare(`SELECT structure_json FROM extracted_document WHERE uid = ?`)
+        .get(source.extracted_document_uid) as { structure_json: string } | undefined
+      if (!row) continue
+      const elements = (JSON.parse(row.structure_json) as { elements: IntermediateElement[] }).elements
+      const byResource = new Map(elements.filter((e) => e.resource_uid).map((e) => [e.resource_uid!, e]))
+      const items = db
+        .prepare(`SELECT uid, resource_uid FROM extracted_item WHERE extracted_document_uid = ?`)
+        .all(source.extracted_document_uid) as { uid: string; resource_uid: string }[]
+      for (const item of items) {
+        const element = byResource.get(item.resource_uid)
+        if (element) sourceByItemUid.set(item.uid, element)
+      }
+    }
+    const selected = uniqueUids
+      .map((itemUid) => ({ itemUid, element: sourceByItemUid.get(itemUid) }))
+      .filter((entry): entry is { itemUid: string; element: IntermediateElement } => Boolean(entry.element))
+    if (selected.length !== uniqueUids.length)
       throw new BackendError('validation', '選択要素は登録済み統合元に含まれていません', '')
     const target = targetElementId ? structure.elements.findIndex((e) => e.id === targetElementId) : -1
-    if (structure.elements.length > 0 && target < 0)
+    if (targetElementId && target < 0)
       throw new BackendError('not_found', `統合位置が見つかりません: ${targetElementId}`, '')
     let seq = structure.elements.reduce((max, e) => Math.max(max, Number(e.id.replace(/\D/g, '')) || 0), 0)
-    const inserted = selected.map((e) => ({ ...e, id: `i${++seq}` }))
-    structure.elements.splice(
-      structure.elements.length === 0 ? 0 : target + (position === 'below' ? 1 : 0),
-      0,
-      ...inserted
-    )
-    for (const element of inserted) {
+    const inserted = selected.map(({ element }) => ({ ...element, id: `i${++seq}` }))
+    const insertAt = targetElementId
+      ? target + (position === 'below' ? 1 : 0)
+      : position === 'above'
+        ? 0
+        : structure.elements.length
+    structure.elements.splice(insertAt, 0, ...inserted)
+    inserted.forEach((element, index) => {
       const itemUid = addIntermediateItem(db, projectUid, docUid, element)
-      if (element.resource_uid)
-        addItemBasedOnLinks(db, projectUid, itemUid, extractedItemUidsForResource(db, element.resource_uid))
-    }
+      addItemBasedOnLinks(db, projectUid, itemUid, [selected[index]!.itemUid])
+    })
     saveStructure(db, docUid, structure)
     return { inserted: inserted.length }
   })
@@ -393,12 +423,35 @@ export function insertExtractedItems(
   return result
 }
 
+/** 選択した統合元 extracted_item へのアイテム単位 based_on を成果物全体から解除する。 */
+export function unlinkExtractedItems(db: Database, docUid: string, extractedItemUids: string[]): { unlinked: number } {
+  const uniqueUids = [...new Set(extractedItemUids)]
+  if (uniqueUids.length === 0) throw new BackendError('validation', '紐付解除する統合元を選択してください', '')
+  const placeholders = uniqueUids.map(() => '?').join(',')
+  const txn = db.transaction(() => {
+    const links = db
+      .prepare(
+        `SELECT t.uid FROM trace_link t
+          JOIN intermediate_item i ON i.uid=t.from_uid
+         WHERE i.intermediate_document_uid=?
+           AND t.relation_type='based_on'
+           AND t.basis_kind='extracted'
+           AND t.to_uid IN (${placeholders})`
+      )
+      .all(docUid, ...uniqueUids) as { uid: string }[]
+    const remove = db.prepare(`DELETE FROM entity_registry WHERE uid=?`)
+    for (const link of links) remove.run(link.uid)
+    return { unlinked: links.length }
+  })
+  const result = txn()
+  eventBus.emit('intermediate.updated', { intermediateDocumentUid: docUid, kind: 'items-unlinked' })
+  return result
+}
 export function deleteIntermediateItems(db: Database, docUid: string, elementIds: string[]): { deleted: number } {
   const structure = loadStructure(db, docUid)
   const removed = structure.elements.filter((e) => elementIds.includes(e.id))
-  const resources = removed.map((e) => e.resource_uid).filter((uid): uid is string => Boolean(uid))
   structure.elements = structure.elements.filter((e) => !elementIds.includes(e.id))
-  if (resources.length > 0) removeIntermediateItems(db, docUid, resources)
+  removeIntermediateItems(db, docUid, removed)
   saveStructure(db, docUid, structure)
   eventBus.emit('intermediate.updated', { intermediateDocumentUid: docUid, kind: 'items-deleted' })
   return { deleted: removed.length }
@@ -675,7 +728,7 @@ export function editIntermediateElement(
     const sources = sourceExtractedItemUids(db, docUid, [oldResourceUid])
     const resourceUid = createBasicElementResource(db, projectUid, type, input.text, element.level)
     addDerivationLink(db, projectUid, resourceUid, oldResourceUid, 'human_approved', 'edit')
-    removeIntermediateItems(db, docUid, [oldResourceUid])
+    removeIntermediateItems(db, docUid, [element])
     element.type = type
     element.text = input.text
     element.level = type === 'heading' ? Math.max(1, element.level ?? 1) : 0
@@ -727,7 +780,7 @@ export function editElementText(
     )
 
     const sourceItemUids = sourceExtractedItemUids(db, docUid, [oldResourceUid])
-    removeIntermediateItems(db, docUid, [oldResourceUid])
+    removeIntermediateItems(db, docUid, [element])
     // 編集後はテキスト要素（paragraph 系はそのまま、caption/heading もテキスト実体として保持）
     element.text = newText
     element.resource_uid = created.uid
@@ -768,7 +821,7 @@ export function mergeElements(
     const created = createMergedResource(db, projectUid, targetType, sourceResources)
     const resourceUids = selected.map((element) => element.resource_uid!)
     const sourceItemUids = sourceExtractedItemUids(db, docUid, resourceUids)
-    removeIntermediateItems(db, docUid, resourceUids)
+    removeIntermediateItems(db, docUid, selected)
 
     const firstIndex = Math.min(...indexes)
     const first = selected[0]!
@@ -819,7 +872,7 @@ export function splitElement(
     addDerivationLink(db, projectUid, createdA.uid, element.resource_uid, 'human_approved', 'split')
     addDerivationLink(db, projectUid, createdB.uid, element.resource_uid, 'human_approved', 'split')
     const sourceItemUids = sourceExtractedItemUids(db, docUid, [element.resource_uid])
-    removeIntermediateItems(db, docUid, [element.resource_uid])
+    removeIntermediateItems(db, docUid, [element])
 
     const partA: IntermediateElement = { ...element, id: `${element.id}a`, text: texts[0], resource_uid: createdA.uid }
     const partB: IntermediateElement = { ...element, id: `${element.id}b`, text: texts[1], resource_uid: createdB.uid }

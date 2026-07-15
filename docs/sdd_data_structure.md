@@ -295,7 +295,7 @@ PDFのbbox編集、LLM OCR、表OCR、テキスト補正は、D2D上のレビュ
 
 ③中間データは、複数の②抽出文書を統合して生成できる（SRS DATA-002、DATA-009）。統合対象の正本は `intermediate_document` → `extracted_document` の `trace_link`（`based_on`、`basis_kind=extracted`）とする。`structure_json.sources[]` は編集画面の統合元表示順を保持する構成情報であり、`source_extracted_document_uid` は旧データ互換用の任意列として新規データでは `NULL` とする。
 
-アプリは `structure_json.sources` の保存・更新と連動して、`intermediate_document` → `extracted_document` の `trace_link`（`based_on`、`basis_kind=extracted`）を自動生成・同期する。 加えて、統合操作ごとに `intermediate_item` → `extracted_item` のアイテム単位 `based_on` を登録し、3ペイン対応強調と統合済み判定の正本とする。編集・マージ・分割では新しい intermediate_item から元 extracted_item へリンクを張り直す。既存データでアイテムリンクが無い場合は、resource の based_on 由来を再帰探索してDBへ補完する。これにより、統合関係は文書構成JSONの保持内容と双方向トレーサビリティ分析の両方から辿れる。sources の削除時は対応する `based_on` リンクも削除候補として提示し、人間の確認後に反映する。
+アプリは `structure_json.sources` の保存・更新と連動して、`intermediate_document` → `extracted_document` の `trace_link`（`based_on`、`basis_kind=extracted`）を自動生成・同期する。加えて、統合操作ごとに `intermediate_item.uid` → `extracted_item.uid` のアイテム単位 `based_on` を登録し、1つの extracted_item を複数 intermediate_item へ、1つの intermediate_item を複数 extracted_item へ対応できる多対多関係を正本とする。`structure_json.elements[].intermediate_item_uid` は同一Resourceを複数成果物行が参照する場合でも行とDBアイテムを一意に対応させる。編集・マージ・分割では新しい intermediate_item から元 extracted_item へリンクを張り直す。既存データでアイテムリンクまたは intermediate_item_uid が無い場合は、resource の based_on 由来とresource_uid対応を互換経路としてDBへ補完する。統合元単位の紐付解除は、選択した extracted_item を終点とする当該 intermediate_document 配下のアイテム単位 `based_on` だけを削除し、intermediate_item、Resource、文書単位 `based_on`、`structure_json.sources` は保持する。sources の削除時は対応する文書単位 `based_on` リンクも削除候補として提示し、人間の確認後に反映する。
 ## 3. テーブル一覧
 
 | テーブル名 | 役割 | 主な情報 | 主キー | 主な外部キー | 備考 |

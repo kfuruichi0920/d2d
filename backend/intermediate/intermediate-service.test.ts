@@ -16,10 +16,12 @@ import {
   duplicateIntermediateElement,
   editElementText,
   editIntermediateElement,
+  ensureIntermediateItemTraceLinks,
   estimateTokens,
   getChunk,
   getChunkText,
   insertExtractedItems,
+  unlinkExtractedItems,
   reorderIntermediateItems,
   reorderChunks,
   changeIntermediateHierarchy,
@@ -130,18 +132,18 @@ describe('③中間データ（P7）', () => {
       importItems: false
     })
     expect(doc.elementCount).toBe(0)
-    const extracted = db.prepare(`SELECT structure_json FROM extracted_document WHERE uid=?`).get(extractedUid) as {
-      structure_json: string
-    }
-    const source = JSON.parse(extracted.structure_json) as { elements: { resource_uid: string }[] }
+    const sourceItems = db
+      .prepare(`SELECT uid, resource_uid FROM extracted_item WHERE extracted_document_uid=? ORDER BY rowid LIMIT 3`)
+      .all(extractedUid) as { uid: string; resource_uid: string }[]
     insertExtractedItems(
       db,
       projectUid,
       doc.intermediateDocumentUid,
-      source.elements.slice(0, 3).map((e) => e.resource_uid),
+      sourceItems.map((item) => item.uid),
       undefined,
       'below'
     )
+    const source = { elements: sourceItems }
     expect(structureOf(doc.intermediateDocumentUid).elements).toHaveLength(3)
     changeIntermediateHierarchy(db, doc.intermediateDocumentUid, ['i2'], 1)
     expect(structureOf(doc.intermediateDocumentUid).elements[1]!.level).toBe(1)
@@ -190,17 +192,17 @@ describe('③中間データ（P7）', () => {
       importItems: false
     })
     expect(structureOf(doc.intermediateDocumentUid).sources).toHaveLength(2)
-    const resource1 = (
+    const item1 = (
+      db.prepare(`SELECT uid FROM extracted_item WHERE extracted_document_uid=? LIMIT 1`).get(extractedUid) as {
+        uid: string
+      }
+    ).uid
+    const item2 = (
       db
-        .prepare(`SELECT resource_uid FROM extracted_item WHERE extracted_document_uid=? LIMIT 1`)
-        .get(extractedUid) as { resource_uid: string }
-    ).resource_uid
-    const resource2 = (
-      db
-        .prepare(`SELECT resource_uid FROM extracted_item WHERE extracted_document_uid=? LIMIT 1`)
-        .get(stored2.extractedDocumentUid) as { resource_uid: string }
-    ).resource_uid
-    insertExtractedItems(db, projectUid, doc.intermediateDocumentUid, [resource1, resource2], undefined, 'below')
+        .prepare(`SELECT uid FROM extracted_item WHERE extracted_document_uid=? LIMIT 1`)
+        .get(stored2.extractedDocumentUid) as { uid: string }
+    ).uid
+    insertExtractedItems(db, projectUid, doc.intermediateDocumentUid, [item1, item2], undefined, 'below')
     const links = db
       .prepare(
         `SELECT t.from_uid,t.to_uid FROM trace_link t JOIN intermediate_item i ON i.uid=t.from_uid WHERE i.intermediate_document_uid=? AND t.basis_kind='extracted'`
@@ -208,6 +210,26 @@ describe('③中間データ（P7）', () => {
       .all(doc.intermediateDocumentUid) as { from_uid: string; to_uid: string }[]
     expect(links).toHaveLength(2)
     expect(new Set(links.map((link) => link.from_uid)).size).toBe(2)
+
+    // 1つの統合元を別の成果物要素へ再利用でき、統合元単位で全based_onを解除できる。
+    insertExtractedItems(db, projectUid, doc.intermediateDocumentUid, [item1], 'i1', 'below')
+    expect(
+      (
+        db
+          .prepare(`SELECT COUNT(*) AS count FROM trace_link WHERE to_uid=? AND relation_type='based_on'`)
+          .get(item1) as { count: number }
+      ).count
+    ).toBe(2)
+    expect(unlinkExtractedItems(db, doc.intermediateDocumentUid, [item1])).toEqual({ unlinked: 2 })
+    expect(ensureIntermediateItemTraceLinks(db, projectUid, doc.intermediateDocumentUid)).toBe(0)
+    expect(
+      (
+        db
+          .prepare(`SELECT COUNT(*) AS count FROM trace_link WHERE to_uid=? AND relation_type='based_on'`)
+          .get(item1) as { count: number }
+      ).count
+    ).toBe(0)
+    expect(structureOf(doc.intermediateDocumentUid).elements).toHaveLength(3)
   })
 
   it('Explorer取込で既存成果物の統合元と文書based_onを同期する', () => {
