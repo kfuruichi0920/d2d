@@ -26,10 +26,10 @@ const ARROWS = ['抽出▶', '統合▶', 'モデル化▶']
 export function PipelineNavigator(): React.JSX.Element {
   const stats = useProjectStore((s) => s.stats)
   const hasProject = useProjectStore((s) => s.project !== null)
-  const workMode = useWorkbenchStore((s) => s.workMode)
   const switchMode = useWorkbenchStore((s) => s.switchMode)
   const runningCount = useJobsStore((s) => s.runningCount)
   const openResource = useEditorStore((s) => s.openResource)
+  const activeUri = useEditorStore((s) => s.activeUri)
 
   return (
     <nav className="wb-pipeline" data-testid="pipeline-navigator">
@@ -38,7 +38,7 @@ export function PipelineNavigator(): React.JSX.Element {
           {i > 0 && <span className="wb-stage-arrow">{ARROWS[i - 1]}</span>}
           <button
             type="button"
-            className={`wb-stage ${workMode === stage.mode ? 'active' : ''}`}
+            className={`wb-stage ${activeUri === `stage://${stage.key}` ? 'active' : ''}`}
             data-testid={`stage-${stage.key}`}
             disabled={!hasProject}
             onClick={() => {

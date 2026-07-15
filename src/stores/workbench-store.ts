@@ -1,6 +1,6 @@
 /**
  * Workbenchレイアウト状態（P3-1/P3-7、UI-005/006/021/025/037/038/040）。
- * 作業モードごとに外周パネルの表示・サイズ・Secondaryアコーディオンを保持する。
+ * 外周パネルの表示・サイズ・SecondaryアコーディオンをWorkbench共通で保持する。
  */
 import { create } from 'zustand'
 import { DEFAULT_THEME, applyTheme, type ThemeState } from '../theme/theme'
@@ -132,9 +132,13 @@ function currentLayout(state: ModeLayout): ModeLayout {
 }
 
 function persist(state: WorkbenchState): void {
+  const layout = currentLayout(state)
+  const layouts = Object.fromEntries(
+    (Object.keys(MODE_DEFAULT_LAYOUTS) as WorkMode[]).map((mode) => [mode, structuredClone(layout)])
+  ) as Record<WorkMode, ModeLayout>
   const data: PersistedLayout = {
     workMode: state.workMode,
-    layouts: { ...state.layouts, [state.workMode]: currentLayout(state) },
+    layouts,
     activityOrder: state.activityOrder
   }
   try {
@@ -154,16 +158,16 @@ export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
   ...MODE_DEFAULT_LAYOUTS.M0,
 
   switchMode: (mode) => {
-    const state = get()
-    const layouts = { ...state.layouts, [state.workMode]: currentLayout(state) }
-    set({ workMode: mode, layouts, ...layouts[mode] })
+    set({ workMode: mode })
     persist(get())
   },
 
   resetLayout: () => {
-    const state = get()
-    const definition = structuredClone(MODE_DEFAULT_LAYOUTS[state.workMode])
-    set({ ...definition, layouts: { ...state.layouts, [state.workMode]: definition } })
+    const definition = structuredClone(MODE_DEFAULT_LAYOUTS.M0)
+    const layouts = Object.fromEntries(
+      (Object.keys(MODE_DEFAULT_LAYOUTS) as WorkMode[]).map((mode) => [mode, structuredClone(definition)])
+    ) as Record<WorkMode, ModeLayout>
+    set({ ...definition, layouts })
     persist(get())
   },
 
@@ -263,19 +267,15 @@ export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
       data = null
     }
     if (data) {
+      // 旧版のモード別保存値は、最後に表示していたモードの値をWorkbench共通状態として移行する。
+      const saved = data.layouts?.[data.workMode]
+      const layout: ModeLayout = {
+        ...MODE_DEFAULT_LAYOUTS.M0,
+        ...saved,
+        secondaryExpanded: saved?.secondaryExpanded ?? MODE_DEFAULT_LAYOUTS.M0.secondaryExpanded
+      }
       const layouts = Object.fromEntries(
-        (Object.keys(MODE_DEFAULT_LAYOUTS) as WorkMode[]).map((mode) => {
-          const definition = MODE_DEFAULT_LAYOUTS[mode]
-          const saved = data?.layouts?.[mode]
-          return [
-            mode,
-            {
-              ...definition,
-              ...saved,
-              secondaryExpanded: saved?.secondaryExpanded ?? definition.secondaryExpanded
-            }
-          ]
-        })
+        (Object.keys(MODE_DEFAULT_LAYOUTS) as WorkMode[]).map((mode) => [mode, structuredClone(layout)])
       ) as Record<WorkMode, ModeLayout>
       const savedOrder = data.activityOrder?.filter((item) => DEFAULT_ACTIVITY_ORDER.includes(item)) ?? []
       const activityOrder = [
@@ -283,15 +283,18 @@ export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
         ...DEFAULT_ACTIVITY_ORDER.filter((item) => item !== 'settings' && !savedOrder.includes(item)),
         'settings' as const
       ]
-      set({ persistKey, workMode: data.workMode, layouts, activityOrder, ...layouts[data.workMode] })
+      set({ persistKey, workMode: data.workMode, layouts, activityOrder, ...layout })
     } else {
-      const layouts = structuredClone(MODE_DEFAULT_LAYOUTS)
+      const layout = structuredClone(MODE_DEFAULT_LAYOUTS.M0)
+      const layouts = Object.fromEntries(
+        (Object.keys(MODE_DEFAULT_LAYOUTS) as WorkMode[]).map((mode) => [mode, structuredClone(layout)])
+      ) as Record<WorkMode, ModeLayout>
       set({
         persistKey,
         workMode: 'M0',
         layouts,
         activityOrder: [...DEFAULT_ACTIVITY_ORDER],
-        ...layouts.M0
+        ...layout
       })
     }
     applyTheme(get().theme)

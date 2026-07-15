@@ -35,6 +35,23 @@ describe('workbench-store（P3-1、UI-038/040）', () => {
     })
   })
 
+  it('作業モードを切り替えてもWorkbench外周パネル状態を維持する（UI-041）', () => {
+    useWorkbenchStore.getState().setPrimarySize(420)
+    useWorkbenchStore.getState().setSecondarySize(360)
+    useWorkbenchStore.getState().setPanelSize(310)
+    useWorkbenchStore.getState().switchMode('M3')
+
+    expect(useWorkbenchStore.getState()).toMatchObject({
+      workMode: 'M3',
+      sideBarVisible: true,
+      secondaryVisible: true,
+      panelVisible: true,
+      primarySize: 420,
+      secondarySize: 360,
+      panelSize: 310
+    })
+  })
+
   it('ActivityはSettingsを下端に保ったまま並べ替える', () => {
     useWorkbenchStore.getState().moveActivity('history', 'explorer')
     expect(useWorkbenchStore.getState().activityOrder).toEqual([

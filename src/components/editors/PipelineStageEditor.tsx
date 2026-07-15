@@ -2,7 +2,7 @@
  * Pipeline Stage Overview（P3-7、UI-046/047）。
  * ①〜④をソート可能な一覧として開き、①②のアーカイブ／論理削除と②③の読取プレビューを提供する。
  */
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, type KeyboardEvent } from 'react'
 import { invoke, onBackendEvent } from '../../services/backend'
 import { useEditorStore } from '../../stores/editor-store'
 import { useJobsStore } from '../../stores/jobs-store'
@@ -11,6 +11,7 @@ import { reviewStateFromEntityStatus, ReviewStatusBadge } from '../common/review
 import { resourceTypeLabel } from '../../types/resource'
 import type { SourceDocumentItem, ExtractedDocumentItem, IntermediateDocumentItem } from '../views/DocumentsTree'
 import type { DesignElementRow } from '../views/DesignModelViews'
+import { ResizablePaneGroup } from '../workbench/ResizablePaneGroup'
 
 export type PipelineStage = 'source' | 'extracted' | 'intermediate' | 'design'
 type SortDirection = 'asc' | 'desc'
@@ -70,6 +71,29 @@ function sortedRows<T extends object>(rows: T[], sort: SortState): T[] {
     const compared = typeof a === 'number' && typeof b === 'number' ? a - b : String(a).localeCompare(String(b), 'ja')
     return sort.direction === 'asc' ? compared : -compared
   })
+}
+
+function handleStageRowKey(
+  event: KeyboardEvent<HTMLTableRowElement>,
+  uid: string,
+  orderedUids: string[],
+  onSelect: (uid: string) => void,
+  onActivate: (uid: string) => void = onSelect
+): void {
+  if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+    event.preventDefault()
+    const currentIndex = orderedUids.indexOf(uid)
+    const nextIndex = Math.max(0, Math.min(orderedUids.length - 1, currentIndex + (event.key === 'ArrowDown' ? 1 : -1)))
+    const nextUid = orderedUids[nextIndex]
+    if (!nextUid) return
+    onSelect(nextUid)
+    requestAnimationFrame(() => {
+      document.querySelector<HTMLElement>(`[data-stage-row-uid="${nextUid}"]`)?.focus()
+    })
+  } else if (event.key === 'Enter' || event.key === ' ') {
+    event.preventDefault()
+    onActivate(uid)
+  }
 }
 
 function SortHeader({
@@ -237,6 +261,27 @@ export function PipelineStageEditor({ stage }: { stage: PipelineStage }): React.
   const sourceRows = useMemo(() => sortedRows(sources, sort), [sort, sources])
   const extractedRows = useMemo(() => sortedRows(extracted, sort), [extracted, sort])
   const modelRows = useMemo(() => sortedRows(models, sort), [models, sort])
+  const intermediateOrderedUids = useMemo(
+    () =>
+      [...phases]
+        .sort((a, b) => a.sort_order - b.sort_order)
+        .flatMap((phase) =>
+          sortedRows(
+            intermediates.filter((row) => row.dev_phase_id === phase.dev_phase_id),
+            sort
+          ).map((row) => row.uid)
+        ),
+    [intermediates, phases, sort]
+  )
+  const sourceUids = sourceRows.map((row) => row.uid)
+  const extractedUids = extractedRows.map((row) => row.uid)
+  const modelUids = modelRows.map((row) => row.uid)
+  const openDesign = (uid: string): void => {
+    const row = models.find((candidate) => candidate.uid === uid)
+    if (!row) return
+    setSelectedUid(uid)
+    openResource(`design://${uid}`, row.code, { preview: true })
+  }
   const selectedSource = sources.find((row) => row.uid === selectedUid)
 
   return (
@@ -254,7 +299,11 @@ export function PipelineStageEditor({ stage }: { stage: PipelineStage }): React.
           件
         </span>
       </header>
-      <div className={`stage-overview-body ${stage === 'design' ? 'single' : ''}`}>
+      <ResizablePaneGroup
+        initialSizes={stage === 'design' ? [1] : [1, 1]}
+        testId={`stage-${stage}-layout`}
+        className={`stage-overview-body ${stage === 'design' ? 'single' : ''}`}
+      >
         <div className="stage-list-pane">
           {stage === 'source' && (
             <table className="d2d-table stage-table">
@@ -273,7 +322,11 @@ export function PipelineStageEditor({ stage }: { stage: PipelineStage }): React.
                   <tr
                     key={row.uid}
                     className={selectedUid === row.uid ? 'selected' : ''}
+                    aria-selected={selectedUid === row.uid}
+                    tabIndex={0}
+                    data-stage-row-uid={row.uid}
                     onClick={() => setSelectedUid(row.uid)}
+                    onKeyDown={(event) => handleStageRowKey(event, row.uid, sourceUids, setSelectedUid)}
                     data-testid={`stage-source-row-${row.code}`}
                   >
                     <td>{row.code}</td>
@@ -328,7 +381,11 @@ export function PipelineStageEditor({ stage }: { stage: PipelineStage }): React.
                   <tr
                     key={row.uid}
                     className={selectedUid === row.uid ? 'selected' : ''}
+                    aria-selected={selectedUid === row.uid}
+                    tabIndex={0}
+                    data-stage-row-uid={row.uid}
                     onClick={() => setSelectedUid(row.uid)}
+                    onKeyDown={(event) => handleStageRowKey(event, row.uid, extractedUids, setSelectedUid)}
                     onDoubleClick={() =>
                       openResource(`extracted://${row.uid}`, `抽出: ${row.title ?? row.code}`, { preview: true })
                     }
@@ -380,6 +437,7 @@ export function PipelineStageEditor({ stage }: { stage: PipelineStage }): React.
               sort={sort}
               onSort={changeSort}
               selectedUid={selectedUid}
+              orderedUids={intermediateOrderedUids}
               onSelect={setSelectedUid}
             />
           )}
@@ -398,7 +456,12 @@ export function PipelineStageEditor({ stage }: { stage: PipelineStage }): React.
                 {modelRows.map((row) => (
                   <tr
                     key={row.uid}
-                    onDoubleClick={() => openResource(`design://${row.uid}`, row.code, { preview: true })}
+                    className={selectedUid === row.uid ? 'selected' : ''}
+                    aria-selected={selectedUid === row.uid}
+                    tabIndex={0}
+                    data-stage-row-uid={row.uid}
+                    onClick={() => openDesign(row.uid)}
+                    onKeyDown={(event) => handleStageRowKey(event, row.uid, modelUids, setSelectedUid, openDesign)}
                     data-testid={`stage-design-row-${row.code}`}
                   >
                     <td>{row.design_category}</td>
@@ -448,7 +511,7 @@ export function PipelineStageEditor({ stage }: { stage: PipelineStage }): React.
             {stage === 'intermediate' && selectedUid && <DocumentPreview uid={selectedUid} kind="intermediate" />}
           </aside>
         )}
-      </div>
+      </ResizablePaneGroup>
     </div>
   )
 }
@@ -460,6 +523,7 @@ function IntermediateHierarchy({
   sort,
   onSort,
   selectedUid,
+  orderedUids,
   onSelect
 }: {
   rows: IntermediateDocumentItem[]
@@ -468,6 +532,7 @@ function IntermediateHierarchy({
   sort: SortState
   onSort: (key: string) => void
   selectedUid: string | null
+  orderedUids: string[]
   onSelect: (uid: string) => void
 }): React.JSX.Element {
   return (
@@ -502,7 +567,11 @@ function IntermediateHierarchy({
                       <tr
                         key={row.uid}
                         className={selectedUid === row.uid ? 'selected' : ''}
+                        aria-selected={selectedUid === row.uid}
+                        tabIndex={0}
+                        data-stage-row-uid={row.uid}
                         onClick={() => onSelect(row.uid)}
+                        onKeyDown={(event) => handleStageRowKey(event, row.uid, orderedUids, onSelect)}
                         data-testid={`stage-intermediate-row-${row.code}`}
                       >
                         <td>
