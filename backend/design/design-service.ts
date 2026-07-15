@@ -181,6 +181,18 @@ export const RELATION_TYPES = [
 ] as const
 export type RelationType = (typeof RELATION_TYPES)[number]
 
+export interface AllowedRelationRule {
+  relationType: string
+  sourceCategory: string
+  targetCategory: string
+}
+export function listAllowedRelationRules(db: Database): AllowedRelationRule[] {
+  return db
+    .prepare(
+      `SELECT relation_type AS relationType, source_category AS sourceCategory, target_category AS targetCategory FROM relation_rule_master WHERE allowed=1 ORDER BY relation_type,source_category,target_category`
+    )
+    .all() as AllowedRelationRule[]
+}
 export interface RelationCheckResult {
   allowed: boolean
   requiredAttr: string | null

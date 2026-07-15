@@ -11,6 +11,7 @@ import { onBackendEvent } from '../../services/backend'
 import { useEditorStore } from '../../stores/editor-store'
 import { useJobsStore } from '../../stores/jobs-store'
 import { useProjectStore } from '../../stores/project-store'
+import { useSelectionStore } from '../../stores/selection-store'
 import { DiffEditor } from '../common/DiffEditor'
 import { CodeEditor } from '../common/CodeEditor'
 
@@ -304,86 +305,180 @@ interface StoreTable {
 export function StoreBrowserEditor(): React.JSX.Element {
   const [tables, setTables] = useState<StoreTable[]>([])
   const [selected, setSelected] = useState<string | null>(null)
-  const [rows, setRows] = useState<{ columns: string[]; rows: Record<string, unknown>[] } | null>(null)
+  const [data, setData] = useState<{ columns: string[]; rows: Record<string, unknown>[]; total: number } | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [selectedIndex, setSelectedIndex] = useState<number | null>(null)
+  const setSelectedItem = useSelectionStore((s) => s.setSelectedItem)
+  const clearSelectedItem = useSelectionStore((s) => s.clearSelectedItem)
+  const PAGE = 500
 
   useEffect(() => {
     void invoke<StoreTable[]>('store.listTables').then((res) => {
       if (res.ok) setTables(res.result)
     })
   }, [])
-
-  useEffect(() => {
-    if (!selected) return
-    void invoke<{ columns: string[]; rows: Record<string, unknown>[] }>('store.getRows', {
-      table: selected,
-      limit: 200
-    }).then((res) => {
-      if (res.ok) setRows(res.result)
+  const load = useCallback(async (table: string, offset: number) => {
+    setLoading(true)
+    const res = await invoke<{ columns: string[]; rows: Record<string, unknown>[]; total: number }>('store.getRows', {
+      table,
+      limit: PAGE,
+      offset
     })
-  }, [selected])
-
+    setLoading(false)
+    if (res.ok)
+      setData((current) => ({
+        columns: res.result.columns,
+        total: res.result.total,
+        rows: offset === 0 ? res.result.rows : [...(current?.rows ?? []), ...res.result.rows]
+      }))
+  }, [])
+  useEffect(() => {
+    setData(null)
+    setSelectedIndex(null)
+    if (selected) void load(selected, 0)
+  }, [load, selected])
+  useEffect(() => {
+    const contextUri = 'store://tables'
+    const row = selectedIndex === null ? null : data?.rows[selectedIndex]
+    if (!selected || !row) {
+      clearSelectedItem(contextUri)
+      return
+    }
+    const uid = typeof row.uid === 'string' ? row.uid : `${selected}:${(selectedIndex ?? 0) + 1}`
+    const properties = Object.fromEntries(
+      [['テーブル', selected] as const, ...Object.entries(row)].map(([k, v]) => [
+        k,
+        v === null || ['string', 'number', 'boolean'].includes(typeof v)
+          ? (v as string | number | boolean | null)
+          : JSON.stringify(v)
+      ])
+    )
+    setSelectedItem({
+      contextUri,
+      uid,
+      displayId: typeof row.code === 'string' ? row.code : uid,
+      entityType: typeof row.entity_type === 'string' ? row.entity_type : selected,
+      title: typeof row.title === 'string' ? row.title : undefined,
+      status: typeof row.status === 'string' ? row.status : undefined,
+      properties
+    })
+    return () => clearSelectedItem(contextUri)
+  }, [clearSelectedItem, data, selected, selectedIndex, setSelectedItem])
   const cellText = (v: unknown): string => {
     if (v == null) return ''
     const s = typeof v === 'object' ? JSON.stringify(v) : String(v)
     return s.length > 120 ? `${s.slice(0, 120)}…` : s
   }
-
+  const choose = (index: number): void => setSelectedIndex(index)
+  const key = (event: React.KeyboardEvent<HTMLTableRowElement>, index: number): void => {
+    if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return
+    event.preventDefault()
+    const next = Math.max(0, Math.min((data?.rows.length ?? 1) - 1, index + (event.key === 'ArrowDown' ? 1 : -1)))
+    choose(next)
+    requestAnimationFrame(() => document.querySelector<HTMLElement>(`[data-store-row="${next}"]`)?.focus())
+  }
   return (
     <div style={{ display: 'flex', height: '100%' }} data-testid="store-browser">
       <div style={{ width: 260, overflow: 'auto', borderRight: '1px solid var(--d2d-border)', padding: 8 }}>
         <h1 style={{ fontSize: 14, marginTop: 0 }}>ストア閲覧（UI-020）</h1>
-        {tables.map((t) => (
+        {tables.map((table) => (
           <div
-            key={t.name}
+            key={table.name}
             className="d2d-list-row"
-            onClick={() => setSelected(t.name)}
-            style={{ background: selected === t.name ? 'var(--d2d-selection-bg)' : undefined }}
-            data-testid={`store-table-${t.name}`}
+            onClick={() => setSelected(table.name)}
+            style={{ background: selected === table.name ? 'var(--d2d-selection-bg)' : undefined }}
+            data-testid={`store-table-${table.name}`}
           >
-            <span style={{ flex: 1 }}>{t.name}</span>
-            <span style={{ color: 'var(--d2d-fg-muted)', fontSize: 11 }}>{t.rowCount}</span>
+            <span style={{ flex: 1 }}>{table.name}</span>
+            <span style={{ color: 'var(--d2d-fg-muted)', fontSize: 11 }}>{table.rowCount}</span>
           </div>
         ))}
       </div>
-      <div style={{ flex: 1, minWidth: 0, overflow: 'auto', padding: 8 }}>
-        {!rows && <div className="d2d-empty">左の一覧からテーブルを選択してください。</div>}
-        {rows && (
-          <table style={{ borderCollapse: 'collapse', fontSize: 11.5 }} data-testid="store-rows">
-            <thead>
-              <tr>
-                {rows.columns.map((c) => (
-                  <th
-                    key={c}
-                    style={{
-                      textAlign: 'left',
-                      padding: '2px 8px',
-                      color: 'var(--d2d-fg-muted)',
-                      borderBottom: '1px solid var(--d2d-border)',
-                      position: 'sticky',
-                      top: 0,
-                      background: 'var(--d2d-bg)'
-                    }}
-                  >
-                    {c}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.rows.map((row, i) => (
-                <tr key={i}>
-                  {rows.columns.map((c) => (
-                    <td
-                      key={c}
-                      style={{ padding: '2px 8px', borderBottom: '1px solid var(--d2d-border)', whiteSpace: 'nowrap' }}
+      <div
+        className="store-rows-scroll"
+        style={{ flex: 1, padding: 8 }}
+        onScroll={(e) => {
+          const el = e.currentTarget
+          if (
+            selected &&
+            data &&
+            !loading &&
+            data.rows.length < data.total &&
+            el.scrollTop + el.clientHeight >= el.scrollHeight - 80
+          )
+            void load(selected, data.rows.length)
+        }}
+      >
+        {!data && <div className="d2d-empty">左の一覧からテーブルを選択してください。</div>}
+        {data && (
+          <>
+            <div data-testid="store-row-count">
+              {data.rows.length} / {data.total} 件
+            </div>
+            <table
+              style={{ borderCollapse: 'collapse', fontSize: 11.5, minWidth: 'max-content' }}
+              data-testid="store-rows"
+            >
+              <thead>
+                <tr>
+                  <th style={{ position: 'sticky', top: 0, background: 'var(--d2d-bg)' }}>行</th>
+                  {data.columns.map((column) => (
+                    <th
+                      key={column}
+                      style={{
+                        textAlign: 'left',
+                        padding: '2px 8px',
+                        color: 'var(--d2d-fg-muted)',
+                        borderBottom: '1px solid var(--d2d-border)',
+                        position: 'sticky',
+                        top: 0,
+                        background: 'var(--d2d-bg)'
+                      }}
                     >
-                      {cellText(row[c])}
-                    </td>
+                      {column}
+                    </th>
                   ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {data.rows.map((row, index) => (
+                  <tr
+                    key={index}
+                    tabIndex={0}
+                    data-store-row={index}
+                    aria-selected={selectedIndex === index}
+                    className={selectedIndex === index ? 'store-row-selected' : ''}
+                    onClick={() => choose(index)}
+                    onKeyDown={(e) => key(e, index)}
+                  >
+                    <td style={{ padding: '2px 8px', borderBottom: '1px solid var(--d2d-border)' }}>{index + 1}</td>
+                    {data.columns.map((column) => (
+                      <td
+                        key={column}
+                        style={{
+                          padding: '2px 8px',
+                          borderBottom: '1px solid var(--d2d-border)',
+                          whiteSpace: 'nowrap'
+                        }}
+                      >
+                        {cellText(row[column])}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {data.rows.length < data.total && (
+              <button
+                className="d2d-btn"
+                disabled={loading}
+                onClick={() => selected && void load(selected, data.rows.length)}
+                data-testid="store-load-more"
+              >
+                {loading ? '読込中…' : 'さらに読込'}
+              </button>
+            )}
+          </>
         )}
       </div>
     </div>

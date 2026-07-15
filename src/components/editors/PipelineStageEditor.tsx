@@ -14,6 +14,11 @@ import type { SourceDocumentItem, ExtractedDocumentItem, IntermediateDocumentIte
 import type { DesignElementRow } from '../views/DesignModelViews'
 import { ResizablePaneGroup } from '../workbench/ResizablePaneGroup'
 import { IntermediateImportDialog } from './IntermediateImportDialog'
+import {
+  DocumentPreviewMetaControls,
+  useDocumentPreviewMeta,
+  type PreviewMetaOptions
+} from '../common/DocumentPreviewMeta'
 
 export type PipelineStage = 'source' | 'extracted' | 'intermediate' | 'design'
 type SortDirection = 'asc' | 'desc'
@@ -26,6 +31,7 @@ type PreviewElement = {
   text?: string
   caption?: string | null
   level?: number
+  section_path?: string
   rows?: { text: string; colspan?: number }[][]
   resource_uid?: string
   review?: { status: string }
@@ -135,15 +141,21 @@ function FigurePreview({ resourceUid }: { resourceUid?: string }): React.JSX.Ele
 
 function ElementPreview({
   element,
-  intermediate
+  intermediate,
+  previewMeta
 }: {
   element: PreviewElement
   intermediate: boolean
+  previewMeta: PreviewMetaOptions
 }): React.JSX.Element {
   const type = intermediate ? (element.item_type ?? element.type) : element.type
   return (
     <article className="stage-preview-element">
-      <span className="d2d-badge status-running">{intermediate ? resourceTypeLabel(type) : type}</span>
+      {previewMeta.parts && (
+        <span className="d2d-badge status-running">{intermediate ? resourceTypeLabel(type) : type}</span>
+      )}
+      {previewMeta.elementIds && <code>{element.id}</code>}
+      {previewMeta.sections && element.section_path && <span>{element.section_path}</span>}
       {element.review && <ReviewStatusBadge status={reviewStateFromEntityStatus(element.review.status)} />}
       {element.type === 'figure' || type === 'resource_figure' ? (
         <FigurePreview resourceUid={element.resource_uid} />
@@ -172,6 +184,7 @@ function ElementPreview({
 
 function DocumentPreview({ uid, kind }: { uid: string; kind: 'extracted' | 'intermediate' }): React.JSX.Element {
   const [doc, setDoc] = useState<PreviewDocument | null>(null)
+  const [previewMeta, setPreviewMeta] = useDocumentPreviewMeta()
   useEffect(() => {
     setDoc(null)
     void invoke<PreviewDocument>(`${kind}.get`, { uid }).then((result) => {
@@ -182,8 +195,14 @@ function DocumentPreview({ uid, kind }: { uid: string; kind: 'extracted' | 'inte
   return (
     <div className="stage-document-preview" data-testid={`${kind}-stage-preview`}>
       <h2>{doc.title ?? doc.code}</h2>
+      <DocumentPreviewMetaControls options={previewMeta} onChange={setPreviewMeta} />
       {doc.elements.map((element) => (
-        <ElementPreview key={element.id} element={element} intermediate={kind === 'intermediate'} />
+        <ElementPreview
+          key={element.id}
+          element={element}
+          intermediate={kind === 'intermediate'}
+          previewMeta={previewMeta}
+        />
       ))}
     </div>
   )

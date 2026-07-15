@@ -165,7 +165,8 @@ export function registerDataApi(router: ApiRouter, jobs: JobManager): void {
         `SELECT ${table.columns.map((c) => `"${c}"`).join(', ')} FROM ${table.name} ORDER BY ${table.orderBy} LIMIT ? OFFSET ?`
       )
       .all(limit, offset) as Record<string, unknown>[]
-    return { table: table.name, columns: table.columns, rows, limit, offset }
+    const total = (db.prepare(`SELECT COUNT(*) AS n FROM ${table.name}`).get() as { n: number }).n
+    return { table: table.name, columns: table.columns, rows, limit, offset, total }
   })
 }
 

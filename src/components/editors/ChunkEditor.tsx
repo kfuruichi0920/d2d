@@ -7,6 +7,7 @@ import { useEditorStore } from '../../stores/editor-store'
 import { useJobsStore } from '../../stores/jobs-store'
 import { useSelectionStore } from '../../stores/selection-store'
 import { reviewStateFromEntityStatus, ReviewStatusBadge } from '../common/review'
+import { DocumentPreviewMetaControls, useDocumentPreviewMeta } from '../common/DocumentPreviewMeta'
 import { ResizablePaneGroup } from '../workbench/ResizablePaneGroup'
 
 interface ElementRow {
@@ -67,6 +68,7 @@ export function ChunkEditor({ uid }: { uid: string }): React.JSX.Element {
   const [doc, setDoc] = useState<DocumentData | null>(null)
   const [chunks, setChunks] = useState<ChunkRow[]>([])
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set())
+  const [previewMeta, setPreviewMeta] = useDocumentPreviewMeta()
   const [activeItem, setActiveItem] = useState<string | null>(null)
   const [activePane, setActivePane] = useState<'item' | 'chunk'>('item')
   const [selectedChunk, setSelectedChunk] = useState<string | null>(null)
@@ -356,7 +358,7 @@ export function ChunkEditor({ uid }: { uid: string }): React.JSX.Element {
         </div>
       )}
 
-      <ResizablePaneGroup initialSizes={[40, 27, 33]} testId="chunk-editor-layout">
+      <ResizablePaneGroup initialSizes={[40, 27, 33]} testId="chunk-editor-layout" className="chunk-editor-layout">
         <section
           tabIndex={0}
           onKeyDown={(event) => {
@@ -474,6 +476,7 @@ export function ChunkEditor({ uid }: { uid: string }): React.JSX.Element {
 
         <section style={{ overflow: 'auto', padding: 12 }}>
           <h3>中間文書プレビュー</h3>
+          <DocumentPreviewMetaControls options={previewMeta} onChange={setPreviewMeta} />
           {doc.elements.map((row) => {
             const itemUid = row.intermediate_item_uid
             const selectedPreview = Boolean(itemUid && activePane === 'item' && selectedItems.has(itemUid))
@@ -512,7 +515,11 @@ export function ChunkEditor({ uid }: { uid: string }): React.JSX.Element {
                 }
                 style={common}
               >
-                <small className="d2d-badge">{row.type}</small>
+                <header>
+                  {previewMeta.parts && <small className="d2d-badge">{row.type}</small>}
+                  {previewMeta.elementIds && <code>{row.id}</code>}
+                  {previewMeta.sections && row.section_path && <span>{row.section_path}</span>}
+                </header>
                 {body}
               </article>
             )

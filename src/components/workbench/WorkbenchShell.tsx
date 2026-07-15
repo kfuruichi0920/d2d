@@ -20,6 +20,7 @@ import { PipelineNavigator } from './PipelineNavigator'
 import { PrimarySideBar } from './PrimarySideBar'
 import { ResizeHandle } from './ResizeHandle'
 import { SecondarySideBar } from './SecondarySideBar'
+import { ScreenTextSearch } from './ScreenTextSearch'
 import { StatusBar } from './StatusBar'
 import { TitleBar } from './TitleBar'
 
@@ -106,6 +107,7 @@ export function WorkbenchShell(): React.JSX.Element {
   return (
     <div className="wb-root" data-testid="workbench">
       <TitleBar />
+      <ScreenTextSearch />
       <PipelineNavigator />
       <div className="wb-main">
         <ActivityBar />

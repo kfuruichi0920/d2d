@@ -39,7 +39,11 @@ describe('Secondary Side Bar 共通関係・Review（P3-9）', () => {
     link(selected.uid, both.uid, 'bidirectional')
     expect(listItemRelations(db, projectUid, selected.uid)).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ other_uid: outgoing.uid, relative_direction: 'outgoing' }),
+        expect.objectContaining({
+          other_uid: outgoing.uid,
+          relative_direction: 'outgoing',
+          open_uri: 'resource://' + outgoing.uid
+        }),
         expect.objectContaining({ other_uid: incoming.uid, relative_direction: 'incoming' }),
         expect.objectContaining({ other_uid: both.uid, relative_direction: 'bidirectional' })
       ])

@@ -15,6 +15,7 @@ export interface SecondaryRelationRow {
   other_code: string
   other_title: string | null
   other_entity_type: string
+  open_uri: string | null
   rationale: string | null
   created_at: string
 }
@@ -43,6 +44,15 @@ export function listItemRelations(db: Database, projectUid: string, itemUid: str
                    WHEN t.from_uid=? THEN 'outgoing' ELSE 'incoming' END AS relative_direction,
               CASE WHEN t.from_uid=? THEN t.to_uid ELSE t.from_uid END AS other_uid,
               oe.code AS other_code, oe.title AS other_title, oe.entity_type AS other_entity_type,
+              CASE
+                WHEN oe.entity_type LIKE 'resource_%' THEN 'resource://' || oe.uid
+                WHEN oe.entity_type='source_document' THEN 'original://' || oe.uid
+                WHEN oe.entity_type='extracted_document' THEN 'extracted://' || oe.uid
+                WHEN oe.entity_type='intermediate_document' THEN 'intermediate://' || oe.uid
+                WHEN oe.entity_type='extracted_item' THEN 'extracted://' || (SELECT extracted_document_uid FROM extracted_item WHERE uid=oe.uid)
+                WHEN oe.entity_type='intermediate_item' THEN 'intermediate://' || (SELECT intermediate_document_uid FROM intermediate_item WHERE uid=oe.uid)
+                WHEN oe.entity_type='chunk' THEN 'chunk://' || (SELECT intermediate_document_uid FROM chunk WHERE uid=oe.uid)
+                ELSE NULL END AS open_uri,
               t.rationale, t.created_at
          FROM trace_link t
          JOIN entity_registry le ON le.uid=t.uid AND le.project_uid=? AND le.status <> 'deleted'

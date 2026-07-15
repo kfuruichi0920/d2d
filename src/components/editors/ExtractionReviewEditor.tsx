@@ -10,6 +10,7 @@ import { useProjectStore } from '../../stores/project-store'
 import { useSelectionStore, type ExtractedItemSelection } from '../../stores/selection-store'
 import { VirtualDataGrid } from '../common/VirtualDataGrid'
 import { StructuredJsonView } from '../common/StructuredJsonView'
+import { DocumentPreviewMetaControls, useDocumentPreviewMeta } from '../common/DocumentPreviewMeta'
 import { reviewStateFromEntityStatus, ReviewStatusBadge } from '../common/review'
 import { ResizablePaneGroup } from '../workbench/ResizablePaneGroup'
 
@@ -125,6 +126,7 @@ export function ExtractionReviewEditor({ uid }: { uid: string }): React.JSX.Elem
   const [activeId, setActiveId] = useState<string | null>(null)
   const [anchorId, setAnchorId] = useState<string | null>(null)
   const [previewMode, setPreviewMode] = useState<'visual' | 'structure'>('visual')
+  const [previewMeta, setPreviewMeta] = useDocumentPreviewMeta()
   const [renameOpen, setRenameOpen] = useState(false)
   const [renameTitle, setRenameTitle] = useState('')
   const previewRefs = useRef(new Map<string, HTMLElement>())
@@ -443,6 +445,7 @@ export function ExtractionReviewEditor({ uid }: { uid: string }): React.JSX.Elem
               structure_json
             </button>
           </div>
+          {previewMode === 'visual' && <DocumentPreviewMetaControls options={previewMeta} onChange={setPreviewMeta} />}
           {previewMode === 'structure' ? (
             <StructuredJsonView value={doc.structure} testId="extraction-structure-json" />
           ) : (
@@ -464,9 +467,11 @@ export function ExtractionReviewEditor({ uid }: { uid: string }): React.JSX.Elem
                   }}
                 >
                   <header>
-                    <span className="d2d-badge">{TYPE_LABELS[element.type] ?? element.type}</span>
-                    <code>{element.id}</code>
-                    {element.section_path && <span>{element.section_path}</span>}
+                    {previewMeta.parts && (
+                      <span className="d2d-badge">{TYPE_LABELS[element.type] ?? element.type}</span>
+                    )}
+                    {previewMeta.elementIds && <code>{element.id}</code>}
+                    {previewMeta.sections && element.section_path && <span>{element.section_path}</span>}
                   </header>
                   <ElementBody element={element} />
                 </article>

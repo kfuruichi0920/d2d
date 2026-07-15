@@ -25,6 +25,7 @@ interface RelationRow {
   other_code: string
   other_title: string | null
   other_entity_type: string
+  open_uri: string | null
   rationale: string | null
 }
 
@@ -55,6 +56,7 @@ export function SecondarySideBar(): React.JSX.Element {
   const toggleSection = useWorkbenchStore((state) => state.toggleSecondarySection)
   const activeUri = useEditorStore((state) => state.activeUri)
   const selectedItem = useSelectionStore((state) => state.selectedItem)
+  const openResource = useEditorStore((state) => state.openResource)
   const target = useMemo(
     () => (selectedItem?.contextUri === activeUri ? selectedItem : fallbackSelection(activeUri)),
     [activeUri, selectedItem]
@@ -63,34 +65,36 @@ export function SecondarySideBar(): React.JSX.Element {
   return (
     <aside className="wb-secondary" data-testid="secondary-sidebar">
       <div className="wb-secondary-accordions">
-        {SECTIONS.map((section) => {
-          const open = expanded.includes(section.id)
-          return (
-            <section
-              key={section.id}
-              className={'wb-secondary-accordion ' + (activeSection === section.id ? 'active' : '')}
-              data-testid={'secondary-accordion-' + section.id}
-            >
-              <button
-                type="button"
-                className="wb-secondary-accordion-header"
-                aria-expanded={open}
-                onClick={() => toggleSection(section.id)}
-                data-testid={'secondary-tab-' + section.id}
+        {[...SECTIONS]
+          .sort((a, b) => Number(expanded.includes(b.id)) - Number(expanded.includes(a.id)))
+          .map((section) => {
+            const open = expanded.includes(section.id)
+            return (
+              <section
+                key={section.id}
+                className={'wb-secondary-accordion ' + (activeSection === section.id ? 'active' : '')}
+                data-testid={'secondary-accordion-' + section.id}
               >
-                <span>{open ? '▾' : '▸'}</span>
-                {section.label}
-              </button>
-              {open && (
-                <div className="wb-secondary-accordion-body">
-                  {section.id === 'properties' && <PropertiesContent target={target} />}
-                  {section.id === 'relations' && <RelationsContent target={target} />}
-                  {section.id === 'review' && <ReviewContent target={target} />}
-                </div>
-              )}
-            </section>
-          )
-        })}
+                <button
+                  type="button"
+                  className="wb-secondary-accordion-header"
+                  aria-expanded={open}
+                  onClick={() => toggleSection(section.id)}
+                  data-testid={'secondary-tab-' + section.id}
+                >
+                  <span>{open ? '▾' : '▸'}</span>
+                  {section.label}
+                </button>
+                {open && (
+                  <div className="wb-secondary-accordion-body">
+                    {section.id === 'properties' && <PropertiesContent target={target} />}
+                    {section.id === 'relations' && <RelationsContent target={target} openResource={openResource} />}
+                    {section.id === 'review' && <ReviewContent target={target} />}
+                  </div>
+                )}
+              </section>
+            )
+          })}
       </div>
     </aside>
   )
@@ -134,7 +138,13 @@ function PropertiesContent({ target }: { target: SelectedItem | null }): React.J
   )
 }
 
-function RelationsContent({ target }: { target: SelectedItem | null }): React.JSX.Element {
+function RelationsContent({
+  target,
+  openResource
+}: {
+  target: SelectedItem | null
+  openResource: (uri: string, title: string) => void
+}): React.JSX.Element {
   const [relations, setRelations] = useState<RelationRow[]>([])
   const [error, setError] = useState<string | null>(null)
   const load = useCallback(async () => {
@@ -165,7 +175,18 @@ function RelationsContent({ target }: { target: SelectedItem | null }): React.JS
   return (
     <ul className="secondary-relation-list" data-testid="secondary-relations-list">
       {relations.map((relation) => (
-        <li key={relation.uid}>
+        <li
+          key={relation.uid}
+          role={relation.open_uri ? 'button' : undefined}
+          tabIndex={relation.open_uri ? 0 : undefined}
+          onClick={() =>
+            relation.open_uri && openResource(relation.open_uri, relation.other_title ?? relation.other_code)
+          }
+          onKeyDown={(event) => {
+            if (relation.open_uri && (event.key === 'Enter' || event.key === ' '))
+              openResource(relation.open_uri, relation.other_title ?? relation.other_code)
+          }}
+        >
           <div>
             <span className="d2d-badge">{relation.relation_type}</span>{' '}
             <b>

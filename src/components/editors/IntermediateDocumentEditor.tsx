@@ -10,6 +10,7 @@ import { useProjectStore } from '../../stores/project-store'
 import { useSelectionStore } from '../../stores/selection-store'
 import { VirtualDataGrid } from '../common/VirtualDataGrid'
 import { StructuredJsonView } from '../common/StructuredJsonView'
+import { DocumentPreviewMetaControls, useDocumentPreviewMeta } from '../common/DocumentPreviewMeta'
 import { ResourceEditor } from './ResourceEditor'
 import { resourceTypeLabel } from '../../types/resource'
 import { reviewStateFromEntityStatus, ReviewStatusBadge } from '../common/review'
@@ -113,6 +114,7 @@ export function IntermediateDocumentEditor({
   const [lastSelectedPane, setLastSelectedPane] = useState<'source' | 'intermediate'>('intermediate')
   const [editorMode, setEditorMode] = useState<IntermediateEditorMode>(initialMode)
   const [previewMode, setPreviewMode] = useState<'visual' | 'structure'>('visual')
+  const [previewMeta, setPreviewMeta] = useDocumentPreviewMeta()
   const previewRefs = useRef(new Map<string, HTMLElement>())
   const [elementEditor, setElementEditor] = useState<ElementEditorState | null>(null)
   const [resourceEditing, setResourceEditing] = useState<IntermediateElement | null>(null)
@@ -962,6 +964,7 @@ export function IntermediateDocumentEditor({
               structure_json
             </button>
           </div>
+          {previewMode === 'visual' && <DocumentPreviewMetaControls options={previewMeta} onChange={setPreviewMeta} />}
           {previewMode === 'structure' ? (
             <StructuredJsonView value={doc.structure} testId="intermediate-structure-json" />
           ) : (
@@ -981,6 +984,11 @@ export function IntermediateDocumentEditor({
                 onDoubleClick={() => openElementEditor(e)}
                 style={{ marginLeft: (e.level ?? 0) * 14 }}
               >
+                <header>
+                  {previewMeta.parts && <span className="d2d-badge">{resourceTypeLabel(e.item_type)}</span>}
+                  {previewMeta.elementIds && <code>{e.id}</code>}
+                  {previewMeta.sections && e.section_path && <span>{e.section_path}</span>}
+                </header>
                 <button
                   type="button"
                   className="resource-type-button"

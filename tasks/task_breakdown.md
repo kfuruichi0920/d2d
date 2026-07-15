@@ -89,7 +89,7 @@ flowchart TD
 | P3-6 | エディタ基盤                                    | Monaco Editor 統合（Markdown/PlantUML/JSON/SQL/ログ）、marked + DOMPurify による Markdown プレビュー                                                                        | P3-1       | [sdd_tech_stack §3]                                                |
 | P3-7 | Pipeline Navigator・Perspective                 | ①〜④ステージナビゲーション、作業モード（M1〜M5）切替、各ステージ一覧Editor（①原本、②抽出、③フェーズ－成果物、④モデル）への遷移、現在ステージだけの選択表示、列ソート、行のクリック／上下キー／Enter／Space操作、①～③の一覧／プレビュー境界リサイズ、①取込・③取込・④追加操作の一覧上部配置、Explorerの閲覧／選択専用化                                                                                                              | P3-2       | [UI-046〜048, sdd_ui_design §3.1, §5, §6]                                       |
 | P3-8 | レビュー UX 共通コンポーネント                  | 対照レビューエディタ、レビューキュー(Inbox)、レビュー状態モデル（未確認/確認済/要修正/棄却）、キーボードトリアージ、一括操作                                                | P3-2, P3-4 | [EXT-022, sdd_ui_design §7]                                        |
-| P3-9 | 補助表示（Secondary Side Bar）                  | Workbench共通Selectionに連動するProperties／Relations／Reviewの縦アコーディオン、選択アイテム属性表示、trace_linkの関係種別・相対方向・相手アイテム一覧、コメントResourceと対象へのrelates_toを同一トランザクションで保存するReview入力・履歴表示 | P3-2       | [UI-026, UI-040, sdd_ui_design §11]                                |
+| P3-9 | 補助表示（Secondary Side Bar）                  | Workbench共通Selectionに連動するProperties／Relations／Reviewの縦アコーディオン、選択アイテム属性表示、開状態を上・閉状態を下へ配置、trace_linkの関係種別・相対方向・クリック可能な相手一覧、コメントResourceと対象へのrelates_toを同一トランザクションで保存するReview入力・履歴表示 | P3-2       | [UI-026, UI-040, sdd_ui_design §11]                                |
 
 ## 7. P4: 原本取込（①原本データ）
 
@@ -152,7 +152,7 @@ Word を先行実装して抽出パイプライン全体（ワーカー→候補
 | P8-1 | 設計要素管理              | 13 分類（SRC/STD/REQ/CST/FUNC/STRUCT/BEH/STATE/IF/DATA/VERIF/MGMT/IMPL）の登録・編集・削除、uid/code/分類/タイトル/状態/レビュー情報、design_category、owner_uid と allocated_to の区別                                      | P1-2, P1-6       | [MODEL-001〜005, srs §9.1]                                                       |
 | P8-2 | trace_link 関係管理       | 11 relation_type 限定の関係 CRUD、関係属性（confidence/created_by/review_status/rationale/basis_kind/evidence_span/usage_kind/direction 等）、relation_rule_master による許容関係・重複検査（conflicts_with の文脈属性込み） | P8-1, P1-6       | [srs §9.2〜9.4, DATA-011, DATA-017]                                              |
 | P8-3 | 設計モデル候補生成        | チャンク→LLM による要求/制約/機能/構造/関係候補の生成（要素候補と関係候補の分離、根拠範囲・信頼度・生成プロンプト・レビュー状態の紐づけ）、`generateDesignCandidates` API                                                    | P7-5, P6-5, P6-6 | [MID-025, MID-028, LLM-030〜034, LLM-037, sdd_function_architecture §10.1〜10.2] |
-| P8-4 | 候補セットレビュー Editor | `candidate://` Resource、保存前の表形式追加・修正・削除・種別変更、一時 ID による要素名変更時の関係 From/To 追従、正規化テキスト・要素候補・関係候補・警告・LLM ログ・検証エラーの同期表示                                   | P3-8, P8-3       | [MODEL-007, MODEL-008, UI-035, UI-036, LLM-038]                                  |
+| P8-4 | 候補セットレビュー Editor | `candidate://` Resource、保存前の表形式追加・修正・削除・種別変更、一時 ID による要素名変更時の関係 From/To 追従、relation_rule_master許容関係だけの選択肢と許容外LLM初期値の警告、正規化テキスト・要素候補・関係候補・警告・LLM ログ・検証エラーの同期表示                                   | P3-8, P8-3       | [MODEL-007, MODEL-008, UI-035, UI-036, LLM-038]                                  |
 | P8-5 | 候補採用トランザクション  | 候補セット採用時の同一トランザクション検査（許容関係・重複・未解決参照・根拠リンク不足）、一時 ID→UUIDv7 変換、entity_registry + resource_* + trace_link への正本反映、採用/修正/棄却履歴の保存                              | P8-4, P8-2       | [MODEL-006, MODEL-009, LLM-039, sdd_data_structure §2.10]                        |
 | P8-6 | 設計モデルビュー          | ④設計要素・関係のソート可能な一覧・詳細ビュー、一覧上部の状態遷移／モデル／用語集追加操作                                                                                                                                                                                            | P3-4, P8-1       | [UI-013, UI-046]                                                                         |
 
@@ -196,7 +196,7 @@ Word を先行実装して抽出パイプライン全体（ワーカー→候補
 | P12-4 | ZIP 差分インポート | ZIP の一時領域展開・manifest 検査・正本非上書き、現在正本/DB to Text との差分比較                                                                                                                            | P12-3, P12-1       | [DATA-007, DATA-031, DATA-032, NFR-014]      |
 | P12-5 | Git 履歴参照       | simple-git による履歴・diff の読み取り専用参照（コミットはツール外）、Git 履歴からの DB to Text 比較                                                                                                         | P1-3               | [GIT-001, GIT-002, GIT-007]                  |
 | P12-6 | Diff ビュー        | テキスト/JSONL 差分表示（Monaco diff）、過去版の設計要素・関係・トレースマトリクス比較、Git 履歴参照ビュー                                                                                                   | P3-6, P12-1, P12-5 | [UI-017, UI-019, GIT-005, GIT-006, EDIT-012] |
-| P12-7 | ストア閲覧ビュー   | SQLite DB・JSON/JSONL のストア閲覧                                                                                                                                                                           | P3-4               | [UI-020]                                     |
+| P12-7 | ストア閲覧ビュー   | SQLite DB・JSON/JSONL の全件追加読込・行番号・横スクロール・行選択・Secondary連携                                                                                                                                                                           | P3-4               | [UI-020]                                     |
 
 ## 16. P13: レポート・出力
 

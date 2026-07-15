@@ -13,6 +13,7 @@ import {
   createTraceLink,
   createVerificationFor,
   listDesignElements,
+  listAllowedRelationRules,
   listTraceLinks,
   RELATION_TYPES,
   setVerificationDetail,
@@ -127,6 +128,11 @@ export function registerDesignApi(router: ApiRouter, jobs: JobManager): void {
   })
 
   // ---- 関係（P8-2） ----
+
+  router.register('design.listAllowedRelationRules', () => {
+    const { db } = requireProject()
+    return listAllowedRelationRules(db)
+  })
 
   router.register('design.createRelation', (params) => {
     const p = asRecord(params)
