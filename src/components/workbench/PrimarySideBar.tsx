@@ -6,8 +6,6 @@ import { executeCommand } from '../../services/command-registry'
 import { getCommandContext } from '../../services/builtin-commands'
 import { useProjectStore } from '../../stores/project-store'
 import { useWorkbenchStore, type Activity } from '../../stores/workbench-store'
-import { JobsListView } from '../views/JobsListView'
-import { ReviewQueueView } from '../views/ReviewQueueView'
 import { DocumentsTree } from '../views/DocumentsTree'
 import { TraceSideBar } from '../views/TraceViews'
 import { HistorySideBar } from '../views/HistoryViews'
@@ -16,10 +14,8 @@ import { ReportSideBar } from '../views/ReportViews'
 
 const TITLES: Record<Activity, string> = {
   explorer: 'Explorer',
-  review: 'Review',
   search: 'Search',
   trace: 'Trace',
-  jobs: 'Jobs',
   reports: 'Reports',
   history: 'History',
   settings: 'Settings'
@@ -33,8 +29,6 @@ export function PrimarySideBar(): React.JSX.Element {
       <div className="wb-sidebar-header">{TITLES[activity]}</div>
       <div className="wb-sidebar-body">
         {activity === 'explorer' && <ExplorerView />}
-        {activity === 'jobs' && <JobsListView />}
-        {activity === 'review' && <ReviewQueueView />}
         {activity === 'trace' && <TraceSideBar />}
         {activity === 'settings' && <SettingsShortcutView />}
         {activity === 'history' && <HistorySideBar />}

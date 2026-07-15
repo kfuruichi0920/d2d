@@ -49,57 +49,11 @@ export function DesignModelTree(): React.JSX.Element {
     })
   }, [refresh])
 
-  const createStateMachine = async (): Promise<void> => {
-    const res = await invoke<{ uid: string; code: string }>('state.create', { name: '新しい状態機械' })
-    if (res.ok) openResource(`design://${res.result.uid}`, res.result.code, { preview: false })
-  }
-
   return (
     <details open className="d2d-explorer-section" data-testid="design-tree">
       <summary className="d2d-explorer-section-header">
         <span className="d2d-explorer-section-title">④設計モデル</span>
         <span className="d2d-explorer-section-count">{elements.length}</span>
-        <span className="d2d-explorer-section-actions">
-          <button
-            type="button"
-            className="d2d-btn small"
-            onClick={(event) => {
-              event.preventDefault()
-              event.stopPropagation()
-              void createStateMachine()
-            }}
-            data-testid="add-state-machine"
-            title="状態遷移を作成（EDIT-030）"
-          >
-            +状態遷移
-          </button>
-          <button
-            type="button"
-            className="d2d-btn small"
-            onClick={(event) => {
-              event.preventDefault()
-              event.stopPropagation()
-              openResource('model://playground', 'モデルエディタ', { preview: false })
-            }}
-            data-testid="open-model-editor"
-            title="PlantUML モデルエディタ（FORM-001/002）"
-          >
-            +モデル
-          </button>
-          <button
-            type="button"
-            className="d2d-btn small"
-            onClick={(event) => {
-              event.preventDefault()
-              event.stopPropagation()
-              openResource('glossary://', '用語集', { preview: false })
-            }}
-            data-testid="open-glossary"
-            title="用語集（EDIT-050〜056）"
-          >
-            用語集
-          </button>
-        </span>
       </summary>
       {elements.map((element) => (
         <div

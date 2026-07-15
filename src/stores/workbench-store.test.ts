@@ -57,10 +57,8 @@ describe('workbench-store（P3-1、UI-038/040）', () => {
     expect(useWorkbenchStore.getState().activityOrder).toEqual([
       'history',
       'explorer',
-      'review',
       'search',
       'trace',
-      'jobs',
       'reports',
       'settings'
     ])

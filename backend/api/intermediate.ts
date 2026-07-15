@@ -123,8 +123,27 @@ export function registerIntermediateApi(router: ApiRouter, jobs: JobManager): vo
     const { db, info } = requireProject()
     return updateIntermediateSources(db, info.projectUid, uid, extractedDocumentUids)
   })
-  router.register('intermediate.list', () => {
+  router.register('intermediate.list', (params) => {
+    const p = params === undefined ? {} : asRecord(params)
+    const includeArchived = p.includeArchived === true
     const { db, info } = requireProject()
+    const now = new Date().toISOString()
+    db.prepare(
+      `WITH ranked AS (
+         SELECT d.uid,
+                ROW_NUMBER() OVER (
+                  PARTITION BY d.dev_phase_id, d.artifact_type_id
+                  ORDER BY e.is_archived ASC, d.generated_at DESC, e.code DESC
+                ) AS duplicate_rank
+           FROM intermediate_document d
+           JOIN entity_registry e ON e.uid=d.uid
+          WHERE e.project_uid=? AND e.status <> 'deleted'
+       )
+       UPDATE entity_registry
+          SET is_archived=1, updated_by='system', updated_at=?
+        WHERE uid IN (SELECT uid FROM ranked WHERE duplicate_rank > 1)
+          AND is_archived=0`
+    ).run(info.projectUid, now)
     const documentUids = db
       .prepare(
         `SELECT d.uid FROM intermediate_document d JOIN entity_registry e ON e.uid=d.uid
@@ -134,23 +153,69 @@ export function registerIntermediateApi(router: ApiRouter, jobs: JobManager): vo
     for (const document of documentUids) syncIntermediateDocumentStatus(db, document.uid)
     const rows = db
       .prepare(
-        `SELECT e.uid, e.code, e.title,
+        `SELECT e.uid, e.code, e.title, e.is_archived,
                 CASE WHEN NOT EXISTS (SELECT 1 FROM intermediate_item ai WHERE ai.intermediate_document_uid=d.uid AND ai.uid IN (SELECT uid FROM entity_registry WHERE status <> 'deleted')) OR EXISTS (SELECT 1 FROM intermediate_item ai JOIN entity_registry ar ON ar.uid=ai.uid WHERE ai.intermediate_document_uid=d.uid AND ar.status NOT IN ('approved','deleted')) THEN 'draft' ELSE 'approved' END AS status,
                 d.artifact_type_id, d.dev_phase_id, d.intermediate_status, d.generated_at, d.structure_json,
                 (SELECT COUNT(*) FROM intermediate_item i WHERE i.intermediate_document_uid = d.uid) AS item_count,
                 (SELECT COUNT(*) FROM intermediate_item i JOIN entity_registry ir ON ir.uid = i.uid
                   WHERE i.intermediate_document_uid = d.uid AND ir.status NOT IN ('approved', 'deleted')) AS unconfirmed_count
            FROM intermediate_document d JOIN entity_registry e ON e.uid = d.uid
-          WHERE e.project_uid = ? AND e.status <> 'deleted'
+          WHERE e.project_uid = ? AND e.status <> 'deleted' AND (? = 1 OR e.is_archived = 0)
           ORDER BY d.generated_at DESC`
       )
-      .all(info.projectUid) as Array<Record<string, unknown> & { structure_json: string }>
+      .all(info.projectUid, includeArchived ? 1 : 0) as Array<Record<string, unknown> & { structure_json: string }>
     return rows.map(({ structure_json, ...row }) => ({
       ...row,
       sources: (JSON.parse(structure_json) as IntermediateStructure).sources
     }))
   })
 
+  router.register('intermediate.setArchived', (params) => {
+    const p = asRecord(params)
+    const uid = requireString(p, 'uid')
+    const archived = p.archived === true
+    const { db, info } = requireProject()
+    const target = db
+      .prepare(
+        `SELECT d.dev_phase_id, d.artifact_type_id
+           FROM intermediate_document d JOIN entity_registry e ON e.uid=d.uid
+          WHERE d.uid=? AND e.project_uid=? AND e.status <> 'deleted'`
+      )
+      .get(uid, info.projectUid) as { dev_phase_id: string; artifact_type_id: string } | undefined
+    if (!target) throw new BackendError('not_found', '中間データが見つかりません', '')
+    const now = new Date().toISOString()
+    db.transaction(() => {
+      if (!archived) {
+        db.prepare(
+          `UPDATE entity_registry SET is_archived=1, updated_by='user', updated_at=?
+            WHERE uid IN (
+              SELECT d.uid FROM intermediate_document d JOIN entity_registry e ON e.uid=d.uid
+               WHERE e.project_uid=? AND e.status <> 'deleted'
+                 AND d.dev_phase_id=? AND d.artifact_type_id=? AND d.uid<>?
+            )`
+        ).run(now, info.projectUid, target.dev_phase_id, target.artifact_type_id, uid)
+      }
+      db.prepare(
+        `UPDATE entity_registry SET is_archived=?, updated_by='user', updated_at=?
+          WHERE uid=? AND project_uid=? AND entity_type='intermediate_document' AND status <> 'deleted'`
+      ).run(archived ? 1 : 0, now, uid, info.projectUid)
+    })()
+    eventBus.emit('intermediate.updated', { kind: 'archived' })
+    return { archived }
+  })
+  router.register('intermediate.delete', (params) => {
+    const p = asRecord(params)
+    const { db, info } = requireProject()
+    const result = db
+      .prepare(
+        `UPDATE entity_registry SET status='deleted', is_archived=0, updated_by='user', updated_at=?
+          WHERE uid=? AND project_uid=? AND entity_type='intermediate_document' AND status <> 'deleted'`
+      )
+      .run(new Date().toISOString(), requireString(p, 'uid'), info.projectUid)
+    if (result.changes === 0) throw new BackendError('not_found', '中間データが見つかりません', '')
+    eventBus.emit('intermediate.updated', { kind: 'deleted' })
+    return { deleted: true }
+  })
   router.register('intermediate.get', (params) => {
     const p = asRecord(params)
     const uid = requireString(p, 'uid')
@@ -159,9 +224,12 @@ export function registerIntermediateApi(router: ApiRouter, jobs: JobManager): vo
     syncIntermediateDocumentStatus(db, uid)
     const doc = db
       .prepare(
-        `SELECT e.uid, e.code, e.title,
+        `SELECT e.uid, e.code, e.title, e.is_archived,
                 CASE WHEN NOT EXISTS (SELECT 1 FROM intermediate_item ai WHERE ai.intermediate_document_uid=d.uid AND ai.uid IN (SELECT uid FROM entity_registry WHERE status <> 'deleted')) OR EXISTS (SELECT 1 FROM intermediate_item ai JOIN entity_registry ar ON ar.uid=ai.uid WHERE ai.intermediate_document_uid=d.uid AND ar.status NOT IN ('approved','deleted')) THEN 'draft' ELSE 'approved' END AS status,
-                d.artifact_type_id, d.dev_phase_id, d.intermediate_status, d.structure_json
+                d.artifact_type_id, d.dev_phase_id, d.intermediate_status, d.structure_json,
+                (SELECT a.artifact_name FROM project_artifact_setting a
+                  WHERE a.project_uid=e.project_uid AND a.artifact_type_id=d.artifact_type_id
+                    AND a.dev_phase_id=d.dev_phase_id LIMIT 1) AS artifact_name
            FROM intermediate_document d JOIN entity_registry e ON e.uid = d.uid WHERE d.uid = ?`
       )
       .get(uid) as { structure_json: string } | undefined

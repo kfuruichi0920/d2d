@@ -12,6 +12,7 @@ import { resourceTypeLabel } from '../../types/resource'
 import type { SourceDocumentItem, ExtractedDocumentItem, IntermediateDocumentItem } from '../views/DocumentsTree'
 import type { DesignElementRow } from '../views/DesignModelViews'
 import { ResizablePaneGroup } from '../workbench/ResizablePaneGroup'
+import { IntermediateImportDialog } from './IntermediateImportDialog'
 
 export type PipelineStage = 'source' | 'extracted' | 'intermediate' | 'design'
 type SortDirection = 'asc' | 'desc'
@@ -196,6 +197,7 @@ export function PipelineStageEditor({ stage }: { stage: PipelineStage }): React.
   const [phases, setPhases] = useState<DevPhaseSetting[]>([])
   const [selectedUid, setSelectedUid] = useState<string | null>(null)
   const [sort, setSort] = useState<SortState>({ key: 'code', direction: 'asc' })
+  const [importDialogOpen, setImportDialogOpen] = useState(false)
   const notify = useJobsStore((state) => state.notify)
   const refreshStats = useProjectStore((state) => state.refreshStats)
   const openResource = useEditorStore((state) => state.openResource)
@@ -205,7 +207,7 @@ export function PipelineStageEditor({ stage }: { stage: PipelineStage }): React.
       await Promise.all([
         invoke<SourceDocumentItem[]>('document.list', { includeArchived: true }),
         invoke<ExtractedDocumentItem[]>('extracted.list', { includeArchived: true }),
-        invoke<IntermediateDocumentItem[]>('intermediate.list'),
+        invoke<IntermediateDocumentItem[]>('intermediate.list', { includeArchived: true }),
         invoke<DesignElementRow[]>('design.listElements'),
         invoke<ArtifactSetting[]>('project.listArtifactSettings'),
         invoke<DevPhaseSetting[]>('project.listDevPhases')
@@ -248,7 +250,7 @@ export function PipelineStageEditor({ stage }: { stage: PipelineStage }): React.
     await refresh()
     await refreshStats()
   }
-  const confirmDelete = (kind: 'document' | 'extracted', uid: string, name: string): void => {
+  const confirmDelete = (kind: 'document' | 'extracted' | 'intermediate', uid: string, name: string): void => {
     if (
       !window.confirm(
         `${name}を削除しますか？\n通常削除のためデータは論理削除され、一覧とExplorerから非表示になります。`
@@ -258,6 +260,34 @@ export function PipelineStageEditor({ stage }: { stage: PipelineStage }): React.
     void mutate(`${kind}.delete`, { uid }, `${name}を削除しました`)
   }
 
+  const importDocuments = async (): Promise<void> => {
+    const filePaths = await window.api.showOpenFilesDialog({
+      title: '取込む原本ファイルを選択（複数選択可）',
+      filters: [
+        {
+          name: '対象文書',
+          extensions: ['docx', 'xlsx', 'pptx', 'vsdx', 'pdf', 'txt', 'md', 'csv', 'tsv', 'json', 'jsonl', 'yaml']
+        }
+      ]
+    })
+    if (filePaths.length === 0) return
+    const results = await Promise.all(filePaths.map((filePath) => invoke('document.import', { filePath })))
+    const failed = results.filter((result) => !result.ok)
+    if (failed.length > 0) {
+      notify('error', `${failed.length}件の取込Jobを登録できませんでした`)
+      return
+    }
+    notify('info', `${filePaths.length}件の原本取込Jobを登録しました`)
+  }
+
+  const createStateMachine = async (): Promise<void> => {
+    const result = await invoke<{ uid: string; code: string }>('state.create', { name: '新しい状態機械' })
+    if (!result.ok) {
+      notify('error', '状態遷移を作成できませんでした', result.error.message)
+      return
+    }
+    openResource(`design://${result.result.uid}`, result.result.code, { preview: false })
+  }
   const sourceRows = useMemo(() => sortedRows(sources, sort), [sort, sources])
   const extractedRows = useMemo(() => sortedRows(extracted, sort), [extracted, sort])
   const modelRows = useMemo(() => sortedRows(models, sort), [models, sort])
@@ -305,6 +335,57 @@ export function PipelineStageEditor({ stage }: { stage: PipelineStage }): React.
         className={`stage-overview-body ${stage === 'design' ? 'single' : ''}`}
       >
         <div className="stage-list-pane">
+          <div className="stage-list-toolbar">
+            {stage === 'source' && (
+              <button
+                type="button"
+                className="d2d-btn primary"
+                data-testid="stage-source-import"
+                onClick={() => void importDocuments()}
+              >
+                取込…
+              </button>
+            )}
+            {stage === 'extracted' && <span>編集する場合は、EXPLOREから対象の抽出データを選択してください。</span>}
+            {stage === 'intermediate' && (
+              <button
+                type="button"
+                className="d2d-btn primary"
+                data-testid="intermediate-import-button"
+                onClick={() => setImportDialogOpen(true)}
+              >
+                取込
+              </button>
+            )}
+            {stage === 'design' && (
+              <>
+                <button
+                  type="button"
+                  className="d2d-btn"
+                  data-testid="add-state-machine"
+                  onClick={() => void createStateMachine()}
+                >
+                  +状態遷移
+                </button>
+                <button
+                  type="button"
+                  className="d2d-btn"
+                  data-testid="open-model-editor"
+                  onClick={() => openResource('model://playground', 'モデルエディタ', { preview: false })}
+                >
+                  +モデル
+                </button>
+                <button
+                  type="button"
+                  className="d2d-btn"
+                  data-testid="open-glossary"
+                  onClick={() => openResource('glossary://', '用語集', { preview: false })}
+                >
+                  用語集
+                </button>
+              </>
+            )}
+          </div>
           {stage === 'source' && (
             <table className="d2d-table stage-table">
               <thead>
@@ -439,6 +520,14 @@ export function PipelineStageEditor({ stage }: { stage: PipelineStage }): React.
               selectedUid={selectedUid}
               orderedUids={intermediateOrderedUids}
               onSelect={setSelectedUid}
+              onArchive={(row) =>
+                void mutate(
+                  'intermediate.setArchived',
+                  { uid: row.uid, archived: !row.is_archived },
+                  row.is_archived ? 'アーカイブを解除しました' : 'アーカイブしました'
+                )
+              }
+              onDelete={(row, artifactName) => confirmDelete('intermediate', row.uid, artifactName)}
             />
           )}
           {stage === 'design' && (
@@ -512,6 +601,15 @@ export function PipelineStageEditor({ stage }: { stage: PipelineStage }): React.
           </aside>
         )}
       </ResizablePaneGroup>
+      {importDialogOpen && (
+        <IntermediateImportDialog
+          onClose={() => setImportDialogOpen(false)}
+          onSaved={async () => {
+            await refresh()
+            await refreshStats()
+          }}
+        />
+      )}
     </div>
   )
 }
@@ -524,7 +622,9 @@ function IntermediateHierarchy({
   onSort,
   selectedUid,
   orderedUids,
-  onSelect
+  onSelect,
+  onArchive,
+  onDelete
 }: {
   rows: IntermediateDocumentItem[]
   phases: DevPhaseSetting[]
@@ -534,6 +634,8 @@ function IntermediateHierarchy({
   selectedUid: string | null
   orderedUids: string[]
   onSelect: (uid: string) => void
+  onArchive: (row: IntermediateDocumentItem) => void
+  onDelete: (row: IntermediateDocumentItem, artifactName: string) => void
 }): React.JSX.Element {
   return (
     <div data-testid="stage-intermediate-hierarchy">
@@ -556,6 +658,8 @@ function IntermediateHierarchy({
                     <SortHeader label="ID" column="code" sort={sort} onSort={onSort} />
                     <SortHeader label="要素数" column="item_count" sort={sort} onSort={onSort} />
                     <SortHeader label="未確定" column="unconfirmed_count" sort={sort} onSort={onSort} />
+                    <th>表示</th>
+                    <th>操作</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -581,6 +685,29 @@ function IntermediateHierarchy({
                         <td>{row.code}</td>
                         <td>{row.item_count}</td>
                         <td>{row.unconfirmed_count}</td>
+                        <td>{row.is_archived ? 'アーカイブ' : '表示中'}</td>
+                        <td className="stage-actions">
+                          <button
+                            type="button"
+                            className="d2d-btn small"
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              onArchive(row)
+                            }}
+                          >
+                            {row.is_archived ? '解除' : 'アーカイブ'}
+                          </button>
+                          <button
+                            type="button"
+                            className="d2d-btn small danger"
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              onDelete(row, artifact?.artifact_name ?? row.artifact_type_id)
+                            }}
+                          >
+                            削除
+                          </button>
+                        </td>
                       </tr>
                     )
                   })}

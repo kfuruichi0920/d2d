@@ -31,7 +31,8 @@
 | P3 追加    | ②/③/チャンク/Resource編集の内部ペイン可変化、チャンク表スタイル統一                 | a5ec368         |
 | P7 追加    | ③取込編集の統合元選択・多対多based_on・個別解除・操作バー再編・全項目正本確定       | 1861358         |
 | P3〜P8追加 | ①〜④ステージ一覧・ソート・OS原本表示・①②アーカイブ／論理削除・文書状態集約          | 585e959         |
-| P3 追加    | ステージ選択表示・一覧キーボード操作・①〜③可変境界・Workbench外周状態共通化         | 本コミット      |
+| P3 追加    | ステージ選択表示・一覧キーボード操作・①〜③可変境界・Workbench外周状態共通化         | 6983f25         |
+| P3/P7 追加 | Explorer閲覧専用化・ステージ操作集約・③重複整理・中間3モード切替                    | 本コミット      |
 
 ## 恒久制約（違反するとビルド/実行が壊れる、または設計方針違反）
 
@@ -54,11 +55,12 @@
 - Primary／Secondary／下段パネルの表示・寸法とSecondaryアコーディオン開閉はWorkbench外周状態として1組だけ保持し、作業モード／①〜④ステージを切り替えても変更しない。再帰的なEditor分割木・分割比・タブ配置はプロジェクト単位（未選択時はglobal）でlocalStorageへ保持する。各境界はポインタと矢印キーで変更でき、領域内の表示超過は必要時だけ縦横スクロールする。
 - SecondaryはProperties／Evidence／Relations／Candidateを独立開閉できる縦アコーディオンとする。Editorタブは最大220pxで省略表示し、収まらない場合は複数段へ折り返す。タブは分割区分へのドラッグ＆ドロップまたはコマンドで移動する。
 - Primary／Secondary／下段PanelはTitle Bar右側ボタンとCommandの双方から表示切替する。Activity BarはSettingsを下端固定し、それ以外のDnD順序をプロジェクト単位に保存する。選択ActivityはPrimary非表示時も選択色を維持する。保存レイアウトがないプロジェクトへ切り替えた場合は、直前プロジェクトの状態を持ち越さずM0既定値へ初期化する。
+- Primary ActivityはExplorer／Search／Trace／Reports／History／Settingsで構成する。Reviewは各編集画面とSecondary、Jobsは下段PanelとStatus Barに集約し、Primary Activityへ戻さない。旧永続値のreview／jobsは読込時にExplorerへ正規化する。
 - Pipeline Navigatorの選択表示はactiveなステージURIだけを基準とし、①〜④を排他的に表示する。①〜④の一覧行は薄青背景で選択を示し、上下矢印で選択行を移動、Enter／Spaceでクリックと同じ操作を実行する。④モデルは単一クリックで開く。①〜③の一覧／プレビュー境界は共通 `ResizablePaneGroup` で変更する。
 - Explorer未確定Badgeは文書状態ではなく要素単位で集計し、extracted_itemはresource_uid、intermediate_itemはitem uidに対応するentity_registry.statusがapproved／deleted以外の件数を表示する。削除済みを除く子要素が1件以上かつ全件approvedの場合だけ抽出／中間文書もapprovedとし、それ以外はdraftへ同期する。
-- Explorerの①〜④は強調した折りたたみ見出しとし、原本・抽出・中間・設計モデル各行は保持プロパティをTooltip表示する。原本取込はOSで複数ファイルを選択し、ファイルごとに独立した `import.source` Jobへ登録する（実行はJob Managerの直列制約を維持）。Pipeline Navigatorの各ステージはEditor Areaにソート可能な一覧を開き、①は読取専用詳細＋Windows関連付けアプリ、②③は独自プレビュー、③はフェーズ－成果物階層、④はモデル一覧を表示する。
+- Explorerの①〜④は強調した折りたたみ見出しとし、原本・抽出・中間・設計モデル各行は保持プロパティをTooltip表示する。Explorerは一覧と選択によるEditor表示に限定し、取込・名称変更・チャンク・モデル追加ボタンを置かない。Pipeline Navigatorの各ステージはEditor Areaにソート可能な一覧を開き、①は一覧上部の取込からWindows複数ファイル選択を直接開く読取専用詳細、②は独自プレビューとExplorer選択案内、③は一覧上部の取込とフェーズ－成果物階層、④はモデル一覧と追加操作を表示する。原本はファイルごとに独立した `import.source` Jobへ登録する（実行はJob Managerの直列制約を維持）。
 - 抽出文書の初期 `entity_registry.title` は原本の `source_document.file_name` と同一にする。後の名称変更は抽出文書の `entity_registry.title` だけを更新し、原本名・blob・traceは変更しない。
-- ①原本・②抽出の通常削除は `status='deleted'` の論理削除、Explorerだけからの一時非表示は `is_archived=1` とする。アーカイブはステージ一覧に残して復元可能とし、schema 1.5.0で `entity_registry.is_archived` と索引を追加した。
+- ①原本・②抽出・③中間の通常削除は `status='deleted'` の論理削除、Explorerだけからの一時非表示は `is_archived=1` とする。アーカイブはステージ一覧に残して復元可能とし、schema 1.5.0で `entity_registry.is_archived` と索引を追加した。同じ `dev_phase_id`／`artifact_type_id` の③が複数ある場合は、現在表示中の1件を優先し、表示中が複数なら最新1件以外を自動アーカイブする。復元時は同一成果物の他文書をアーカイブしてExplorer表示を最大1件に保つ。
 - prettier は docs/ と tasks/ を対象外（.prettierignore）。
 - LLM 外部送信はプロジェクト設定 `llm.externalSendAllowed`（既定 false）でブロックされる。
 - Settings はツール全体設定（`settings://tool`）とプロジェクト設定（`project-settings://current`）を分離する。
@@ -77,8 +79,8 @@
 - チャンク編集の成果物ペインは状態・ID・種別・内容・小節・選択を表示し、中間編集と同じ階層/種別表現にする。チャンクは表形式で、追加プロンプトはチャンク行選択後の上部「編集」から変更する。プレビューは見出し階層・表・図を表示する。チャンクはsort_order順に表示し、新規作成は末尾、上下移動ではIDを変更しない。
 - ②抽出・③中間・チャンク編集の選択行は `--d2d-selection-bg` の薄青背景、`based_on` 対応行は warning 22% mix の黄色背景で統一する。チャンク表も共通の罫線・角丸を使い、太い選択枠を独自実装しない。
 - ②抽出（2ペイン）、③取込（3ペイン）／単独（2ペイン）、チャンク（3ペイン）、Resource編集（2ペイン）の内部境界は共通 `ResizablePaneGroup` を使用する。隣接ペインの合計比率と最小120pxを守り、ポインタドラッグと矢印キーの両方で変更する。チャンク表は横罫線のみとし、状態Badgeは折り返さない。
-- Explorer の②抽出データ行に③への統合ボタンは置かない。③中間データ見出しの `取込` から、取込先成果物を排他的に1件（未選択可）、承認済み②を複数選択する。既存成果物を選ぶと `structure_json.sources` の関係を初期チェックへ復元し、保存時は文書単位 `based_on` と同期する。統合済み要素の由来となる②は、対応する成果物要素を削除するまで取込元から外せない。成果物行の操作は `チャンク` のみ。
-- 中間文書エディタは同一Resource内で「中間データ取込編集画面」（統合元／成果物／プレビューの3ペイン）と「中間データ単独編集画面」（成果物／プレビューの2ペイン）を切り替える。成果物要素の追加・複製・削除・編集は両画面共通で、ダブルクリックまたはSpace／Enterから編集を開く。
+- Explorer の②抽出データ行に③への統合ボタンを置かず、③ステージ一覧上部の `取込` から、取込先成果物を排他的に1件（未選択可）、承認済み②を複数選択する。既存成果物を選ぶと `structure_json.sources` の関係を初期チェックへ復元し、保存時は文書単位 `based_on` と同期する。統合済み要素の由来となる②は、対応する成果物要素を削除するまで取込元から外せない。チャンク操作は中間文書Editor上部のモード切替から開く。
+- 中間文書エディタは同一Resource内で「中間データ取込編集画面」（統合元／成果物／プレビューの3ペイン）、「中間データ単独編集画面」（成果物／プレビューの2ペイン）、「チャンク編集画面」（成果物／チャンク／プレビューの3ペイン）を切り替える。ヘッダーは文書の自由名称ではなくプロジェクト成果物名を表示する。成果物要素の追加・複製・削除・編集は取込／単独画面共通で、ダブルクリックまたはSpace／Enterから編集を開く。
 - 中間要素の追加・複製は新Resourceを作成する。複製は元Resourceへ `transform_note=duplicate` の `based_on` を保持し、②由来のアイテム単位トレースも引き継ぐ。基本種別編集は paragraph／heading／list_item／caption を対象とする。
 - Resource編集は4.6の14種を定義駆動で共通化し、`resource://<uid>` からも開ける。保存直前にDBで所有・参照状況を判定する。③で新規作成され現在の `intermediate_item` だけが参照するResourceは、同種なら同じUIDへ上書きし、異種なら現在要素を新Resourceへ差し替えて旧Resourceを物理削除する。抽出由来、共有、入力トレース、他Resource、LLM実行記録から参照されるResourceは保護し、新Resource + 元Resourceへの `based_on (edit-resource)` とする。
 - 中間要素の一覧マージはCtrl/Shiftの非連続を含む2件以上を文書表示順で処理し、先頭位置・階層へ集約する。同一Resource種別は同種の候補へ、異種は可読な `resource_text` へ変換し、全元Resourceへの `based_on (merge)` と全 `extracted_item` 由来を維持する。
@@ -89,6 +91,7 @@
 - E2E開始時はElectron userDataに前回実行のレイアウトが残り得るため、`d2d.workbench.*`／`d2d.editors.*` のlocalStorageだけを削除してRendererを再読込する。設定Backendやプロジェクト正本は削除しない。
 - `e2e/app.spec.ts` は**逐次実行・状態共有**（beforeAll で 1 プロジェクト作成、afterAll で
   app.close 後に削除。開いている project.db を rmSync すると EBUSY）。
+- Electron Rendererの `window.prompt()` は入力ダイアログとして利用できない。名称変更等はテーマ対応のアプリ内ダイアログを使う。
 - Activity Bar のボタンは**再クリックでサイドバーが閉じる**トグル。クリック前に
   `isVisible().catch(() => false)` で条件分岐する（既存テストのパターンを踏襲）。
 - `<input>` の値は textContent に出ない → `toHaveValue` を使う。

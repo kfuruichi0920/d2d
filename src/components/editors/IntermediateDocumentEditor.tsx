@@ -14,6 +14,7 @@ import { ResourceEditor } from './ResourceEditor'
 import { resourceTypeLabel } from '../../types/resource'
 import { reviewStateFromEntityStatus, ReviewStatusBadge } from '../common/review'
 import { ResizablePaneGroup } from '../workbench/ResizablePaneGroup'
+import { ChunkEditor } from './ChunkEditor'
 
 interface IntermediateElement {
   id: string
@@ -36,6 +37,7 @@ interface IntermediateDoc {
   uid: string
   code: string
   title: string | null
+  artifact_name?: string | null
   status: string
   artifact_type_id: string
   dev_phase_id: string
@@ -45,7 +47,7 @@ interface IntermediateDoc {
   elements: IntermediateElement[]
 }
 
-type IntermediateEditorMode = 'import' | 'standalone'
+type IntermediateEditorMode = 'import' | 'standalone' | 'chunk'
 type ElementEditorAction = 'add' | 'edit'
 
 interface ElementEditorState {
@@ -94,7 +96,13 @@ function FigureElement({ element }: { element: IntermediateElement }): React.JSX
   )
 }
 
-export function IntermediateDocumentEditor({ uid }: { uid: string }): React.JSX.Element {
+export function IntermediateDocumentEditor({
+  uid,
+  initialMode = 'import'
+}: {
+  uid: string
+  initialMode?: IntermediateEditorMode
+}): React.JSX.Element {
   const [doc, setDoc] = useState<IntermediateDoc | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [activeId, setActiveId] = useState<string | null>(null)
@@ -103,7 +111,7 @@ export function IntermediateDocumentEditor({ uid }: { uid: string }): React.JSX.
   const [sourceActiveId, setSourceActiveId] = useState<string | null>(null)
   const [sourceAnchorId, setSourceAnchorId] = useState<string | null>(null)
   const [lastSelectedPane, setLastSelectedPane] = useState<'source' | 'intermediate'>('intermediate')
-  const [editorMode, setEditorMode] = useState<IntermediateEditorMode>('import')
+  const [editorMode, setEditorMode] = useState<IntermediateEditorMode>(initialMode)
   const [previewMode, setPreviewMode] = useState<'visual' | 'structure'>('visual')
   const previewRefs = useRef(new Map<string, HTMLElement>())
   const [elementEditor, setElementEditor] = useState<ElementEditorState | null>(null)
@@ -453,6 +461,50 @@ export function IntermediateDocumentEditor({ uid }: { uid: string }): React.JSX.
 
   if (!doc) return <div className="d2d-empty">読込中…</div>
 
+  const modeButtons = (
+    <div style={{ display: 'flex', gap: 4 }} aria-label="中間データ編集画面切替">
+      <button
+        type="button"
+        className={`d2d-btn small${editorMode === 'import' ? ' primary' : ''}`}
+        data-testid="intermediate-mode-import"
+        onClick={() => setEditorMode('import')}
+      >
+        中間データ取込編集
+      </button>
+      <button
+        type="button"
+        className={`d2d-btn small${editorMode === 'standalone' ? ' primary' : ''}`}
+        data-testid="intermediate-mode-standalone"
+        onClick={() => {
+          setEditorMode('standalone')
+          setLastSelectedPane('intermediate')
+        }}
+      >
+        中間データ単独編集
+      </button>
+      <button
+        type="button"
+        className={`d2d-btn small${editorMode === 'chunk' ? ' primary' : ''}`}
+        data-testid="intermediate-mode-chunk"
+        onClick={() => setEditorMode('chunk')}
+      >
+        チャンク編集
+      </button>
+    </div>
+  )
+
+  if (editorMode === 'chunk') {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }} data-testid="intermediate-editor">
+        <div className="intermediate-editor-header">
+          <h1 style={{ fontSize: 14, margin: 0 }}>{doc.artifact_name ?? doc.title ?? doc.code}</h1>
+          <ReviewStatusBadge status={reviewStateFromEntityStatus(doc.status)} />
+          {modeButtons}
+        </div>
+        <ChunkEditor uid={uid} />
+      </div>
+    )
+  }
   const selectedIndex = activeId ? doc.elements.findIndex((element) => element.id === activeId) : -1
   const allItemsApproved =
     doc.status === 'approved' && doc.elements.every((element) => element.review?.status === 'approved')
@@ -468,32 +520,12 @@ export function IntermediateDocumentEditor({ uid }: { uid: string }): React.JSX.
           borderBottom: '1px solid var(--d2d-border)'
         }}
       >
-        <h1 style={{ fontSize: 14, margin: 0 }}>{doc.title ?? doc.code}</h1>
+        <h1 style={{ fontSize: 14, margin: 0 }}>{doc.artifact_name ?? doc.title ?? doc.code}</h1>
         <ReviewStatusBadge status={reviewStateFromEntityStatus(doc.status)} />
         <span style={{ color: 'var(--d2d-fg-muted)' }}>
           {doc.artifact_type_id} / {doc.dev_phase_id} / {doc.elements.length} 要素 / 統合元 {doc.sources.length} 文書
         </span>
-        <div style={{ display: 'flex', gap: 4 }} aria-label="中間データ編集画面切替">
-          <button
-            type="button"
-            className={`d2d-btn small${editorMode === 'import' ? ' primary' : ''}`}
-            data-testid="intermediate-mode-import"
-            onClick={() => setEditorMode('import')}
-          >
-            中間データ取込編集
-          </button>
-          <button
-            type="button"
-            className={`d2d-btn small${editorMode === 'standalone' ? ' primary' : ''}`}
-            data-testid="intermediate-mode-standalone"
-            onClick={() => {
-              setEditorMode('standalone')
-              setLastSelectedPane('intermediate')
-            }}
-          >
-            中間データ単独編集
-          </button>
-        </div>
+        {modeButtons}
         <span style={{ flex: 1 }} />
 
         <button

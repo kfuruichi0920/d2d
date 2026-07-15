@@ -1281,3 +1281,90 @@ mark.d2d-term {
   border-bottom: 1px solid var(--d2d-border);
   font-size: 13px;
 }
+
+.stage-list-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 6px 8px;
+  color: var(--d2d-fg-muted);
+  border-bottom: 1px solid var(--d2d-border);
+}
+.stage-import-dialog {
+  position: fixed;
+  inset: 12% 20%;
+  z-index: 20;
+  overflow: auto;
+  padding: 16px;
+  color: var(--d2d-fg);
+  background: var(--d2d-surface-raised);
+  border: 1px solid var(--d2d-border);
+  border-radius: var(--d2d-radius);
+  box-shadow: 0 8px 30px #0008;
+}
+.stage-import-dialog h3 {
+  margin-top: 0;
+}
+.stage-import-dialog section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 12px;
+}
+.stage-import-dialog label {
+  display: block;
+  padding: 6px;
+}
+.stage-import-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+.d2d-explorer-hint {
+  margin: 4px 6px;
+  color: var(--d2d-fg-muted);
+  font-size: 11px;
+}
+.d2d-explorer-sources {
+  display: flex;
+  flex-direction: column;
+  padding: 1px 4px 3px 24px;
+  overflow-wrap: anywhere;
+  color: var(--d2d-fg-muted);
+  font-size: 11px;
+}
+
+.intermediate-editor-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--d2d-border);
+}
+.extraction-rename-dialog {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  z-index: 40;
+  display: flex;
+  width: min(420px, calc(100vw - 32px));
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px;
+  color: var(--d2d-fg);
+  background: var(--d2d-surface-raised);
+  border: 1px solid var(--d2d-border);
+  border-radius: var(--d2d-radius);
+  box-shadow: 0 8px 30px #0008;
+  transform: translate(-50%, -50%);
+}
+.extraction-rename-dialog h2 {
+  margin: 0 0 4px;
+  font-size: 15px;
+}
+.extraction-rename-dialog input {
+  width: 100%;
+  box-sizing: border-box;
+}

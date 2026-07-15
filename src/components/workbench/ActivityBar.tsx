@@ -4,10 +4,8 @@
  */
 import {
   SerendieSymbolFolder,
-  SerendieSymbolCheckCircle,
   SerendieSymbolMagnifyingGlass,
   SerendieSymbolShuffle,
-  SerendieSymbolPlayCircle,
   SerendieSymbolFileText,
   SerendieSymbolHistory,
   SerendieSymbolGear
@@ -22,10 +20,8 @@ interface ActivityDefinition {
 
 const ACTIVITIES: ActivityDefinition[] = [
   { id: 'explorer', label: 'Explorer', Icon: SerendieSymbolFolder },
-  { id: 'review', label: 'Review', Icon: SerendieSymbolCheckCircle },
   { id: 'search', label: 'Search', Icon: SerendieSymbolMagnifyingGlass },
   { id: 'trace', label: 'Trace', Icon: SerendieSymbolShuffle },
-  { id: 'jobs', label: 'Jobs', Icon: SerendieSymbolPlayCircle },
   { id: 'reports', label: 'Reports', Icon: SerendieSymbolFileText },
   { id: 'history', label: 'History', Icon: SerendieSymbolHistory },
   { id: 'settings', label: 'Settings', Icon: SerendieSymbolGear }

@@ -17,17 +17,8 @@ export const WORK_MODES: { mode: WorkMode; label: string }[] = [
   { mode: 'M5', label: '履歴・差分' }
 ]
 
-export type Activity = 'explorer' | 'review' | 'search' | 'trace' | 'jobs' | 'reports' | 'history' | 'settings'
-export const DEFAULT_ACTIVITY_ORDER: Activity[] = [
-  'explorer',
-  'review',
-  'search',
-  'trace',
-  'jobs',
-  'reports',
-  'history',
-  'settings'
-]
+export type Activity = 'explorer' | 'search' | 'trace' | 'reports' | 'history' | 'settings'
+export const DEFAULT_ACTIVITY_ORDER: Activity[] = ['explorer', 'search', 'trace', 'reports', 'history', 'settings']
 export type PanelTab = 'problems' | 'output' | 'jobs' | 'search' | 'validation' | 'llm'
 export type SecondaryTab = 'properties' | 'evidence' | 'relations' | 'candidates' | 'review'
 
@@ -71,7 +62,7 @@ const MODE_DEFAULT_LAYOUTS: Record<WorkMode, ModeLayout> = {
   M0: modeLayout('explorer', false, false, 'properties', 'jobs'),
   M1: modeLayout('explorer', true, true, 'properties', 'jobs'),
   M2: modeLayout('explorer', true, false, 'evidence', 'problems'),
-  M3: modeLayout('review', true, true, 'candidates', 'llm'),
+  M3: modeLayout('explorer', true, true, 'candidates', 'llm'),
   M4: modeLayout('trace', true, true, 'relations', 'problems'),
   M5: modeLayout('history', false, false, 'properties', 'output')
 }
@@ -272,7 +263,8 @@ export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
       const layout: ModeLayout = {
         ...MODE_DEFAULT_LAYOUTS.M0,
         ...saved,
-        secondaryExpanded: saved?.secondaryExpanded ?? MODE_DEFAULT_LAYOUTS.M0.secondaryExpanded
+        secondaryExpanded: saved?.secondaryExpanded ?? MODE_DEFAULT_LAYOUTS.M0.secondaryExpanded,
+        activity: saved?.activity && DEFAULT_ACTIVITY_ORDER.includes(saved.activity) ? saved.activity : 'explorer'
       }
       const layouts = Object.fromEntries(
         (Object.keys(MODE_DEFAULT_LAYOUTS) as WorkMode[]).map((mode) => [mode, structuredClone(layout)])

@@ -38,11 +38,13 @@ test('Workbench シェルが表示される（P3-1）', async () => {
   await expect(page.getByTestId('status-bar')).toBeVisible()
   await expect(page.getByTestId('welcome-editor')).toBeVisible()
 
-  // Activity 切替（Explorer → Jobs）
-  await page.getByTestId('activity-jobs').click()
-  await expect(page.getByTestId('primary-sidebar')).toContainText('Jobs')
+  // Activity切替（Explorer → Search）。Review/JobsはPrimary Activityに置かない。
+  await expect(page.getByTestId('activity-review')).toHaveCount(0)
+  await expect(page.getByTestId('activity-jobs')).toHaveCount(0)
+  await page.getByTestId('activity-search').click()
+  await expect(page.getByTestId('primary-sidebar')).toContainText('Search')
   // 同じ Activity 再クリックで Side Bar が閉じる
-  await page.getByTestId('activity-jobs').click()
+  await page.getByTestId('activity-search').click()
   await expect(page.getByTestId('primary-sidebar')).toBeHidden()
   await page.getByTestId('activity-explorer').click()
 })
@@ -165,12 +167,12 @@ test('パネル表示切替・Activity並べ替え・選択表示（P3-1、UI-04
   )
   expect(savedActivityOrder?.at(-1)).toBe('settings')
 
-  await page.getByTestId('activity-review').click()
-  await expect(page.getByTestId('activity-review')).toHaveClass(/active/)
-  await expect(page.getByTestId('activity-review')).toHaveAttribute('aria-current', 'page')
-  await page.getByTestId('activity-review').click()
+  await page.getByTestId('activity-trace').click()
+  await expect(page.getByTestId('activity-trace')).toHaveClass(/active/)
+  await expect(page.getByTestId('activity-trace')).toHaveAttribute('aria-current', 'page')
+  await page.getByTestId('activity-trace').click()
   await expect(page.getByTestId('primary-sidebar')).toBeHidden()
-  await expect(page.getByTestId('activity-review')).toHaveClass(/active/)
+  await expect(page.getByTestId('activity-trace')).toHaveClass(/active/)
   await page.getByTestId('activity-explorer').click()
   await expect(page.getByTestId('primary-sidebar')).toBeVisible()
 })
@@ -341,6 +343,8 @@ test('原本取込→Word抽出→レビュー→②正本確定の全経路（P
   // Pipeline ①はソート可能な一覧＋読取専用詳細を開き、アーカイブ中だけExplorerから除外する。
   await page.getByTestId('stage-source').click()
   await expect(page.getByTestId('stage-overview-source')).toBeVisible()
+  await expect(page.getByTestId('stage-source-import')).toBeVisible()
+  await expect(page.getByTestId('documents-tree').getByTestId('import-button')).toHaveCount(0)
   await expect(page.getByTestId('stage-source')).toHaveClass(/active/)
   await expect(page.getByTestId('stage-extracted')).not.toHaveClass(/active/)
   const sourceStageLayout = page.getByTestId('stage-source-layout')
@@ -386,11 +390,10 @@ test('原本取込→Word抽出→レビュー→②正本確定の全経路（P
   await expect(extractedRow).toHaveAttribute('title', /抽出器:/)
   await expect(page.getByTestId('stage-extracted')).toContainText('1')
   await expect(page.getByTestId('extracted-unconfirmed-EXDOC-000001')).toContainText(/未確定 [1-9]/)
-  await page.getByTestId('rename-extracted-EXDOC-000001').click()
-  await page.getByTestId('rename-extracted-input-EXDOC-000001').fill('名称変更後の抽出データ')
-  await page.getByTestId('rename-extracted-input-EXDOC-000001').press('Enter')
-  await expect(page.getByTestId('rename-extracted-input-EXDOC-000001')).toHaveCount(0)
-  await expect(extractedRow).toContainText('名称変更後の抽出データ')
+  await expect(page.getByTestId('explorer-section-extracted')).toContainText(
+    '編集する場合は、対象の抽出データを選択してください。'
+  )
+  await expect(page.getByTestId('explorer-section-extracted').getByRole('button')).toHaveCount(0)
 
   // Pipeline ②はソート可能な抽出文書一覧と独自プレビューを表示する。
   await page.getByTestId('stage-extracted').click()
@@ -412,6 +415,23 @@ test('原本取込→Word抽出→レビュー→②正本確定の全経路（P
   await page.getByTestId('stage-extracted').click()
   await page.getByTestId('extracted-doc-EXDOC-000001').click({ position: { x: 8, y: 8 } })
   await expect(page.getByTestId('extraction-review-editor')).toBeVisible()
+  await page.getByTestId('rename-extracted').click()
+  await expect(page.getByTestId('rename-extracted-dialog')).toBeVisible()
+  await page.getByTestId('rename-extracted-input').fill('名称変更後の抽出データ')
+  await page.getByTestId('rename-extracted-save').click()
+  await expect(page.getByTestId('notifications')).toContainText('抽出データの名称を変更しました')
+  await expect
+    .poll(async () => {
+      const renamed = await page.evaluate(async () =>
+        window.api.invoke<{ code: string; title: string }[]>('extracted.list')
+      )
+      return renamed.ok ? renamed.result.find((doc) => doc.code === 'EXDOC-000001')?.title : renamed.error.message
+    })
+    .toBe('名称変更後の抽出データ')
+  await expect(page.getByTestId('extraction-review-editor').locator('.extraction-review-toolbar > h1')).toHaveText(
+    '名称変更後の抽出データ'
+  )
+  await expect(extractedRow).toContainText('名称変更後の抽出データ')
   const extractionLayout = page.getByTestId('extraction-review-layout')
   const extractionFirstPane = extractionLayout.locator(':scope > .d2d-resizable-pane').first()
   const extractionWidthBefore = (await extractionFirstPane.boundingBox())!.width
@@ -495,10 +515,12 @@ test('②→③統合・編集・確定（P7）', async () => {
   await page.getByTestId('artifact-phase').selectOption('DD')
   await page.getByTestId('artifact-add').click()
 
-  // Explorer の③見出し「取込」で、取込先成果物1件と取込元②複数件を選択する
+  // Pipeline ③一覧上部の「取込」で、取込先成果物1件と取込元②複数件を選択する
   await expect(page.getByTestId('documents-tree')).not.toContainText('フェーズ未定義成果物')
   await expect(page.getByTestId('documents-tree')).not.toContainText('③へ統合')
   await expect(page.getByTestId('artifact-slot-DD-design_doc')).toBeVisible()
+  await expect(page.getByTestId('explorer-section-intermediate').getByRole('button')).toHaveCount(0)
+  await page.getByTestId('stage-intermediate').click()
   await page.getByTestId('intermediate-import-button').click()
   const sourceDialog = page.getByTestId('intermediate-source-dialog')
   await expect(sourceDialog).toBeVisible()
@@ -534,9 +556,33 @@ test('②→③統合・編集・確定（P7）', async () => {
   await expect(page.getByTestId('intermediate-source-EXDOC-000001')).toBeChecked()
   await page.getByTestId('intermediate-source-dialog').getByRole('button', { name: 'キャンセル' }).click()
 
+  // 同一成果物の重複は最新1件以外を自動アーカイブし、③一覧から削除・復元できる。
+  const duplicateIntermediate = await page.evaluate(async () => {
+    const extractedResult = await window.api.invoke<Array<{ uid: string }>>('extracted.list')
+    if (!extractedResult.ok || !extractedResult.result[0]) throw new Error('取込元が見つかりません')
+    return window.api.invoke<{ uid: string; code: string }>('intermediate.create', {
+      extractedDocumentUids: [extractedResult.result[0].uid],
+      artifactTypeId: 'design_doc',
+      devPhaseId: 'DD',
+      title: '重複確認用',
+      importItems: false
+    })
+  })
+  expect(duplicateIntermediate.ok).toBe(true)
+  if (!duplicateIntermediate.ok) throw new Error('重複確認用中間データを作成できませんでした')
+  const duplicateRow = page.getByTestId(`stage-intermediate-row-${duplicateIntermediate.result.code}`)
+  await expect(duplicateRow).toBeVisible()
+  await expect(page.getByTestId('stage-intermediate-row-IMDOC-000001')).toContainText('アーカイブ')
+  await page.getByTestId('stage-intermediate-row-IMDOC-000001').getByRole('button', { name: '解除' }).click()
+  await expect(duplicateRow).toContainText('アーカイブ')
+  await expect(page.getByTestId('intermediate-doc-IMDOC-000001')).toBeVisible()
+  page.once('dialog', (dialog) => void dialog.accept())
+  await duplicateRow.getByRole('button', { name: '削除' }).click()
+
   // Intermediate Document Editor を開く
   await page.getByTestId('intermediate-doc-IMDOC-000001').click()
   await expect(page.getByTestId('intermediate-editor')).toBeVisible()
+  await expect(page.getByTestId('intermediate-editor').getByRole('heading', { level: 1 })).toHaveText('統合設計書')
   await expect(page.getByTestId('intermediate-editor')).toContainText('design_doc / DD')
   await expect(page.getByTestId('intermediate-import-layout-handle-0')).toBeVisible()
   await expect(page.getByTestId('intermediate-import-layout-handle-1')).toBeVisible()
@@ -743,7 +789,6 @@ test('②→③統合・編集・確定（P7）', async () => {
   await expect(page.getByTestId('resource-type-select')).toHaveValue('resource_text')
 
   // 成果物単位のチャンク編集: 確認済み行を選択し、追加プロンプト付きで作成する
-  await page.getByTestId('activity-explorer').click()
   if (
     !(await page
       .getByTestId('documents-tree')
@@ -752,8 +797,9 @@ test('②→③統合・編集・確定（P7）', async () => {
   ) {
     await page.getByTestId('activity-explorer').click()
   }
-  await expect(page.getByTestId('intermediate-doc-IMDOC-000001').getByRole('button')).toHaveText(['チャンク'])
-  await page.getByTestId('chunks-IMDOC-000001').click()
+  await expect(page.getByTestId('intermediate-doc-IMDOC-000001').getByRole('button')).toHaveCount(0)
+  await page.getByTestId('intermediate-doc-IMDOC-000001').click()
+  await page.getByTestId('intermediate-mode-chunk').click()
   await expect(page.getByTestId('chunk-editor')).toBeVisible()
   await expect(page.getByTestId('chunk-editor-layout-handle-0')).toBeVisible()
   await expect(page.getByTestId('chunk-editor-layout-handle-1')).toBeVisible()
@@ -945,7 +991,8 @@ test('③→④候補生成→候補レビュー→採用の全経路（P8）', 
     ) {
       await page.getByTestId('activity-explorer').click()
     }
-    await page.getByTestId('chunks-IMDOC-000001').click()
+    await page.getByTestId('intermediate-doc-IMDOC-000001').click()
+    await page.getByTestId('intermediate-mode-chunk').click()
     await expect(page.getByTestId('chunk-editor')).toBeVisible()
     await page.getByTestId('chunk-editor').locator('.chunk-grid').nth(1).locator('tbody tr').first().click()
     await page.getByRole('button', { name: '④モデル候補生成' }).click()
@@ -1046,6 +1093,7 @@ test('編集機能: 用語集・状態遷移・表編集・検証編集（P10）
   }
 
   // --- 用語集（P10-6）: 登録→承認→③ Markdown でハイライト（EDIT-050/054/056） ---
+  await page.getByTestId('stage-design').click()
   await page.getByTestId('open-glossary').click()
   await expect(page.getByTestId('glossary-editor')).toBeVisible()
   await page.getByTestId('glossary-term-input').fill('対象項目')
@@ -1077,6 +1125,7 @@ test('編集機能: 用語集・状態遷移・表編集・検証編集（P10）
   await expect(page.getByTestId('intermediate-markdown')).toContainText('150ms以内')
 
   // --- 状態遷移（P10-4）: 作成→状態/イベント/遷移追加→検出→シミュレーション ---
+  await page.getByTestId('stage-design').click()
   await page.getByTestId('add-state-machine').click()
   await expect(page.getByTestId('state-machine-editor')).toBeVisible()
   await page.getByTestId('new-state-input').fill('運転')
@@ -1116,6 +1165,7 @@ test('編集機能: 用語集・状態遷移・表編集・検証編集（P10）
   await expect(page.getByTestId('panel')).not.toContainText('検証（verifies）が未対応の要求です: REQ-000001')
 
   // --- モデルエディタ（P10-3 骨格）: jar 未設定の警告 + STRUCT 保存（FORM-002） ---
+  await page.getByTestId('stage-design').click()
   await page.getByTestId('open-model-editor').click()
   await expect(page.getByTestId('model-editor')).toBeVisible()
   await page.getByTestId('model-render').click()

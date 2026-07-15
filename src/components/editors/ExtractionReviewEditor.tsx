@@ -4,7 +4,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ColumnDef } from '@tanstack/react-table'
-import { invoke } from '../../services/backend'
+import { invoke, onBackendEvent } from '../../services/backend'
 import { useJobsStore } from '../../stores/jobs-store'
 import { useProjectStore } from '../../stores/project-store'
 import { useSelectionStore, type ExtractedItemSelection } from '../../stores/selection-store'
@@ -125,6 +125,8 @@ export function ExtractionReviewEditor({ uid }: { uid: string }): React.JSX.Elem
   const [activeId, setActiveId] = useState<string | null>(null)
   const [anchorId, setAnchorId] = useState<string | null>(null)
   const [previewMode, setPreviewMode] = useState<'visual' | 'structure'>('visual')
+  const [renameOpen, setRenameOpen] = useState(false)
+  const [renameTitle, setRenameTitle] = useState('')
   const previewRefs = useRef(new Map<string, HTMLElement>())
   const notify = useJobsStore((state) => state.notify)
   const setExtractedItems = useSelectionStore((state) => state.setExtractedItems)
@@ -143,6 +145,17 @@ export function ExtractionReviewEditor({ uid }: { uid: string }): React.JSX.Elem
   useEffect(() => {
     void load()
   }, [load])
+
+  useEffect(
+    () =>
+      onBackendEvent((event, payload) => {
+        if (event !== 'extracted.renamed') return
+        const renamed = payload as { uid?: string; title?: string }
+        if (renamed.uid !== uid || !renamed.title) return
+        setDoc((current) => (current ? { ...current, title: renamed.title ?? current.title } : current))
+      }),
+    [uid]
+  )
 
   useEffect(() => {
     if (!doc) return
@@ -265,6 +278,18 @@ export function ExtractionReviewEditor({ uid }: { uid: string }): React.JSX.Elem
     } else notify('error', '確定できませんでした', result.error.message)
   }
 
+  const renameDocument = async (): Promise<void> => {
+    const title = renameTitle.trim()
+    if (!title) return
+    const result = await invoke<{ title: string }>('extracted.rename', { uid, title })
+    if (!result.ok) {
+      notify('error', '抽出データの名称を変更できませんでした', result.error.message)
+      return
+    }
+    setDoc((current) => (current ? { ...current, title } : current))
+    setRenameOpen(false)
+    notify('info', '抽出データの名称を変更しました')
+  }
   const columns: ColumnDef<ReviewElement, unknown>[] = [
     {
       header: '状態',
@@ -310,6 +335,17 @@ export function ExtractionReviewEditor({ uid }: { uid: string }): React.JSX.Elem
           {doc.elements.length} 要素 / {selectedElements.length} 選択
         </span>
         <span style={{ flex: 1 }} />
+        <button
+          type="button"
+          className="d2d-btn small"
+          data-testid="rename-extracted"
+          onClick={() => {
+            setRenameTitle(doc.title ?? doc.code)
+            setRenameOpen(true)
+          }}
+        >
+          名称変更
+        </button>
         <button
           type="button"
           className="d2d-btn small"
@@ -411,6 +447,37 @@ export function ExtractionReviewEditor({ uid }: { uid: string }): React.JSX.Elem
           )}
         </div>
       </ResizablePaneGroup>
+      {renameOpen && (
+        <div className="extraction-rename-dialog" role="dialog" aria-modal="true" data-testid="rename-extracted-dialog">
+          <h2>抽出データの名称変更</h2>
+          <label htmlFor="rename-extracted-input">名称</label>
+          <input
+            id="rename-extracted-input"
+            data-testid="rename-extracted-input"
+            value={renameTitle}
+            autoFocus
+            onChange={(event) => setRenameTitle(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') setRenameOpen(false)
+              if (event.key === 'Enter') void renameDocument()
+            }}
+          />
+          <div className="stage-import-dialog-actions">
+            <button type="button" className="d2d-btn" onClick={() => setRenameOpen(false)}>
+              キャンセル
+            </button>
+            <button
+              type="button"
+              className="d2d-btn primary"
+              data-testid="rename-extracted-save"
+              disabled={!renameTitle.trim()}
+              onClick={() => void renameDocument()}
+            >
+              保存
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
