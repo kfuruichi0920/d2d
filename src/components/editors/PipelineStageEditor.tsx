@@ -7,6 +7,7 @@ import { invoke, onBackendEvent } from '../../services/backend'
 import { useEditorStore } from '../../stores/editor-store'
 import { useJobsStore } from '../../stores/jobs-store'
 import { useProjectStore } from '../../stores/project-store'
+import { useSelectionStore } from '../../stores/selection-store'
 import { reviewStateFromEntityStatus, ReviewStatusBadge } from '../common/review'
 import { resourceTypeLabel } from '../../types/resource'
 import type { SourceDocumentItem, ExtractedDocumentItem, IntermediateDocumentItem } from '../views/DocumentsTree'
@@ -201,6 +202,8 @@ export function PipelineStageEditor({ stage }: { stage: PipelineStage }): React.
   const notify = useJobsStore((state) => state.notify)
   const refreshStats = useProjectStore((state) => state.refreshStats)
   const openResource = useEditorStore((state) => state.openResource)
+  const setSelectedItem = useSelectionStore((state) => state.setSelectedItem)
+  const clearSelectedItem = useSelectionStore((state) => state.clearSelectedItem)
 
   const refresh = useCallback(async () => {
     const [sourceResult, extractedResult, intermediateResult, modelResult, artifactResult, phaseResult] =
@@ -313,7 +316,42 @@ export function PipelineStageEditor({ stage }: { stage: PipelineStage }): React.
     openResource(`design://${uid}`, row.code, { preview: true })
   }
   const selectedSource = sources.find((row) => row.uid === selectedUid)
+  const selectedStageItem =
+    stage === 'source'
+      ? sources.find((row) => row.uid === selectedUid)
+      : stage === 'extracted'
+        ? extracted.find((row) => row.uid === selectedUid)
+        : stage === 'intermediate'
+          ? intermediates.find((row) => row.uid === selectedUid)
+          : models.find((row) => row.uid === selectedUid)
 
+  useEffect(() => {
+    const contextUri = `stage://${stage}`
+    if (selectedStageItem) {
+      const properties = Object.fromEntries(
+        Object.entries(selectedStageItem).filter(([, value]) => ['string', 'number', 'boolean'].includes(typeof value))
+      ) as Record<string, string | number | boolean>
+      setSelectedItem({
+        contextUri,
+        uid: selectedStageItem.uid,
+        displayId: selectedStageItem.code,
+        entityType:
+          stage === 'source'
+            ? 'source_document'
+            : stage === 'extracted'
+              ? 'extracted_document'
+              : stage === 'intermediate'
+                ? 'intermediate_document'
+                : (selectedStageItem as DesignElementRow).entity_type,
+        title: selectedStageItem.title ?? undefined,
+        status: selectedStageItem.status,
+        properties
+      })
+    } else {
+      clearSelectedItem(contextUri)
+    }
+    return () => clearSelectedItem(contextUri)
+  }, [clearSelectedItem, selectedStageItem, setSelectedItem, stage])
   return (
     <div className="stage-overview" data-testid={`stage-overview-${stage}`}>
       <header>

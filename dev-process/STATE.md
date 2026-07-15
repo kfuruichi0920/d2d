@@ -8,7 +8,7 @@
 - 完了: P0〜P13（クリティカルパス完走、MS6 相当まで）
 - 残り: **P14**（性能・オフライン確認・残 TBD-06〜08・パッケージング・商用版）、
   **P5 の他形式抽出**（Excel / PowerPoint / PDF / Visio / テキスト系、EXT-014/015）
-- テスト規模: ユニット 164 件 / pytest 10 件 / E2E 18 件（すべて成功の状態で引き渡し）
+- テスト規模: ユニット 167 件 / pytest 10 件 / E2E 18 件（すべて成功の状態で引き渡し）
 
 ## フェーズ履歴（要点のみ）
 
@@ -32,7 +32,8 @@
 | P7 追加    | ③取込編集の統合元選択・多対多based_on・個別解除・操作バー再編・全項目正本確定       | 1861358         |
 | P3〜P8追加 | ①〜④ステージ一覧・ソート・OS原本表示・①②アーカイブ／論理削除・文書状態集約          | 585e959         |
 | P3 追加    | ステージ選択表示・一覧キーボード操作・①〜③可変境界・Workbench外周状態共通化         | 6983f25         |
-| P3/P7 追加 | Explorer閲覧専用化・ステージ操作集約・③重複整理・中間3モード切替                    | 本コミット      |
+| P3/P7 追加 | Explorer閲覧専用化・ステージ操作集約・③重複整理・中間3モード切替                    | de2566f         |
+| P3 追加    | SecondaryをProperties／Relations／Reviewへ整理、共通Selection・コメントtrace化     | 本コミット      |
 
 ## 恒久制約（違反するとビルド/実行が壊れる、または設計方針違反）
 
@@ -53,7 +54,7 @@
   （miniconda）で実行（PATH 先頭の venv に pip が無い）。
 - Workbench の文字サイズはツール全体設定 `theme.fontSize`（10〜20px、既定13px）で管理し、通常UIとMonacoへ即時反映する。
 - Primary／Secondary／下段パネルの表示・寸法とSecondaryアコーディオン開閉はWorkbench外周状態として1組だけ保持し、作業モード／①〜④ステージを切り替えても変更しない。再帰的なEditor分割木・分割比・タブ配置はプロジェクト単位（未選択時はglobal）でlocalStorageへ保持する。各境界はポインタと矢印キーで変更でき、領域内の表示超過は必要時だけ縦横スクロールする。
-- SecondaryはProperties／Evidence／Relations／Candidateを独立開閉できる縦アコーディオンとする。Editorタブは最大220pxで省略表示し、収まらない場合は複数段へ折り返す。タブは分割区分へのドラッグ＆ドロップまたはコマンドで移動する。
+- SecondaryはWorkbench全体で共通のProperties／Relations／Reviewだけを独立開閉できる縦アコーディオンとする。Propertiesは共通Selectionの選択アイテム属性、Relationsは当該UIDを端点とする`trace_link`の関係種別・相対方向・相手、Reviewはコメントを表示する。コメントは`resource_text(text_role='comment')`として保存し、コメント→選択アイテムの`relates_to`を同一トランザクションで作る。EvidenceはRelationsへ、LLM Candidatesは候補Editor／下段Panelへ集約する。Editorタブは最大220pxで省略表示し、収まらない場合は複数段へ折り返す。タブは分割区分へのドラッグ＆ドロップまたはコマンドで移動する。
 - Primary／Secondary／下段PanelはTitle Bar右側ボタンとCommandの双方から表示切替する。Activity BarはSettingsを下端固定し、それ以外のDnD順序をプロジェクト単位に保存する。選択ActivityはPrimary非表示時も選択色を維持する。保存レイアウトがないプロジェクトへ切り替えた場合は、直前プロジェクトの状態を持ち越さずM0既定値へ初期化する。
 - Primary ActivityはExplorer／Search／Trace／Reports／History／Settingsで構成する。Reviewは各編集画面とSecondary、Jobsは下段PanelとStatus Barに集約し、Primary Activityへ戻さない。旧永続値のreview／jobsは読込時にExplorerへ正規化する。
 - Pipeline Navigatorの選択表示はactiveなステージURIだけを基準とし、①〜④を排他的に表示する。①〜④の一覧行は薄青背景で選択を示し、上下矢印で選択行を移動、Enter／Spaceでクリックと同じ操作を実行する。④モデルは単一クリックで開く。①〜③の一覧／プレビュー境界は共通 `ResizablePaneGroup` で変更する。

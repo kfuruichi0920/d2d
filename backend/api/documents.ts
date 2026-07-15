@@ -188,16 +188,16 @@ export function registerDocumentApi(router: ApiRouter, jobs: JobManager): void {
       elements: { resource_uid?: string }[]
     }
     // 要素ごとのレビュー状態（entity_registry.status）を合成する
-    const statusByUid = new Map<string, { status: string; code: string }>(
+    const statusByUid = new Map<string, { status: string; code: string; item_uid: string }>(
       (
         db
           .prepare(
-            `SELECT r.resource_uid AS uid, e.status, e.code
+            `SELECT r.resource_uid AS uid, r.uid AS item_uid, e.status, e.code
                FROM extracted_item r JOIN entity_registry e ON e.uid = r.resource_uid
               WHERE r.extracted_document_uid = ?`
           )
-          .all(uid) as { uid: string; status: string; code: string }[]
-      ).map((row) => [row.uid, { status: row.status, code: row.code }])
+          .all(uid) as { uid: string; status: string; code: string; item_uid: string }[]
+      ).map((row) => [row.uid, { status: row.status, code: row.code, item_uid: row.item_uid }])
     )
     return {
       ...doc,

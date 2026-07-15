@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { invoke, onBackendEvent } from '../../services/backend'
 import { useEditorStore } from '../../stores/editor-store'
 import { useJobsStore } from '../../stores/jobs-store'
+import { useSelectionStore } from '../../stores/selection-store'
 import { reviewStateFromEntityStatus, ReviewStatusBadge } from '../common/review'
 import { StateMachineEditor } from '../editors/StateMachineEditor'
 
@@ -77,6 +78,8 @@ export function DesignElementViewer({ uid }: { uid: string }): React.JSX.Element
   const [element, setElement] = useState<DesignElementRow | null>(null)
   const [relations, setRelations] = useState<TraceLinkRow[]>([])
   const openResource = useEditorStore((s) => s.openResource)
+  const setSelectedItem = useSelectionStore((state) => state.setSelectedItem)
+  const clearSelectedItem = useSelectionStore((state) => state.clearSelectedItem)
 
   const load = useCallback(async () => {
     const [elementsRes, relationsRes] = await Promise.all([
@@ -90,6 +93,26 @@ export function DesignElementViewer({ uid }: { uid: string }): React.JSX.Element
   useEffect(() => {
     void load()
   }, [load])
+
+  useEffect(() => {
+    if (!element) return
+    setSelectedItem({
+      contextUri: `design://${uid}`,
+      uid: element.uid,
+      displayId: element.code,
+      entityType: element.entity_type,
+      itemType: element.design_category,
+      title: element.title,
+      status: element.status,
+      properties: {
+        designCategory: element.design_category,
+        description: element.description,
+        verification: element.verification_json
+      }
+    })
+  }, [element, setSelectedItem, uid])
+
+  useEffect(() => () => clearSelectedItem(`design://${uid}`), [clearSelectedItem, uid])
 
   if (!element) return <div className="d2d-empty">読込中…</div>
 

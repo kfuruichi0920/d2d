@@ -89,7 +89,7 @@ flowchart TD
 | P3-6 | エディタ基盤                                    | Monaco Editor 統合（Markdown/PlantUML/JSON/SQL/ログ）、marked + DOMPurify による Markdown プレビュー                                                                        | P3-1       | [sdd_tech_stack §3]                                                |
 | P3-7 | Pipeline Navigator・Perspective                 | ①〜④ステージナビゲーション、作業モード（M1〜M5）切替、各ステージ一覧Editor（①原本、②抽出、③フェーズ－成果物、④モデル）への遷移、現在ステージだけの選択表示、列ソート、行のクリック／上下キー／Enter／Space操作、①～③の一覧／プレビュー境界リサイズ、①取込・③取込・④追加操作の一覧上部配置、Explorerの閲覧／選択専用化                                                                                                              | P3-2       | [UI-046〜048, sdd_ui_design §3.1, §5, §6]                                       |
 | P3-8 | レビュー UX 共通コンポーネント                  | 対照レビューエディタ、レビューキュー(Inbox)、レビュー状態モデル（未確認/確認済/要修正/棄却）、キーボードトリアージ、一括操作                                                | P3-2, P3-4 | [EXT-022, sdd_ui_design §7]                                        |
-| P3-9 | 補助表示（Secondary Side Bar）                  | 選択対象のプロパティ・根拠・関係・LLM候補・レビュー状態の補助表示                                                                                                           | P3-2       | [UI-026]                                                           |
+| P3-9 | 補助表示（Secondary Side Bar）                  | Workbench共通Selectionに連動するProperties／Relations／Reviewの縦アコーディオン、選択アイテム属性表示、trace_linkの関係種別・相対方向・相手アイテム一覧、コメントResourceと対象へのrelates_toを同一トランザクションで保存するReview入力・履歴表示 | P3-2       | [UI-026, UI-040, sdd_ui_design §11]                                |
 
 ## 7. P4: 原本取込（①原本データ）
 

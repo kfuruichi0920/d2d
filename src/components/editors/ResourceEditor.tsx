@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { invoke } from '../../services/backend'
 import { useJobsStore } from '../../stores/jobs-store'
+import { useSelectionStore } from '../../stores/selection-store'
 import { ResizablePaneGroup } from '../workbench/ResizablePaneGroup'
 
 interface FieldDefinition {
@@ -150,7 +151,28 @@ export function ResourceEditor({
   const [saving, setSaving] = useState(false)
   const [merging, setMerging] = useState(false)
   const notify = useJobsStore((state) => state.notify)
+  const setSelectedItem = useSelectionStore((state) => state.setSelectedItem)
+  const clearSelectedItem = useSelectionStore((state) => state.clearSelectedItem)
 
+  useEffect(() => {
+    if (embedded || !data) return
+    const contextUri = `resource://${currentUid}`
+    const properties = Object.fromEntries(
+      Object.entries(data.values).filter(
+        ([, value]) => value === null || ['string', 'number', 'boolean'].includes(typeof value)
+      )
+    ) as Record<string, string | number | boolean | null>
+    setSelectedItem({
+      contextUri,
+      uid: data.uid,
+      displayId: data.code,
+      entityType: data.type,
+      itemType: data.type,
+      title: data.title ?? undefined,
+      properties: { resourceTypeLabel: data.typeLabel, ...properties }
+    })
+    return () => clearSelectedItem(contextUri)
+  }, [clearSelectedItem, currentUid, data, embedded, setSelectedItem])
   const load = useCallback(async () => {
     const [resourceResult, contextResult] = await Promise.all([
       invoke<ResourceData>('resource.get', { uid: currentUid }),

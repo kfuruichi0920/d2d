@@ -198,9 +198,11 @@ resource_text.text_body = 利用者は...
 
 ### 2.6 トレーサビリティの関係
 
-`trace_link` は `from_uid` と `to_uid` の両方で `entity_registry.uid` を参照する。ただし、`extracted_item` と `intermediate_item` は文書構成JSON内の個別要素と設計リソースの対応管理であり、トレース端点にはしない。トレース対象は、`item_type` が示す `resource_*` 詳細テーブルの `resource_uid` とする。text、table、figure、model、scenario、interface、state_transition、data_structure、reference、metadata、glossary、LLM実行参照など、台帳に登録された設計リソースや用語を同じ形式でリンクする。用語と文書・設計要素との対応も、別の `trace_subject` は作らず `trace_link` で管理する。
+`trace_link` は `from_uid` と `to_uid` の両方で `entity_registry.uid` を参照する。`extracted_item` と `intermediate_item` も台帳登録し、抽出→中間の行単位由来やWorkbenchで選択したアイテムへのレビューコメントなど、行自体を特定する必要がある関係ではトレース端点にできる。設計意味上の関係は、原則として `item_type` が示す `resource_*` 詳細テーブルの `resource_uid` を端点とする。text、table、figure、model、scenario、interface、state_transition、data_structure、reference、metadata、glossary、LLM実行参照など、台帳に登録された設計リソースや用語を同じ形式でリンクする。用語と文書・設計要素との対応も、別の `trace_subject` は作らず `trace_link` で管理する。
 
 `trace_link` は関係付与の正本であり、同一対象の統合・正規化によるノード整理とは独立してレビュー、再生成できるようにする。文書構成上の章節配下は `structure_json` に保持し、設計上の根拠、要求充足、責務割当、検証、構造包含、意味分解、実装、利用、呼び出し、競合、暫定関連は `trace_link.relation_type` と関係属性で表現する。relation_type は `based_on`、`satisfies`、`allocated_to`、`verifies`、`contains`、`decomposes`、`implements`、`uses`、`calls`、`conflicts_with`、`relates_to` の11種類に限定する。関係の未接続、不整合、根拠不足、循環等の検査は、`trace_link` と `relation_rule_master` を用いた双方向トレーサビリティ分析で実現する。
+
+Secondary Side BarのReviewコメントは、状態遷移や承認履歴を保持する `entity_registry.review_info_json` とは分離する。コメント本文を独立した `resource_text(text_role='comment')` として登録し、コメントResourceを `from_uid`、選択中アイテムを `to_uid` とする `trace_link(relation_type='relates_to', direction='forward', basis_kind='human_approved')` を同一トランザクションで保存する。Relationsは選択UIDを `from_uid` と `to_uid` の双方から検索し、選択対象から見た相対方向と相手アイテムを表示する。
 
 同一関係の重複防止は、`relation_rule_master`、`relation_type`、文脈属性（例: `context_uid`、`condition`）を含めてアプリ側で検査する。`conflicts_with` は文脈や条件が異なれば同じ2要素間に複数存在できるため、DBでは `from_uid, to_uid, relation_type` の単純UNIQUE制約を置かない。
 

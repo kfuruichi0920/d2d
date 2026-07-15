@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { invoke, onBackendEvent } from '../../services/backend'
 import { useEditorStore } from '../../stores/editor-store'
 import { useJobsStore } from '../../stores/jobs-store'
+import { useSelectionStore } from '../../stores/selection-store'
 import { reviewStateFromEntityStatus, ReviewStatusBadge } from '../common/review'
 import { ResizablePaneGroup } from '../workbench/ResizablePaneGroup'
 
@@ -77,6 +78,8 @@ export function ChunkEditor({ uid }: { uid: string }): React.JSX.Element {
   const anchor = useRef<number | null>(null)
   const previewRefs = useRef(new Map<string, HTMLElement>())
   const notify = useJobsStore((s) => s.notify)
+  const setSelectedItem = useSelectionStore((state) => state.setSelectedItem)
+  const clearSelectedItem = useSelectionStore((state) => state.clearSelectedItem)
 
   const refresh = useCallback(async () => {
     const [d, c] = await Promise.all([
@@ -93,6 +96,45 @@ export function ChunkEditor({ uid }: { uid: string }): React.JSX.Element {
       if (event === 'intermediate.updated' || event === 'llm.candidate.generated') void refresh()
     })
   }, [refresh])
+
+  useEffect(() => {
+    if (activePane === 'chunk') {
+      const chunk = chunks.find((item) => item.uid === selectedChunk)
+      if (!chunk) return
+      setSelectedItem({
+        contextUri: `intermediate://${uid}`,
+        uid: chunk.uid,
+        displayId: chunk.code,
+        entityType: 'chunk',
+        title: chunk.title,
+        properties: {
+          itemCount: chunk.item_count,
+          tokenCount: chunk.token_count,
+          additionalPrompt: chunk.additional_prompt
+        }
+      })
+      return
+    }
+    const element = doc?.elements.find((item) => item.intermediate_item_uid === activeItem)
+    if (!element?.intermediate_item_uid) return
+    setSelectedItem({
+      contextUri: `intermediate://${uid}`,
+      uid: element.intermediate_item_uid,
+      displayId: element.intermediate_item_uid,
+      entityType: 'intermediate_item',
+      itemType: element.type,
+      status: element.review?.status,
+      properties: {
+        resourceUid: element.resource_uid,
+        type: element.type,
+        status: element.review?.status,
+        sectionPath: element.section_path,
+        text: element.text ?? element.image
+      }
+    })
+  }, [activeItem, activePane, chunks, doc, selectedChunk, setSelectedItem, uid])
+
+  useEffect(() => () => clearSelectedItem(`intermediate://${uid}`), [clearSelectedItem, uid])
 
   const loadChunk = async (chunkUid: string): Promise<void> => {
     setSelectedChunk(chunkUid)

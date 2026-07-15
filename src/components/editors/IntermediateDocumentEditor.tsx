@@ -119,6 +119,8 @@ export function IntermediateDocumentEditor({
   const [terms, setTerms] = useState<string[]>([])
   const notify = useJobsStore((s) => s.notify)
   const setWorkbenchItems = useSelectionStore((s) => s.setWorkbenchItems)
+  const setSelectedItem = useSelectionStore((s) => s.setSelectedItem)
+  const clearSelectedItem = useSelectionStore((s) => s.clearSelectedItem)
 
   const load = useCallback(async () => {
     const [docRes, mdRes, termsRes] = await Promise.all([
@@ -145,7 +147,9 @@ export function IntermediateDocumentEditor({
         ? sourceItems
             .filter((e) => sourceSelectedIds.has(e.id))
             .map((e) => ({
+              contextUri: `intermediate://${uid}`,
               pane: 'extracted' as const,
+              entityUid: e.extracted_item_uid ?? null,
               id: e.id,
               type: e.type,
               resourceUid: e.resource_uid ?? null,
@@ -156,7 +160,9 @@ export function IntermediateDocumentEditor({
         : (doc?.elements ?? [])
             .filter((e) => selectedIds.has(e.id))
             .map((e) => ({
+              contextUri: `intermediate://${uid}`,
               pane: 'intermediate' as const,
+              entityUid: e.intermediate_item_uid ?? null,
               id: e.id,
               type: e.type,
               resourceUid: e.resource_uid ?? null,
@@ -164,7 +170,46 @@ export function IntermediateDocumentEditor({
               status: e.review?.status ?? 'draft'
             }))
     setWorkbenchItems(items)
-  }, [lastSelectedPane, sourceItems, sourceSelectedIds, doc, selectedIds, setWorkbenchItems])
+    const active =
+      lastSelectedPane === 'source'
+        ? sourceItems.find((element) => element.id === sourceActiveId)
+        : doc?.elements.find((element) => element.id === activeId)
+    const entityUid = lastSelectedPane === 'source' ? active?.extracted_item_uid : active?.intermediate_item_uid
+    if (active && entityUid) {
+      setSelectedItem({
+        contextUri: `intermediate://${uid}`,
+        uid: entityUid,
+        displayId: entityUid,
+        entityType: lastSelectedPane === 'source' ? 'extracted_item' : 'intermediate_item',
+        itemType: active.type,
+        status: active.review?.status,
+        properties: {
+          pane: lastSelectedPane === 'source' ? '統合元' : '成果物',
+          elementId: active.id,
+          resourceUid: active.resource_uid,
+          type: active.type,
+          status: active.review?.status,
+          sectionPath: active.section_path,
+          text: active.text ?? active.image,
+          sourceTitle:
+            'source_title' in active && typeof active.source_title === 'string' ? active.source_title : undefined
+        }
+      })
+    }
+  }, [
+    activeId,
+    doc,
+    lastSelectedPane,
+    selectedIds,
+    setSelectedItem,
+    setWorkbenchItems,
+    sourceActiveId,
+    sourceItems,
+    sourceSelectedIds,
+    uid
+  ])
+
+  useEffect(() => () => clearSelectedItem(`intermediate://${uid}`), [clearSelectedItem, uid])
 
   const selected = doc?.elements.find((e) => e.id === activeId) ?? null
 

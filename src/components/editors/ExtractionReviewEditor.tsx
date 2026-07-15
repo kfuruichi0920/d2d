@@ -31,7 +31,7 @@ interface ReviewElement {
   row_count?: number
   column_count?: number
   resource_uid?: string
-  review?: { status: string; code: string }
+  review?: { status: string; code: string; item_uid: string }
 }
 
 interface ExtractedDoc {
@@ -131,6 +131,8 @@ export function ExtractionReviewEditor({ uid }: { uid: string }): React.JSX.Elem
   const notify = useJobsStore((state) => state.notify)
   const setExtractedItems = useSelectionStore((state) => state.setExtractedItems)
   const clearExtractedItems = useSelectionStore((state) => state.clearExtractedItems)
+  const setSelectedItem = useSelectionStore((state) => state.setSelectedItem)
+  const clearSelectedItem = useSelectionStore((state) => state.clearSelectedItem)
 
   const load = useCallback(async () => {
     const result = await invoke<ExtractedDoc>('extracted.get', { uid })
@@ -164,6 +166,7 @@ export function ExtractionReviewEditor({ uid }: { uid: string }): React.JSX.Elem
         selectedIds.has(element.id)
           ? {
               documentUid: uid,
+              entityUid: element.review?.item_uid ?? null,
               id: element.id,
               index,
               type: element.type,
@@ -180,9 +183,34 @@ export function ExtractionReviewEditor({ uid }: { uid: string }): React.JSX.Elem
       )
       .filter((item): item is ExtractedItemSelection => item !== null)
     setExtractedItems(selected)
-  }, [doc, selectedIds, setExtractedItems, uid])
+    const active = doc.elements.find((element) => element.id === activeId)
+    if (active?.review?.item_uid) {
+      setSelectedItem({
+        contextUri: `extracted://${uid}`,
+        uid: active.review.item_uid,
+        displayId: active.review.code,
+        entityType: 'extracted_item',
+        itemType: active.type,
+        status: active.review.status,
+        properties: {
+          elementId: active.id,
+          resourceUid: active.resource_uid,
+          type: active.type,
+          status: active.review.status,
+          sectionPath: active.section_path,
+          text: active.text ?? active.caption ?? active.image
+        }
+      })
+    }
+  }, [activeId, doc, selectedIds, setExtractedItems, setSelectedItem, uid])
 
-  useEffect(() => () => clearExtractedItems(), [clearExtractedItems])
+  useEffect(
+    () => () => {
+      clearExtractedItems()
+      clearSelectedItem(`extracted://${uid}`)
+    },
+    [clearExtractedItems, clearSelectedItem, uid]
+  )
 
   useEffect(() => {
     if (!activeId) return

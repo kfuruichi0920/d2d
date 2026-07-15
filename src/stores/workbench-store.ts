@@ -20,9 +20,9 @@ export const WORK_MODES: { mode: WorkMode; label: string }[] = [
 export type Activity = 'explorer' | 'search' | 'trace' | 'reports' | 'history' | 'settings'
 export const DEFAULT_ACTIVITY_ORDER: Activity[] = ['explorer', 'search', 'trace', 'reports', 'history', 'settings']
 export type PanelTab = 'problems' | 'output' | 'jobs' | 'search' | 'validation' | 'llm'
-export type SecondaryTab = 'properties' | 'evidence' | 'relations' | 'candidates' | 'review'
+export type SecondaryTab = 'properties' | 'relations' | 'review'
 
-const ALL_SECONDARY_SECTIONS: SecondaryTab[] = ['properties', 'evidence', 'relations', 'candidates', 'review']
+const ALL_SECONDARY_SECTIONS: SecondaryTab[] = ['properties', 'relations', 'review']
 
 export interface ModeLayout {
   activity: Activity
@@ -61,8 +61,8 @@ function modeLayout(
 const MODE_DEFAULT_LAYOUTS: Record<WorkMode, ModeLayout> = {
   M0: modeLayout('explorer', false, false, 'properties', 'jobs'),
   M1: modeLayout('explorer', true, true, 'properties', 'jobs'),
-  M2: modeLayout('explorer', true, false, 'evidence', 'problems'),
-  M3: modeLayout('explorer', true, true, 'candidates', 'llm'),
+  M2: modeLayout('explorer', true, false, 'properties', 'problems'),
+  M3: modeLayout('explorer', true, true, 'relations', 'llm'),
   M4: modeLayout('trace', true, true, 'relations', 'problems'),
   M5: modeLayout('history', false, false, 'properties', 'output')
 }
@@ -263,7 +263,13 @@ export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
       const layout: ModeLayout = {
         ...MODE_DEFAULT_LAYOUTS.M0,
         ...saved,
-        secondaryExpanded: saved?.secondaryExpanded ?? MODE_DEFAULT_LAYOUTS.M0.secondaryExpanded,
+        secondaryTab: ALL_SECONDARY_SECTIONS.includes(saved?.secondaryTab as SecondaryTab)
+          ? (saved?.secondaryTab as SecondaryTab)
+          : 'properties',
+        secondaryExpanded:
+          saved?.secondaryExpanded?.filter((section): section is SecondaryTab =>
+            ALL_SECONDARY_SECTIONS.includes(section as SecondaryTab)
+          ) ?? MODE_DEFAULT_LAYOUTS.M0.secondaryExpanded,
         activity: saved?.activity && DEFAULT_ACTIVITY_ORDER.includes(saved.activity) ? saved.activity : 'explorer'
       }
       const layouts = Object.fromEntries(

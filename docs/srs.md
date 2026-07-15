@@ -751,7 +751,7 @@ EDIT-007 は欠番（削除済み）とする。
 | UI-023 | 主要操作はCommandとして定義し、メニュー、ツールバー、コンテキストメニュー、ショートカット、コマンドパレットから一貫して実行できること |
 | UI-024 | 選択中のResource、アクティブEditor、ジョブ状態、レビュー状態に応じて、操作の有効/無効や補助表示を切り替えられること |
 | UI-025 | ユーザが変更したタブ、ペイン分割、サイドバー、パネルの表示状態を保存し、再開時に復元できること |
-| UI-026 | 現在の作業対象に対するプロパティ、根拠、関係、LLM候補、レビュー状態を補助表示できること |
+| UI-026 | Secondary Side BarはWorkbench共通のProperties、Relations、Reviewの3アコーディオンだけで構成すること。Propertiesは現在選択中のアイテム属性、Relationsは当該アイテムを端点とする`trace_link`の関係種別・相対方向・相手アイテム、Reviewは当該アイテムへの任意コメント入力と既存コメント一覧を表示すること。保存したコメントは`resource_text(text_role='comment')`として管理し、コメントから対象アイテムへ`relates_to`を作成すること |
 | UI-027 | ダーク／ライトの表示モードに加え、Serendie Design Systemの5つのカラーテーマ（konjo、asagi、sumire、tsutsuji、kurikawa）を切り替えられること |
 | UI-028 | UIアイコンは、Serendie Design Systemの `serendie/serendie-symbols` をベースに、用途と意味が一致するものを選択すること |
 | UI-029 | 抽出レビュービューは、アウトライン、原本／プレビュー、Markdown、文書構造データ、コメント・変更履歴、レビュー操作を、作業に応じて分割ペインまたはタブで切り替えられること |
@@ -765,7 +765,7 @@ EDIT-007 は欠番（削除済み）とする。
 | UI-037 | ツール全体の文字サイズを設定画面から一括変更し、再起動後も復元できること |
 | UI-038 | Primary Side Bar、Secondary Side Bar、Editor Area、下段Panelに加え、①原本／②抽出／③中間のステージ一覧、抽出データ編集、中間データ取込／単独編集、チャンク編集、Resource編集の内部ペインは境界のドラッグでサイズ変更でき、内容が表示領域を超える場合は必要な方向のスクロールバーで操作できること |
 | UI-039 | Editor Areaは左右・上下へ再帰的に分割でき、分割境界をドラッグして比率変更できること。タブはドラッグ＆ドロップまたはCommandで任意のEditor Groupへ移動できること |
-| UI-040 | Secondary Side BarのProperties、Evidence、Relations、Candidates、Reviewはタブではなく縦アコーディオンで同時参照できること。Editor Groupのタブは最大幅を設けて省略表示し、収まらない場合は多段表示すること |
+| UI-040 | Secondary Side BarのProperties、Relations、Reviewはタブではなく縦アコーディオンで同時参照できること。Editor Groupのタブは最大幅を設けて省略表示し、収まらない場合は多段表示すること |
 | UI-041 | Primary Side Bar、Secondary Side Bar、下段Panelは上部右側の視認可能なボタンとCommandの両方から表示／非表示を切り替えられること。表示有無と幅／高さは作業モードや①～④のステージ画面ごとに切り替えず、Workbench共通の状態として保持すること |
 | UI-042 | Explorerの②抽出データと③中間データは、正本確定していない要素数をBadgeで表示すること |
 | UI-043 | Activity BarはExplorer、Search、Trace、Reports、History、Settingsで構成し、Settingsを下端へ固定すること。その他のActivityはドラッグ＆ドロップで並べ替え、その順序を復元できること。選択中Activityは視覚的に識別できること。Reviewは各編集画面とSecondary Side Bar、Jobsは下段PanelとStatus Barで提供し、Primary Side BarのActivityには置かないこと |

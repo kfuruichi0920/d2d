@@ -1,23 +1,64 @@
 /**
- * Secondary Side Bar（P3-9、UI-026/040、sdd_ui_design §11）。
- * 補助情報を縦アコーディオンで並べ、複数セクションを同時参照可能にする。
+ * Workbench共通Secondary Side Bar（P3-9、UI-026/040、sdd_ui_design §11）。
+ * Properties／Relations／Reviewを現在のSelectionへ同期する。
  */
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { invoke, onBackendEvent } from '../../services/backend'
 import { useEditorStore } from '../../stores/editor-store'
+import { useJobsStore } from '../../stores/jobs-store'
+import { useSelectionStore, type SelectedItem } from '../../stores/selection-store'
 import { useWorkbenchStore, type SecondaryTab } from '../../stores/workbench-store'
-import { useSelectionStore } from '../../stores/selection-store'
 
 const SECTIONS: { id: SecondaryTab; label: string }[] = [
   { id: 'properties', label: 'Properties' },
-  { id: 'evidence', label: 'Evidence' },
   { id: 'relations', label: 'Relations' },
-  { id: 'candidates', label: 'Candidates' },
   { id: 'review', label: 'Review' }
 ]
+
+interface RelationRow {
+  uid: string
+  code: string
+  relation_type: string
+  link_direction: 'forward' | 'bidirectional'
+  relative_direction: 'outgoing' | 'incoming' | 'bidirectional'
+  other_uid: string
+  other_code: string
+  other_title: string | null
+  other_entity_type: string
+  rationale: string | null
+}
+
+interface ReviewRow {
+  uid: string
+  code: string
+  body: string
+  created_at: string
+  created_by: string | null
+}
+
+function fallbackSelection(activeUri: string | null): SelectedItem | null {
+  if (!activeUri) return null
+  const match = /^(design|resource|original|extracted|intermediate|chunk):\/\/(.+)$/.exec(activeUri)
+  if (!match?.[2]) return null
+  return {
+    contextUri: activeUri,
+    uid: match[2],
+    displayId: match[2],
+    entityType: match[1] === 'original' ? 'source_document' : (match[1] ?? 'resource'),
+    properties: { resource: activeUri }
+  }
+}
 
 export function SecondarySideBar(): React.JSX.Element {
   const activeSection = useWorkbenchStore((state) => state.secondaryTab)
   const expanded = useWorkbenchStore((state) => state.secondaryExpanded)
   const toggleSection = useWorkbenchStore((state) => state.toggleSecondarySection)
+  const activeUri = useEditorStore((state) => state.activeUri)
+  const selectedItem = useSelectionStore((state) => state.selectedItem)
+  const target = useMemo(
+    () => (selectedItem?.contextUri === activeUri ? selectedItem : fallbackSelection(activeUri)),
+    [activeUri, selectedItem]
+  )
 
   return (
     <aside className="wb-secondary" data-testid="secondary-sidebar">
@@ -42,14 +83,9 @@ export function SecondarySideBar(): React.JSX.Element {
               </button>
               {open && (
                 <div className="wb-secondary-accordion-body">
-                  {section.id === 'properties' ? (
-                    <PropertiesContent />
-                  ) : (
-                    <div className="d2d-empty">
-                      {section.label} は対象データ実装後に接続します（Evidence/Relations: P5〜P9、 Candidates/Review:
-                      P5/P8）
-                    </div>
-                  )}
+                  {section.id === 'properties' && <PropertiesContent target={target} />}
+                  {section.id === 'relations' && <RelationsContent target={target} />}
+                  {section.id === 'review' && <ReviewContent target={target} />}
                 </div>
               )}
             </section>
@@ -60,84 +96,165 @@ export function SecondarySideBar(): React.JSX.Element {
   )
 }
 
-function PropertiesContent(): React.JSX.Element {
-  const activeUri = useEditorStore((state) => state.activeUri)
-  const extractedItems = useSelectionStore((state) => state.extractedItems)
-  const workbenchItems = useSelectionStore((state) => state.workbenchItems)
+function PropertiesContent({ target }: { target: SelectedItem | null }): React.JSX.Element {
+  if (!target) return <div className="d2d-empty">アイテムが選択されていません</div>
+  return (
+    <dl className="d2d-kv" data-testid="selected-item-properties">
+      <dt>ID</dt>
+      <dd>{target.displayId}</dd>
+      <dt>UID</dt>
+      <dd>{target.uid}</dd>
+      <dt>entity_type</dt>
+      <dd>{target.entityType}</dd>
+      {target.itemType && (
+        <>
+          <dt>種別</dt>
+          <dd>{target.itemType}</dd>
+        </>
+      )}
+      {target.title && (
+        <>
+          <dt>名称</dt>
+          <dd>{target.title}</dd>
+        </>
+      )}
+      {target.status && (
+        <>
+          <dt>状態</dt>
+          <dd>{target.status}</dd>
+        </>
+      )}
+      {Object.entries(target.properties).map(([key, value]) => (
+        <div className="d2d-kv-pair" key={key}>
+          <dt>{key}</dt>
+          <dd>{value === null || value === undefined || value === '' ? '—' : String(value)}</dd>
+        </div>
+      ))}
+    </dl>
+  )
+}
 
-  if (activeUri?.startsWith('intermediate://') && workbenchItems.length > 0) {
-    return (
-      <dl className="d2d-kv" data-testid="intermediate-item-properties">
-        <dt>選択ペイン</dt>
-        <dd>{workbenchItems[0]!.pane === 'extracted' ? '統合元 extracted_item' : '成果物 intermediate_item'}</dd>
-        <dt>選択数</dt>
-        <dd>{workbenchItems.length}</dd>
-        {workbenchItems.length === 1 && (
-          <>
-            <dt>要素ID</dt>
-            <dd>{workbenchItems[0]!.id}</dd>
-            <dt>Resource UID</dt>
-            <dd>{workbenchItems[0]!.resourceUid ?? '—'}</dd>
-            <dt>種別</dt>
-            <dd>{workbenchItems[0]!.type}</dd>
-            <dt>状態</dt>
-            <dd>{workbenchItems[0]!.status}</dd>
-            <dt>本文／画像</dt>
-            <dd>{workbenchItems[0]!.text ?? '—'}</dd>
-          </>
+function RelationsContent({ target }: { target: SelectedItem | null }): React.JSX.Element {
+  const [relations, setRelations] = useState<RelationRow[]>([])
+  const [error, setError] = useState<string | null>(null)
+  const load = useCallback(async () => {
+    if (!target) {
+      setRelations([])
+      setError(null)
+      return
+    }
+    const result = await invoke<RelationRow[]>('secondary.listRelations', { itemUid: target.uid })
+    if (result.ok) {
+      setRelations(result.result)
+      setError(null)
+    } else {
+      setRelations([])
+      setError(result.error.message)
+    }
+  }, [target])
+  useEffect(() => {
+    void load()
+    return onBackendEvent((event, payload) => {
+      if (event === 'secondary.updated' && (payload as { itemUid?: string }).itemUid === target?.uid) void load()
+    })
+  }, [load, target?.uid])
+
+  if (!target) return <div className="d2d-empty">アイテムが選択されていません</div>
+  if (error) return <div className="d2d-empty">{error}</div>
+  if (relations.length === 0) return <div className="d2d-empty">関係はありません</div>
+  return (
+    <ul className="secondary-relation-list" data-testid="secondary-relations-list">
+      {relations.map((relation) => (
+        <li key={relation.uid}>
+          <div>
+            <span className="d2d-badge">{relation.relation_type}</span>{' '}
+            <b>
+              {relation.relative_direction === 'outgoing'
+                ? '出力 →'
+                : relation.relative_direction === 'incoming'
+                  ? '入力 ←'
+                  : '双方向 ↔'}
+            </b>
+          </div>
+          <div>
+            {relation.other_code} — {relation.other_title ?? '名称なし'}
+          </div>
+          <small>
+            {relation.other_entity_type} / link: {relation.link_direction}
+          </small>
+          {relation.rationale && <p>{relation.rationale}</p>}
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+function ReviewContent({ target }: { target: SelectedItem | null }): React.JSX.Element {
+  const [comments, setComments] = useState<ReviewRow[]>([])
+  const [draft, setDraft] = useState('')
+  const [saving, setSaving] = useState(false)
+  const notify = useJobsStore((state) => state.notify)
+  const load = useCallback(async () => {
+    if (!target) {
+      setComments([])
+      return
+    }
+    const result = await invoke<ReviewRow[]>('secondary.listReviews', { itemUid: target.uid })
+    if (result.ok) setComments(result.result)
+  }, [target])
+  useEffect(() => {
+    setDraft('')
+    void load()
+  }, [load])
+
+  const save = async (): Promise<void> => {
+    if (!target || !draft.trim()) return
+    setSaving(true)
+    const result = await invoke<ReviewRow>('secondary.addReview', { itemUid: target.uid, comment: draft })
+    setSaving(false)
+    if (!result.ok) {
+      notify('error', 'レビューコメントを保存できませんでした', result.error.message)
+      return
+    }
+    setDraft('')
+    notify('info', 'レビューコメントを保存しました')
+    await load()
+  }
+
+  if (!target) return <div className="d2d-empty">アイテムが選択されていません</div>
+  return (
+    <div className="secondary-review" data-testid="secondary-review">
+      <label htmlFor="secondary-review-comment">{target.displayId} へのコメント</label>
+      <textarea
+        id="secondary-review-comment"
+        data-testid="secondary-review-comment"
+        value={draft}
+        maxLength={10_000}
+        onChange={(event) => setDraft(event.target.value)}
+      />
+      <button
+        type="button"
+        className="d2d-btn primary"
+        data-testid="secondary-review-save"
+        disabled={saving || !draft.trim()}
+        onClick={() => void save()}
+      >
+        {saving ? '保存中…' : 'コメントを保存'}
+      </button>
+      <div className="secondary-review-list" data-testid="secondary-review-list">
+        {comments.length === 0 ? (
+          <div className="d2d-empty">コメントはありません</div>
+        ) : (
+          comments.map((comment) => (
+            <article key={comment.uid}>
+              <header>
+                {comment.code} / {new Date(comment.created_at).toLocaleString()}
+              </header>
+              <p>{comment.body}</p>
+            </article>
+          ))
         )}
-      </dl>
-    )
-  }
-
-  if (activeUri?.startsWith('extracted://') && extractedItems.length > 0) {
-    return (
-      <dl className="d2d-kv" data-testid="extracted-item-properties">
-        <dt>選択数</dt>
-        <dd>{extractedItems.length}</dd>
-        {extractedItems.length === 1 && (
-          <>
-            <dt>要素ID</dt>
-            <dd>{extractedItems[0]!.id}</dd>
-            <dt>Resource UID</dt>
-            <dd>{extractedItems[0]!.resourceUid ?? '—'}</dd>
-            <dt>種別</dt>
-            <dd>{extractedItems[0]!.type}</dd>
-            <dt>状態</dt>
-            <dd>{extractedItems[0]!.status}</dd>
-            <dt>章節</dt>
-            <dd>{extractedItems[0]!.sectionPath ?? '—'}</dd>
-            <dt>本文／画像</dt>
-            <dd>{extractedItems[0]!.text ?? extractedItems[0]!.image ?? '—'}</dd>
-            {extractedItems[0]!.level !== null && (
-              <>
-                <dt>レベル</dt>
-                <dd>{extractedItems[0]!.level}</dd>
-              </>
-            )}
-            {extractedItems[0]!.rowCount !== null && (
-              <>
-                <dt>表サイズ</dt>
-                <dd>
-                  {extractedItems[0]!.rowCount} × {extractedItems[0]!.columnCount}
-                </dd>
-              </>
-            )}
-          </>
-        )}
-      </dl>
-    )
-  }
-
-  if (activeUri) {
-    return (
-      <dl className="d2d-kv">
-        <dt>Resource</dt>
-        <dd>{activeUri}</dd>
-        <dt>種別</dt>
-        <dd>{activeUri.split('://')[0]}</dd>
-      </dl>
-    )
-  }
-  return <div className="d2d-empty">Resource が選択されていません</div>
+      </div>
+    </div>
+  )
 }

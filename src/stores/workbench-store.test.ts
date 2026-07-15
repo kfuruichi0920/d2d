@@ -66,9 +66,9 @@ describe('workbench-store（P3-1、UI-038/040）', () => {
     expect(useWorkbenchStore.getState().activityOrder.at(-1)).toBe('settings')
   })
   it('Secondaryアコーディオンは複数開閉できる', () => {
-    useWorkbenchStore.getState().toggleSecondarySection('evidence')
-    expect(useWorkbenchStore.getState().secondaryExpanded).toEqual(['properties', 'evidence'])
+    useWorkbenchStore.getState().toggleSecondarySection('relations')
+    expect(useWorkbenchStore.getState().secondaryExpanded).toEqual(['properties', 'relations'])
     useWorkbenchStore.getState().toggleSecondarySection('properties')
-    expect(useWorkbenchStore.getState().secondaryExpanded).toEqual(['evidence'])
+    expect(useWorkbenchStore.getState().secondaryExpanded).toEqual(['relations'])
   })
 })

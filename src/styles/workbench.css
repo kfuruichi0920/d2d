@@ -1368,3 +1368,49 @@ mark.d2d-term {
   width: 100%;
   box-sizing: border-box;
 }
+.d2d-kv-pair {
+  display: contents;
+}
+.secondary-relation-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 8px;
+  list-style: none;
+}
+.secondary-relation-list li,
+.secondary-review-list article {
+  padding: 7px;
+  border: 1px solid var(--d2d-border);
+  border-radius: 4px;
+  background: var(--d2d-surface);
+}
+.secondary-relation-list small,
+.secondary-review-list header {
+  color: var(--d2d-fg-muted);
+  font-size: 11px;
+}
+.secondary-relation-list p,
+.secondary-review-list p {
+  margin: 4px 0 0;
+  white-space: pre-wrap;
+}
+.secondary-review {
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+}
+.secondary-review textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 72px;
+  resize: vertical;
+  border: 1px solid var(--d2d-border);
+  border-radius: 3px;
+  color: var(--d2d-fg);
+  background: var(--d2d-surface);
+}
+.secondary-review-list {
+  display: grid;
+  gap: 6px;
+}

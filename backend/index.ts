@@ -26,6 +26,7 @@ import { registerLlmApi } from './api/llm'
 import { registerIntermediateApi } from './api/intermediate'
 import { registerDesignApi } from './api/design'
 import { registerTraceApi } from './api/trace'
+import { registerSecondaryApi } from './api/secondary'
 import { registerEditApi } from './api/edit'
 import { registerDataApi, registerDbToTextHook } from './api/data'
 import { registerSearchApi } from './api/search'
@@ -435,6 +436,7 @@ function main(): void {
   registerIntermediateApi(router, jobs)
   registerDesignApi(router, jobs)
   registerTraceApi(router)
+  registerSecondaryApi(router)
   registerEditApi(router, settings)
   registerDataApi(router, jobs)
   registerReportApi(router, jobs)
