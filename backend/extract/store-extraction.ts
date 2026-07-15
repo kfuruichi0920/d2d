@@ -74,11 +74,13 @@ export function storeExtractionResult(db: Database, input: StoreExtractionInput)
   }
 
   const txn = db.transaction((): StoreExtractionResult => {
-    const meta = extraction.metadata ?? {}
+    const source = db.prepare(`SELECT file_name FROM source_document WHERE uid = ?`).get(sourceDocumentUid) as
+      { file_name: string } | undefined
+    if (!source) throw new BackendError('not_found', `原本が見つかりません: ${sourceDocumentUid}`, '')
     const doc = registerEntity(db, {
       projectUid,
       entityType: 'extracted_document',
-      title: String(meta.title ?? meta.source_file ?? '抽出文書'),
+      title: source.file_name,
       createdBy: 'rule',
       batchOperationUid: input.batchOperationUid
     })

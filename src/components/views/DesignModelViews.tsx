@@ -55,44 +55,58 @@ export function DesignModelTree(): React.JSX.Element {
   }
 
   return (
-    <div data-testid="design-tree">
-      <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '8px 4px 2px', flexWrap: 'wrap' }}>
-        <span style={{ fontWeight: 700 }}>④設計モデル</span>
-        <span style={{ color: 'var(--d2d-fg-muted)' }}>{elements.length}</span>
-        <span style={{ flex: 1 }} />
-        <button
-          type="button"
-          className="d2d-btn small"
-          onClick={() => void createStateMachine()}
-          data-testid="add-state-machine"
-          title="状態遷移を作成（EDIT-030）"
-        >
-          +状態遷移
-        </button>
-        <button
-          type="button"
-          className="d2d-btn small"
-          onClick={() => openResource('model://playground', 'モデルエディタ', { preview: false })}
-          data-testid="open-model-editor"
-          title="PlantUML モデルエディタ（FORM-001/002）"
-        >
-          +モデル
-        </button>
-        <button
-          type="button"
-          className="d2d-btn small"
-          onClick={() => openResource('glossary://', '用語集', { preview: false })}
-          data-testid="open-glossary"
-          title="用語集（EDIT-050〜056）"
-        >
-          用語集
-        </button>
-      </div>
+    <details open className="d2d-explorer-section" data-testid="design-tree">
+      <summary className="d2d-explorer-section-header">
+        <span className="d2d-explorer-section-title">④設計モデル</span>
+        <span className="d2d-explorer-section-count">{elements.length}</span>
+        <span className="d2d-explorer-section-actions">
+          <button
+            type="button"
+            className="d2d-btn small"
+            onClick={(event) => {
+              event.preventDefault()
+              event.stopPropagation()
+              void createStateMachine()
+            }}
+            data-testid="add-state-machine"
+            title="状態遷移を作成（EDIT-030）"
+          >
+            +状態遷移
+          </button>
+          <button
+            type="button"
+            className="d2d-btn small"
+            onClick={(event) => {
+              event.preventDefault()
+              event.stopPropagation()
+              openResource('model://playground', 'モデルエディタ', { preview: false })
+            }}
+            data-testid="open-model-editor"
+            title="PlantUML モデルエディタ（FORM-001/002）"
+          >
+            +モデル
+          </button>
+          <button
+            type="button"
+            className="d2d-btn small"
+            onClick={(event) => {
+              event.preventDefault()
+              event.stopPropagation()
+              openResource('glossary://', '用語集', { preview: false })
+            }}
+            data-testid="open-glossary"
+            title="用語集（EDIT-050〜056）"
+          >
+            用語集
+          </button>
+        </span>
+      </summary>
       {elements.map((element) => (
         <div
           key={element.uid}
           className="d2d-list-row"
           data-testid={`design-el-${element.code}`}
+          title={`名称: ${element.title ?? element.code}\nID: ${element.code}\n分類: ${element.design_category}\n種別: ${element.entity_type}\n状態: ${element.status}${element.description ? `\n説明: ${element.description}` : ''}`}
           onClick={() => openResource(`design://${element.uid}`, element.code, { preview: true })}
         >
           <span className="d2d-badge status-running">{element.design_category}</span>
@@ -100,7 +114,7 @@ export function DesignModelTree(): React.JSX.Element {
           <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{element.title}</span>
         </div>
       ))}
-    </div>
+    </details>
   )
 }
 

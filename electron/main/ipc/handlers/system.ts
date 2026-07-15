@@ -28,4 +28,17 @@ export function registerSystemHandlers(): void {
       return result.canceled ? null : (result.filePaths[0] ?? null)
     }
   )
+  /** 複数原本ファイル選択（P4-1、IMP-010）。選択結果は個別Jobへ登録する。 */
+  ipcMain.handle(
+    'system:showOpenFilesDialog',
+    async (event, options: { title?: string; filters?: { name: string; extensions: string[] }[] }) => {
+      const win = BrowserWindow.fromWebContents(event.sender)
+      const result = await dialog.showOpenDialog(win ?? BrowserWindow.getAllWindows()[0]!, {
+        title: options.title,
+        properties: ['openFile', 'multiSelections'],
+        filters: options.filters
+      })
+      return result.canceled ? [] : result.filePaths
+    }
+  )
 }

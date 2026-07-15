@@ -540,7 +540,7 @@ M3では、入力となる③中間データ、正規化結果、設計要素候
 
 ## 9. Activity Bar と Primary Side Bar
 
-Activity Bar は機能ボタン置き場ではなく、作業文脈の切替入口とする。Settingsは下端へ固定し、その他のActivityはドラッグ＆ドロップで並べ替えてプロジェクト単位に順序を復元する。選択中ActivityはPrimary Side Barの表示状態にかかわらず、背景色と前景色で識別可能にする。Explorerの②抽出データと③中間データは、要素の正本状態を集計し、approved／deleted以外の件数を未確定Badgeとして見出しと各文書行へ表示する。
+Activity Bar は機能ボタン置き場ではなく、作業文脈の切替入口とする。Settingsは下端へ固定し、その他のActivityはドラッグ＆ドロップで並べ替えてプロジェクト単位に順序を復元する。選択中ActivityはPrimary Side Barの表示状態にかかわらず、背景色と前景色で識別可能にする。Explorerの②抽出データと③中間データは、要素の正本状態を集計し、approved／deleted以外の件数を未確定Badgeとして見出しと各文書行へ表示する。 Explorerの①原本、②抽出データ、③中間データ、④設計モデルは強調した折りたたみ見出しで階層化し、各データ行のhover時に名称、ID、種別、状態、件数、日時等の保持プロパティをTooltip表示する。①原本の取込はOSの複数ファイル選択を用い、選択ファイルごとに独立した `import.source` Jobを登録する（Job実行順序はJob Managerの直列制約に従う）。②抽出データの初期表示名称は原本の `source_document.file_name` を用い、名称変更は `entity_registry.title` のみを更新して原本名、blob、由来traceを変更しない。
 
 | Activity | Primary Side Bar の内容 | 主な Command |
 | --- | --- | --- |

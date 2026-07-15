@@ -1090,3 +1090,57 @@ mark.d2d-term {
     white-space: nowrap;
   }
 }
+
+/* Explorerデータ階層の見出し・折りたたみ・名称編集（P4-2/P5-15、UI-044〜045） */
+.d2d-explorer-section {
+  margin-top: 4px;
+}
+.d2d-explorer-section > summary {
+  list-style: none;
+}
+.d2d-explorer-section > summary::-webkit-details-marker {
+  display: none;
+}
+.d2d-explorer-section-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 3px 5px;
+  border-top: 1px solid var(--d2d-border);
+  border-bottom: 1px solid var(--d2d-border);
+  background: var(--d2d-surface-raised);
+  cursor: pointer;
+  user-select: none;
+}
+.d2d-explorer-section-header::before {
+  width: 12px;
+  content: '▸';
+  color: var(--d2d-fg-muted);
+}
+.d2d-explorer-section[open] > .d2d-explorer-section-header::before {
+  content: '▾';
+}
+.d2d-explorer-section-title {
+  font-size: calc(var(--d2d-font-size) + 1px);
+  font-weight: 800;
+}
+.d2d-explorer-section-count {
+  color: var(--d2d-fg-muted);
+  font-weight: 600;
+}
+.d2d-explorer-section-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+.d2d-explorer-rename-input {
+  flex: 1;
+  min-width: 64px;
+  padding: 2px 4px;
+  border: 1px solid var(--d2d-accent);
+  border-radius: var(--d2d-radius);
+  background: var(--d2d-bg);
+  color: var(--d2d-fg);
+}

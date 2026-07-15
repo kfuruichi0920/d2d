@@ -10,7 +10,7 @@ import { generateMarkdown, type MarkdownVariant } from '../extract/markdown-gen'
 import { eventBus } from '../events/event-bus'
 import { existsSync, readFileSync } from 'node:fs'
 import { extname, resolve, sep } from 'node:path'
-import { updateExtractedItemStatuses } from '../extract/review-service'
+import { renameExtractedDocument, updateExtractedItemStatuses } from '../extract/review-service'
 
 function asRecord(params: unknown): Record<string, unknown> {
   if (typeof params !== 'object' || params === null) {
@@ -87,6 +87,15 @@ export function registerDocumentApi(router: ApiRouter, jobs: JobManager): void {
       .all(info.projectUid)
   })
 
+  /** 抽出文書の表示名称変更（P5-15、EXT-040）。 */
+  router.register('extracted.rename', (params) => {
+    const p = asRecord(params)
+    const { db, info } = requireProject()
+    const uid = requireString(p, 'uid')
+    const result = renameExtractedDocument(db, info.projectUid, uid, requireString(p, 'title'))
+    eventBus.emit('extracted.renamed', { uid, title: result.title })
+    return result
+  })
   /** 抽出文書の要素一覧（レビュー用。UI-011 / EXT-020） */
   router.register('extracted.get', (params) => {
     const p = asRecord(params)

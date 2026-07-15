@@ -8,7 +8,7 @@
 - 完了: P0〜P13（クリティカルパス完走、MS6 相当まで）
 - 残り: **P14**（性能・オフライン確認・残 TBD-06〜08・パッケージング・商用版）、
   **P5 の他形式抽出**（Excel / PowerPoint / PDF / Visio / テキスト系、EXT-014/015）
-- テスト規模: ユニット 158 件 / pytest 10 件 / E2E 18 件（すべて成功の状態で引き渡し）
+- テスト規模: ユニット 159 件 / pytest 10 件 / E2E 18 件（すべて成功の状態で引き渡し）
 
 ## フェーズ履歴（要点のみ）
 
@@ -26,7 +26,8 @@
 | P13      | レポート出力（②③④→文書風、フィルタ、Markdown/HTML、report:// プレビュー）           | 1123e29         |
 | P7 追加  | 任意複数③マージ、2ペインResource Editor、所有判定による上書き／置換／保護派生       | aa9e815         |
 | P3 追加  | 文字サイズ一括変更、可変パネル、Secondaryアコーディオン、再帰分割・タブ移動         | f59cadc         |
-| P3 追加  | パネル表示切替、未確定Badge、Activity並べ替え・Settings下端固定・選択表示           | 本コミット      |
+| P3 追加  | パネル表示切替、未確定Badge、Activity並べ替え・Settings下端固定・選択表示           | 9af6c6d         |
+| P4/P5追加 | 複数原本Job取込、抽出名称管理、Explorer Tooltip・強調折りたたみ                     | 本コミット      |
 
 ## 恒久制約（違反するとビルド/実行が壊れる、または設計方針違反）
 
@@ -50,6 +51,8 @@
 - SecondaryはProperties／Evidence／Relations／Candidateを独立開閉できる縦アコーディオンとする。Editorタブは最大220pxで省略表示し、収まらない場合は複数段へ折り返す。タブは分割区分へのドラッグ＆ドロップまたはコマンドで移動する。
 - Primary／Secondary／下段PanelはTitle Bar右側ボタンとCommandの双方から表示切替する。Activity BarはSettingsを下端固定し、それ以外のDnD順序をプロジェクト単位に保存する。選択ActivityはPrimary非表示時も選択色を維持する。保存レイアウトがないプロジェクトへ切り替えた場合は、直前プロジェクトの状態を持ち越さずM0既定値へ初期化する。
 - Explorer未確定Badgeは文書状態ではなく要素単位で集計し、extracted_itemはresource_uid、intermediate_itemはitem uidに対応するentity_registry.statusがapproved／deleted以外の件数を表示する。
+- Explorerの①〜④は強調した折りたたみ見出しとし、原本・抽出・中間・設計モデル各行は保持プロパティをTooltip表示する。原本取込はOSで複数ファイルを選択し、ファイルごとに独立した `import.source` Jobへ登録する（実行はJob Managerの直列制約を維持）。
+- 抽出文書の初期 `entity_registry.title` は原本の `source_document.file_name` と同一にする。後の名称変更は抽出文書の `entity_registry.title` だけを更新し、原本名・blob・traceは変更しない。
 - prettier は docs/ と tasks/ を対象外（.prettierignore）。
 - LLM 外部送信はプロジェクト設定 `llm.externalSendAllowed`（既定 false）でブロックされる。
 - Settings はツール全体設定（`settings://tool`）とプロジェクト設定（`project-settings://current`）を分離する。

@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process'
 import { createServer } from 'node:http'
 import { rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 
 /**
  * E2E: Workbench（P3）+ Backend 基盤（P0〜P2）の統合検証。
@@ -278,17 +278,22 @@ test('設定エディタでPlantUMLレンダリング設定を保存・解除で
 test('原本取込→Word抽出→レビュー→②正本確定の全経路（P4/P5）', async () => {
   // テスト用 docx を Python で生成
   const docxPath = join(tmpdir(), `d2d-e2e-spec-${Date.now()}.docx`)
-  execFileSync(process.platform === 'win32' ? 'python' : 'python3', [
-    join(process.cwd(), 'workers', 'python', 'tests', 'make_docx.py'),
-    docxPath
-  ])
+  const secondDocxPath = join(tmpdir(), `d2d-e2e-spec-second-${Date.now()}.docx`)
+  for (const path of [docxPath, secondDocxPath]) {
+    execFileSync(process.platform === 'win32' ? 'python' : 'python3', [
+      join(process.cwd(), 'workers', 'python', 'tests', 'make_docx.py'),
+      path
+    ])
+  }
 
-  // 取込ジョブ（P4-1）: ダイアログを介さず API で開始し、UI 反映を検証する
+  // 複数選択時と同じく、選択ファイルごとに独立した取込Jobを登録する（IMP-010）。
   const imported = await page.evaluate(
-    async ([path]) => await window.api.invoke<{ jobId: string }>('document.import', { filePath: path }),
-    [docxPath]
+    async (paths) =>
+      await Promise.all(paths.map((filePath) => window.api.invoke<{ jobId: string }>('document.import', { filePath }))),
+    [docxPath, secondDocxPath]
   )
-  expect(imported).toMatchObject({ ok: true })
+  expect(imported).toHaveLength(2)
+  expect(imported.every((result) => result.ok)).toBe(true)
 
   // Explorer ①原本ツリーへ出現（source.imported イベント）。
   // Activity 再クリックはトグルのため、非表示時のみクリックして Explorer を確実に開く
@@ -301,7 +306,14 @@ test('原本取込→Word抽出→レビュー→②正本確定の全経路（P
     await page.getByTestId('activity-explorer').click()
   }
   await expect(page.getByTestId('source-doc-DOC-000001')).toBeVisible({ timeout: 15_000 })
-  await expect(page.getByTestId('stage-source')).toContainText('1')
+  await expect(page.getByTestId('source-doc-DOC-000002')).toBeVisible({ timeout: 15_000 })
+  await expect(page.getByTestId('stage-source')).toContainText('2')
+  await expect(page.getByTestId('source-doc-DOC-000001')).toHaveAttribute('title', /SHA-256:/)
+  await expect(page.getByTestId('explorer-section-original')).toHaveAttribute('open', '')
+  await page.getByTestId('explorer-section-original').locator('summary').click()
+  await expect(page.getByTestId('source-doc-DOC-000001')).toBeHidden()
+  await page.getByTestId('explorer-section-original').locator('summary').click()
+  await expect(page.getByTestId('source-doc-DOC-000001')).toBeVisible()
 
   // 原本ビュー（P4-2）から抽出ジョブを実行（P5）
   await page.getByTestId('source-doc-DOC-000001').click()
@@ -310,13 +322,21 @@ test('原本取込→Word抽出→レビュー→②正本確定の全経路（P
   await page.getByTestId('extract-button').click()
 
   // 抽出完了 → ②抽出データがツリーへ出現
-  await expect(page.getByTestId('extracted-doc-EXDOC-000001')).toBeVisible({ timeout: 60_000 })
+  const extractedRow = page.getByTestId('extracted-doc-EXDOC-000001')
+  await expect(extractedRow).toBeVisible({ timeout: 60_000 })
+  await expect(extractedRow).toContainText(basename(docxPath))
+  await expect(extractedRow).toHaveAttribute('title', /抽出器:/)
   await expect(page.getByTestId('stage-extracted')).toContainText('1')
   await expect(page.getByTestId('extracted-unconfirmed-EXDOC-000001')).toContainText(/未確定 [1-9]/)
+  await page.getByTestId('rename-extracted-EXDOC-000001').click()
+  await page.getByTestId('rename-extracted-input-EXDOC-000001').fill('名称変更後の抽出データ')
+  await page.getByTestId('rename-extracted-input-EXDOC-000001').press('Enter')
+  await expect(page.getByTestId('rename-extracted-input-EXDOC-000001')).toHaveCount(0)
+  await expect(extractedRow).toContainText('名称変更後の抽出データ')
 
   // 抽出レビュー Editor（P5-6）: 共通要素一覧 + 構造プレビュー + Selection/Properties
   await page.getByTestId('stage-extracted').click()
-  await page.getByTestId('extracted-doc-EXDOC-000001').click()
+  await page.getByTestId('extracted-doc-EXDOC-000001').click({ position: { x: 8, y: 8 } })
   await expect(page.getByTestId('extraction-review-editor')).toBeVisible()
   const elementGrid = page.getByTestId('element-grid')
   const rows = elementGrid.locator('tbody tr.d2d-grid-row')
@@ -363,6 +383,7 @@ test('原本取込→Word抽出→レビュー→②正本確定の全経路（P
   await expect(page.getByTestId('extracted-unconfirmed-EXDOC-000001')).toContainText('未確定 0')
 
   rmSync(docxPath, { force: true })
+  rmSync(secondDocxPath, { force: true })
 })
 
 test('②→③統合・編集・確定（P7）', async () => {
@@ -398,6 +419,7 @@ test('②→③統合・編集・確定（P7）', async () => {
   await sourceCheckbox.check()
   await sourceDialog.getByRole('button', { name: '選択して取込' }).click()
   await expect(page.getByTestId('intermediate-doc-IMDOC-000001')).toBeVisible({ timeout: 15_000 })
+  await expect(page.getByTestId('intermediate-doc-IMDOC-000001')).toHaveAttribute('title', /成果物: 統合設計書/)
   await expect(page.getByTestId('stage-intermediate')).toContainText('1')
   await expect(page.getByTestId('intermediate-unconfirmed-IMDOC-000001')).toContainText('未確定 0')
 
@@ -756,6 +778,8 @@ test('③→④候補生成→候補レビュー→採用の全経路（P8）', 
     await expect(page.getByTestId('stage-design')).toContainText('2', { timeout: 15_000 })
     await expect(page.getByTestId('design-el-REQ-000001')).toBeVisible()
     await expect(page.getByTestId('design-el-FUNC-000001')).toBeVisible()
+    await expect(page.getByTestId('design-tree')).toHaveAttribute('open', '')
+    await expect(page.getByTestId('design-el-REQ-000001')).toHaveAttribute('title', /分類: REQ/)
 
     // 設計要素ビューアで関係と根拠を確認（UI-013）
     await page.getByTestId('design-el-FUNC-000001').click()

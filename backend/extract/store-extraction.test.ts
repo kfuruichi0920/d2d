@@ -8,6 +8,7 @@ import { createProjectLayout } from '../project/layout'
 import { importSourceDocument, listSourceDocuments, fileTypeOf } from '../import/import-service'
 import { storeExtractionResult, type ExtractionOutput } from './store-extraction'
 import { generateMarkdown } from './markdown-gen'
+import { renameExtractedDocument } from './review-service'
 
 const SAMPLE_EXTRACTION: ExtractionOutput = {
   metadata: { title: 'テスト仕様書', extractor_name: 'd2d-word-extractor', extractor_version: '0.1.0' },
@@ -77,6 +78,29 @@ describe('取込〜②抽出保存（P4-1 / P5-2）', () => {
     expect(batch).toEqual({ batch_type: 'import', status: 'success' })
   })
 
+  it('抽出文書は原本と同じ名称で作成し、表示名称だけを後から変更できる（EXT-040）', () => {
+    const sourceUid = importDoc()
+    const stored = storeExtractionResult(db, {
+      projectUid,
+      projectRoot: root,
+      sourceDocumentUid: sourceUid,
+      extraction: SAMPLE_EXTRACTION,
+      workDir
+    })
+    const initial = db.prepare(`SELECT title FROM entity_registry WHERE uid = ?`).get(stored.extractedDocumentUid) as {
+      title: string
+    }
+    expect(initial.title).toBe('spec.docx')
+
+    expect(renameExtractedDocument(db, projectUid, stored.extractedDocumentUid, '任意の抽出名称')).toEqual({
+      title: '任意の抽出名称'
+    })
+    const renamed = db.prepare(`SELECT title FROM entity_registry WHERE uid = ?`).get(stored.extractedDocumentUid) as {
+      title: string
+    }
+    expect(renamed.title).toBe('任意の抽出名称')
+    expect(listSourceDocuments(db, projectUid)[0]!.file_name).toBe('spec.docx')
+  })
   it('旧バイナリ形式（.doc）は拒否する（SRS §3.1）', () => {
     const src = join(dir, 'old.doc')
     writeFileSync(src, 'x')

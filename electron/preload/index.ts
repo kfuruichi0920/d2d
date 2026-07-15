@@ -29,6 +29,10 @@ const api: RendererApi = {
 
   showOpenDialog(options): Promise<string | null> {
     return ipcRenderer.invoke('system:showOpenDialog', options) as Promise<string | null>
+  },
+
+  showOpenFilesDialog(options): Promise<string[]> {
+    return ipcRenderer.invoke('system:showOpenFilesDialog', options) as Promise<string[]>
   }
 }
 
