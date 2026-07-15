@@ -5,6 +5,23 @@ import { BackendError } from '../api/errors'
 export const EXTRACTED_REVIEW_STATUSES = ['draft', 'approved', 'review', 'rejected'] as const
 export type ExtractedReviewStatus = (typeof EXTRACTED_REVIEW_STATUSES)[number]
 
+/** 子要素の状態を正本として抽出文書の状態へ集約する（EXT-041）。 */
+export function syncExtractedDocumentStatus(db: Database, extractedDocumentUid: string): 'draft' | 'approved' {
+  const counts = db
+    .prepare(
+      `SELECT COUNT(*) AS total,
+              SUM(CASE WHEN e.status = 'approved' THEN 0 ELSE 1 END) AS unconfirmed
+         FROM extracted_item i JOIN entity_registry e ON e.uid=i.resource_uid
+        WHERE i.extracted_document_uid=? AND e.status <> 'deleted'`
+    )
+    .get(extractedDocumentUid) as { total: number; unconfirmed: number | null }
+  const status = counts.total > 0 && (counts.unconfirmed ?? 0) === 0 ? 'approved' : 'draft'
+  db.prepare(
+    `UPDATE entity_registry SET status=?, updated_at=?, updated_by='system'
+      WHERE uid=? AND entity_type='extracted_document' AND status <> 'deleted'`
+  ).run(status, new Date().toISOString(), extractedDocumentUid)
+  return status
+}
 export function updateExtractedItemStatuses(
   db: Database,
   extractedDocumentUid: string,
@@ -30,6 +47,7 @@ export function updateExtractedItemStatuses(
     if (result.changes !== uniqueUids.length) {
       throw new BackendError('not_found', '抽出文書に属さない要素が含まれています', extractedDocumentUid)
     }
+    syncExtractedDocumentStatus(db, extractedDocumentUid)
     return result.changes
   })
   return { updatedCount: txn() }

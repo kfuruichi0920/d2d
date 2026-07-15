@@ -8,28 +8,29 @@
 - 完了: P0〜P13（クリティカルパス完走、MS6 相当まで）
 - 残り: **P14**（性能・オフライン確認・残 TBD-06〜08・パッケージング・商用版）、
   **P5 の他形式抽出**（Excel / PowerPoint / PDF / Visio / テキスト系、EXT-014/015）
-- テスト規模: ユニット 162 件 / pytest 10 件 / E2E 18 件（すべて成功の状態で引き渡し）
+- テスト規模: ユニット 163 件 / pytest 10 件 / E2E 18 件（すべて成功の状態で引き渡し）
 
 ## フェーズ履歴（要点のみ）
 
-| フェーズ  | 内容                                                                                | コミット        |
-| --------- | ----------------------------------------------------------------------------------- | --------------- |
-| P0〜P3    | 骨格 / DB スキーマ 35 表 + 台帳 / ジョブ・設定・イベント / Workbench UI             | 〜P3 各コミット |
-| P4/P5     | 原本取込 → Word 抽出 → ②候補 → 共通複数選択レビュー/構造プレビュー → 正本化         | —               |
-| P6        | LLM 基盤（4 Provider、マスキング、外部送信ブロック、preview→run 2段階）             | —               |
-| P7        | プロジェクト成果物/フェーズ設定、フェーズ→成果物取込、②/③/プレビュー3ペイン統合編集 | —               |
-| P8        | ③→④候補生成 → 候補セットレビュー → 採用（同一 Txn・全 ROLLBACK）                    | —               |
-| P9        | 再帰 CTE トレース・SVG グラフ・マトリクス・整合性検査 → Problems                    | —               |
-| P10       | 状態遷移 / 用語集 / 表編集 / 検証編集 / PlantUML。schema 1.1.0 初適用               | 81d96d1         |
-| P11       | 検索（FTS5 + MeCab トグル）※別セッションで実装・マージ                              | 921a55d 等      |
-| P12       | DB to Text / SQLite dump / ZIP + manifest / 差分インポート / Git 参照 / ストア閲覧  | d2bc9c6         |
-| P13       | レポート出力（②③④→文書風、フィルタ、Markdown/HTML、report:// プレビュー）           | 1123e29         |
-| P7 追加   | 任意複数③マージ、2ペインResource Editor、所有判定による上書き／置換／保護派生       | aa9e815         |
-| P3 追加   | 文字サイズ一括変更、可変パネル、Secondaryアコーディオン、再帰分割・タブ移動         | f59cadc         |
-| P3 追加   | パネル表示切替、未確定Badge、Activity並べ替え・Settings下端固定・選択表示           | 9af6c6d         |
-| P4/P5追加 | 複数原本Job取込、抽出名称管理、Explorer Tooltip・強調折りたたみ                     | 7495617         |
-| P3 追加   | ②/③/チャンク/Resource編集の内部ペイン可変化、チャンク表スタイル統一                 | a5ec368         |
-| P7 追加   | ③取込編集の統合元選択・多対多based_on・個別解除・操作バー再編・全項目正本確定       | 本コミット      |
+| フェーズ   | 内容                                                                                | コミット        |
+| ---------- | ----------------------------------------------------------------------------------- | --------------- |
+| P0〜P3     | 骨格 / DB スキーマ 35 表 + 台帳 / ジョブ・設定・イベント / Workbench UI             | 〜P3 各コミット |
+| P4/P5      | 原本取込 → Word 抽出 → ②候補 → 共通複数選択レビュー/構造プレビュー → 正本化         | —               |
+| P6         | LLM 基盤（4 Provider、マスキング、外部送信ブロック、preview→run 2段階）             | —               |
+| P7         | プロジェクト成果物/フェーズ設定、フェーズ→成果物取込、②/③/プレビュー3ペイン統合編集 | —               |
+| P8         | ③→④候補生成 → 候補セットレビュー → 採用（同一 Txn・全 ROLLBACK）                    | —               |
+| P9         | 再帰 CTE トレース・SVG グラフ・マトリクス・整合性検査 → Problems                    | —               |
+| P10        | 状態遷移 / 用語集 / 表編集 / 検証編集 / PlantUML。schema 1.1.0 初適用               | 81d96d1         |
+| P11        | 検索（FTS5 + MeCab トグル）※別セッションで実装・マージ                              | 921a55d 等      |
+| P12        | DB to Text / SQLite dump / ZIP + manifest / 差分インポート / Git 参照 / ストア閲覧  | d2bc9c6         |
+| P13        | レポート出力（②③④→文書風、フィルタ、Markdown/HTML、report:// プレビュー）           | 1123e29         |
+| P7 追加    | 任意複数③マージ、2ペインResource Editor、所有判定による上書き／置換／保護派生       | aa9e815         |
+| P3 追加    | 文字サイズ一括変更、可変パネル、Secondaryアコーディオン、再帰分割・タブ移動         | f59cadc         |
+| P3 追加    | パネル表示切替、未確定Badge、Activity並べ替え・Settings下端固定・選択表示           | 9af6c6d         |
+| P4/P5追加  | 複数原本Job取込、抽出名称管理、Explorer Tooltip・強調折りたたみ                     | 7495617         |
+| P3 追加    | ②/③/チャンク/Resource編集の内部ペイン可変化、チャンク表スタイル統一                 | a5ec368         |
+| P7 追加    | ③取込編集の統合元選択・多対多based_on・個別解除・操作バー再編・全項目正本確定       | 1861358         |
+| P3〜P8追加 | ①〜④ステージ一覧・ソート・OS原本表示・①②アーカイブ／論理削除・文書状態集約          | 本コミット      |
 
 ## 恒久制約（違反するとビルド/実行が壊れる、または設計方針違反）
 
@@ -43,7 +44,7 @@
 - **Main は Gateway/Shell のみ**。業務ロジックは backend/（utilityProcess）に置く。
   safeStorage は Main 専用 → backend からは main-bridge（逆方向 RPC）経由。
 - **API キー等の秘密情報は平文で保存・ログ出力しない**（settings-service が強制）。
-- スキーマ変更は `backend/db/migrations.ts` に追記（バックアップ → DDL → 版数更新）。現在 1.4.0。
+- スキーマ変更は `backend/db/migrations.ts` に追記（バックアップ → DDL → 版数更新）。現在 1.5.0。
 - ②抽出レビューの選択・状態更新・構造プレビュー・Properties は `ReviewElement` 共通契約で実装し、
   Word 固有にしない。今後の Excel / PowerPoint / PDF / Visio / テキスト系も同じ操作体系へ接続する。
 - Python ワーカーは stdin/stdout とも UTF-8 ラップ必須（CP932 化け）。pytest はシステム Python
@@ -52,9 +53,10 @@
 - Primary／Secondary／下段パネルの寸法とSecondaryアコーディオン開閉は作業モード単位、再帰的なEditor分割木・分割比・タブ配置はプロジェクト単位（未選択時はglobal）でlocalStorageへ保持する。各境界はポインタと矢印キーで変更でき、領域内の表示超過は必要時だけ縦横スクロールする。
 - SecondaryはProperties／Evidence／Relations／Candidateを独立開閉できる縦アコーディオンとする。Editorタブは最大220pxで省略表示し、収まらない場合は複数段へ折り返す。タブは分割区分へのドラッグ＆ドロップまたはコマンドで移動する。
 - Primary／Secondary／下段PanelはTitle Bar右側ボタンとCommandの双方から表示切替する。Activity BarはSettingsを下端固定し、それ以外のDnD順序をプロジェクト単位に保存する。選択ActivityはPrimary非表示時も選択色を維持する。保存レイアウトがないプロジェクトへ切り替えた場合は、直前プロジェクトの状態を持ち越さずM0既定値へ初期化する。
-- Explorer未確定Badgeは文書状態ではなく要素単位で集計し、extracted_itemはresource_uid、intermediate_itemはitem uidに対応するentity_registry.statusがapproved／deleted以外の件数を表示する。
-- Explorerの①〜④は強調した折りたたみ見出しとし、原本・抽出・中間・設計モデル各行は保持プロパティをTooltip表示する。原本取込はOSで複数ファイルを選択し、ファイルごとに独立した `import.source` Jobへ登録する（実行はJob Managerの直列制約を維持）。
+- Explorer未確定Badgeは文書状態ではなく要素単位で集計し、extracted_itemはresource_uid、intermediate_itemはitem uidに対応するentity_registry.statusがapproved／deleted以外の件数を表示する。削除済みを除く子要素が1件以上かつ全件approvedの場合だけ抽出／中間文書もapprovedとし、それ以外はdraftへ同期する。
+- Explorerの①〜④は強調した折りたたみ見出しとし、原本・抽出・中間・設計モデル各行は保持プロパティをTooltip表示する。原本取込はOSで複数ファイルを選択し、ファイルごとに独立した `import.source` Jobへ登録する（実行はJob Managerの直列制約を維持）。Pipeline Navigatorの各ステージはEditor Areaにソート可能な一覧を開き、①は読取専用詳細＋Windows関連付けアプリ、②③は独自プレビュー、③はフェーズ－成果物階層、④はモデル一覧を表示する。
 - 抽出文書の初期 `entity_registry.title` は原本の `source_document.file_name` と同一にする。後の名称変更は抽出文書の `entity_registry.title` だけを更新し、原本名・blob・traceは変更しない。
+- ①原本・②抽出の通常削除は `status='deleted'` の論理削除、Explorerだけからの一時非表示は `is_archived=1` とする。アーカイブはステージ一覧に残して復元可能とし、schema 1.5.0で `entity_registry.is_archived` と索引を追加した。
 - prettier は docs/ と tasks/ を対象外（.prettierignore）。
 - LLM 外部送信はプロジェクト設定 `llm.externalSendAllowed`（既定 false）でブロックされる。
 - Settings はツール全体設定（`settings://tool`）とプロジェクト設定（`project-settings://current`）を分離する。

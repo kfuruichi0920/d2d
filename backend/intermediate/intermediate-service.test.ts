@@ -150,7 +150,14 @@ describe('③中間データ（P7）', () => {
     reorderIntermediateItems(db, doc.intermediateDocumentUid, ['i2', 'i3'], 'up')
     expect(structureOf(doc.intermediateDocumentUid).elements.map((e) => e.id)).toEqual(['i2', 'i3', 'i1'])
     expect(() => reorderIntermediateItems(db, doc.intermediateDocumentUid, ['i2', 'i1'], 'down')).toThrow(/連続/)
+    expect(updateIntermediateItemStatuses(db, doc.intermediateDocumentUid, ['i1', 'i2', 'i3'], 'approved')).toBe(3)
+    expect(db.prepare(`SELECT status FROM entity_registry WHERE uid=?`).get(doc.intermediateDocumentUid)).toEqual({
+      status: 'approved'
+    })
     expect(updateIntermediateItemStatuses(db, doc.intermediateDocumentUid, ['i2'], 'needs_fix')).toBe(1)
+    expect(db.prepare(`SELECT status FROM entity_registry WHERE uid=?`).get(doc.intermediateDocumentUid)).toEqual({
+      status: 'draft'
+    })
     const status = db
       .prepare(
         `SELECT e.status FROM intermediate_item i JOIN entity_registry e ON e.uid=i.uid WHERE i.intermediate_document_uid=? AND i.resource_uid=?`

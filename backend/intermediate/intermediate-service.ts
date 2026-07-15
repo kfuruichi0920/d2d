@@ -487,6 +487,27 @@ export function changeIntermediateHierarchy(db: Database, docUid: string, elemen
   eventBus.emit('intermediate.updated', { intermediateDocumentUid: docUid, kind: 'hierarchy-changed' })
 }
 
+/** 子要素の状態を正本として中間文書の状態へ集約する（MID-007）。 */
+export function syncIntermediateDocumentStatus(db: Database, docUid: string): 'draft' | 'approved' {
+  const counts = db
+    .prepare(
+      `SELECT COUNT(*) AS total,
+              SUM(CASE WHEN e.status = 'approved' THEN 0 ELSE 1 END) AS unconfirmed
+         FROM intermediate_item i JOIN entity_registry e ON e.uid=i.uid
+        WHERE i.intermediate_document_uid=? AND e.status <> 'deleted'`
+    )
+    .get(docUid) as { total: number; unconfirmed: number | null }
+  const status = counts.total > 0 && (counts.unconfirmed ?? 0) === 0 ? 'approved' : 'draft'
+  db.prepare(
+    `UPDATE entity_registry SET status=?, updated_at=?, updated_by='system'
+      WHERE uid=? AND entity_type='intermediate_document' AND status <> 'deleted'`
+  ).run(status, nowIso(), docUid)
+  db.prepare(`UPDATE intermediate_document SET intermediate_status=? WHERE uid=?`).run(
+    status === 'approved' ? 'ready' : 'draft',
+    docUid
+  )
+  return status
+}
 export function updateIntermediateItemStatuses(
   db: Database,
   docUid: string,
@@ -508,6 +529,7 @@ export function updateIntermediateItemStatuses(
       `UPDATE entity_registry SET status=?, updated_at=?, updated_by='user' WHERE uid IN (SELECT uid FROM intermediate_item WHERE intermediate_document_uid=? AND resource_uid IN (${placeholders}))`
     )
     .run(dbStatus, nowIso(), docUid, ...resources)
+  syncIntermediateDocumentStatus(db, docUid)
   eventBus.emit('intermediate.updated', { intermediateDocumentUid: docUid, kind: 'review-status' })
   return result.changes
 }

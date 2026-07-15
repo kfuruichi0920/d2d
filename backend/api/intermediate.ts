@@ -30,6 +30,7 @@ import {
   mergeElements,
   reorderChunks,
   splitElement,
+  syncIntermediateDocumentStatus,
   type IntermediateStructure
 } from '../intermediate/intermediate-service'
 import { listArtifactSettings, listDevPhases, saveArtifactSetting, saveDevPhase } from '../project/project-settings'
@@ -124,9 +125,18 @@ export function registerIntermediateApi(router: ApiRouter, jobs: JobManager): vo
   })
   router.register('intermediate.list', () => {
     const { db, info } = requireProject()
+    const documentUids = db
+      .prepare(
+        `SELECT d.uid FROM intermediate_document d JOIN entity_registry e ON e.uid=d.uid
+          WHERE e.project_uid=? AND e.status <> 'deleted'`
+      )
+      .all(info.projectUid) as { uid: string }[]
+    for (const document of documentUids) syncIntermediateDocumentStatus(db, document.uid)
     const rows = db
       .prepare(
-        `SELECT e.uid, e.code, e.title, e.status, d.artifact_type_id, d.dev_phase_id, d.intermediate_status, d.generated_at, d.structure_json,
+        `SELECT e.uid, e.code, e.title,
+                CASE WHEN NOT EXISTS (SELECT 1 FROM intermediate_item ai WHERE ai.intermediate_document_uid=d.uid AND ai.uid IN (SELECT uid FROM entity_registry WHERE status <> 'deleted')) OR EXISTS (SELECT 1 FROM intermediate_item ai JOIN entity_registry ar ON ar.uid=ai.uid WHERE ai.intermediate_document_uid=d.uid AND ar.status NOT IN ('approved','deleted')) THEN 'draft' ELSE 'approved' END AS status,
+                d.artifact_type_id, d.dev_phase_id, d.intermediate_status, d.generated_at, d.structure_json,
                 (SELECT COUNT(*) FROM intermediate_item i WHERE i.intermediate_document_uid = d.uid) AS item_count,
                 (SELECT COUNT(*) FROM intermediate_item i JOIN entity_registry ir ON ir.uid = i.uid
                   WHERE i.intermediate_document_uid = d.uid AND ir.status NOT IN ('approved', 'deleted')) AS unconfirmed_count
@@ -146,9 +156,12 @@ export function registerIntermediateApi(router: ApiRouter, jobs: JobManager): vo
     const uid = requireString(p, 'uid')
     const { db, info } = requireProject()
     ensureIntermediateItemTraceLinks(db, info.projectUid, uid)
+    syncIntermediateDocumentStatus(db, uid)
     const doc = db
       .prepare(
-        `SELECT e.uid, e.code, e.title, e.status, d.artifact_type_id, d.dev_phase_id, d.intermediate_status, d.structure_json
+        `SELECT e.uid, e.code, e.title,
+                CASE WHEN NOT EXISTS (SELECT 1 FROM intermediate_item ai WHERE ai.intermediate_document_uid=d.uid AND ai.uid IN (SELECT uid FROM entity_registry WHERE status <> 'deleted')) OR EXISTS (SELECT 1 FROM intermediate_item ai JOIN entity_registry ar ON ar.uid=ai.uid WHERE ai.intermediate_document_uid=d.uid AND ar.status NOT IN ('approved','deleted')) THEN 'draft' ELSE 'approved' END AS status,
+                d.artifact_type_id, d.dev_phase_id, d.intermediate_status, d.structure_json
            FROM intermediate_document d JOIN entity_registry e ON e.uid = d.uid WHERE d.uid = ?`
       )
       .get(uid) as { structure_json: string } | undefined
@@ -213,6 +226,7 @@ export function registerIntermediateApi(router: ApiRouter, jobs: JobManager): vo
     const uid = requireString(p, 'uid')
     const { db, info } = requireProject()
     ensureIntermediateItemTraceLinks(db, info.projectUid, uid)
+    syncIntermediateDocumentStatus(db, uid)
     const row = db.prepare(`SELECT structure_json FROM intermediate_document WHERE uid = ?`).get(uid) as
       { structure_json: string } | undefined
     if (!row) throw new BackendError('not_found', `中間文書が見つかりません: ${uid}`, '')

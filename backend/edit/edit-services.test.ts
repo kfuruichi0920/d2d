@@ -6,7 +6,7 @@ import type { Database } from 'better-sqlite3'
 import { closeDatabase, createDatabase, getProjectRow, openDatabase } from '../store/database'
 import { getSchemaVersion, LATEST_SCHEMA_VERSION } from '../db/migrations'
 import { createProjectLayout } from '../project/layout'
-import { importSourceDocument } from '../import/import-service'
+import { importSourceDocument, listSourceDocuments } from '../import/import-service'
 import { storeExtractionResult } from '../extract/store-extraction'
 import { createIntermediateDocument } from '../intermediate/intermediate-service'
 import {
@@ -46,28 +46,46 @@ describe('P10 編集機能', () => {
     rmSync(dir, { recursive: true, force: true })
   })
 
-  it('マイグレーション 1.4.0: 新規 DB は最新版で resource_table_cell を持つ（TBD-04）', () => {
-    expect(LATEST_SCHEMA_VERSION).toBe('1.4.0')
-    expect(getSchemaVersion(db)).toBe('1.4.0')
+  it('マイグレーション 1.5.0: 新規 DB は最新版の表セルとアーカイブ列を持つ', () => {
+    expect(LATEST_SCHEMA_VERSION).toBe('1.5.0')
+    expect(getSchemaVersion(db)).toBe('1.5.0')
     const table = db
       .prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'resource_table_cell'`)
       .get()
     expect(table).toBeTruthy()
+    const columns = db.prepare(`PRAGMA table_info(entity_registry)`).all() as { name: string }[]
+    expect(columns.some((column) => column.name === 'is_archived')).toBe(true)
   })
 
-  it('マイグレーション: 1.0.0 の既存 DB を開くと 1.4.0 へ移行しバックアップを作る', () => {
+  it('マイグレーション: 1.0.0 の既存 DB を開くと 1.5.0 へ移行しバックアップを作る', () => {
     // 1.0.0 状態を再現（テーブル削除 + 版数戻し）
     const path = join(dir, 'old.db')
     const oldDb = createDatabase(path, { projectName: 'old' })
     oldDb.exec(`DROP TABLE resource_table_cell`)
+    oldDb.exec(`DROP INDEX idx_entity_registry_archive`)
+    oldDb.exec(`ALTER TABLE entity_registry DROP COLUMN is_archived`)
     oldDb.prepare(`UPDATE project SET schema_version = '1.0.0'`).run()
     closeDatabase(oldDb)
 
     const migrated = openDatabase(path)
-    expect(getSchemaVersion(migrated)).toBe('1.4.0')
+    expect(getSchemaVersion(migrated)).toBe('1.5.0')
     expect(migrated.prepare(`SELECT name FROM sqlite_master WHERE name = 'resource_table_cell'`).get()).toBeTruthy()
+    const columns = migrated.prepare(`PRAGMA table_info(entity_registry)`).all() as { name: string }[]
+    expect(columns.some((column) => column.name === 'is_archived')).toBe(true)
     closeDatabase(migrated)
     expect(existsSync(`${path}.bak-1.0.0`)).toBe(true)
+  })
+
+  it('原本一覧はアーカイブを既定で除外し、指定時は復元対象として返す（UI-047）', () => {
+    const sourcePath = join(dir, 'archive-target.docx')
+    writeFileSync(sourcePath, 'archive')
+    const imported = importSourceDocument(db, projectUid, root, sourcePath)
+    db.prepare(`UPDATE entity_registry SET is_archived = 1 WHERE uid = ?`).run(imported.sourceDocumentUid)
+
+    expect(listSourceDocuments(db, projectUid)).toHaveLength(0)
+    const archived = listSourceDocuments(db, projectUid, { includeArchived: true })
+    expect(archived).toHaveLength(1)
+    expect(archived[0]!.is_archived).toBe(1)
   })
 
   describe('状態遷移（P10-4）', () => {

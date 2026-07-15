@@ -1189,3 +1189,99 @@ mark.d2d-term {
 .chunk-source-grid .d2d-badge {
   white-space: nowrap;
 }
+
+/* Pipeline stage overview（UI-046/047） */
+.stage-overview {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.stage-overview > header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 38px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--d2d-border);
+}
+.stage-overview > header h1 {
+  font-size: 14px;
+  margin: 0;
+}
+.stage-overview-body {
+  display: grid;
+  grid-template-columns: minmax(420px, 1fr) minmax(320px, 1fr);
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+}
+.stage-overview-body.single {
+  grid-template-columns: 1fr;
+}
+.stage-list-pane,
+.stage-preview-pane {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px;
+}
+.stage-preview-pane {
+  border-left: 1px solid var(--d2d-border);
+}
+.stage-table {
+  width: 100%;
+  min-width: 720px;
+}
+.stage-table tr.selected {
+  background: var(--d2d-selection-bg);
+}
+.stage-table tbody tr {
+  cursor: pointer;
+}
+.stage-sort-button {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.stage-actions {
+  display: flex;
+  gap: 4px;
+  white-space: nowrap;
+}
+.d2d-btn.danger {
+  color: var(--d2d-error);
+}
+.stage-document-preview {
+  min-width: max-content;
+  max-width: 100%;
+}
+.stage-document-preview > h2,
+.stage-preview-pane h2 {
+  margin: 4px 0 12px;
+  font-size: 15px;
+}
+.stage-preview-element {
+  min-width: 0;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--d2d-border);
+}
+.stage-preview-element > .d2d-badge {
+  margin-right: 5px;
+}
+.stage-phase-group > h2 {
+  position: sticky;
+  top: -8px;
+  z-index: 1;
+  margin: 0;
+  padding: 7px 5px;
+  background: var(--d2d-surface-raised);
+  border-bottom: 1px solid var(--d2d-border);
+  font-size: 13px;
+}

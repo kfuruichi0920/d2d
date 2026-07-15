@@ -315,6 +315,22 @@ test('原本取込→Word抽出→レビュー→②正本確定の全経路（P
   await page.getByTestId('explorer-section-original').locator('summary').click()
   await expect(page.getByTestId('source-doc-DOC-000001')).toBeVisible()
 
+  // Pipeline ①はソート可能な一覧＋読取専用詳細を開き、アーカイブ中だけExplorerから除外する。
+  await page.getByTestId('stage-source').click()
+  await expect(page.getByTestId('stage-overview-source')).toBeVisible()
+  const sourceStageRow = page.getByTestId('stage-source-row-DOC-000001')
+  await sourceStageRow.click()
+  await expect(page.getByTestId('source-stage-preview')).toContainText('原本は読み取り専用です')
+  await expect(page.getByTestId('source-open-external')).toBeVisible()
+  await page.getByTestId('sort-file_name').click()
+  await expect(page.getByTestId('sort-file_name')).toContainText('▲')
+  const archivedSourceRow = page.getByTestId('stage-source-row-DOC-000002')
+  await archivedSourceRow.getByRole('button', { name: 'アーカイブ' }).click()
+  await expect(page.getByTestId('source-doc-DOC-000002')).toBeHidden()
+  await archivedSourceRow.getByRole('button', { name: '解除' }).click()
+  await expect(page.getByTestId('source-doc-DOC-000002')).toBeVisible()
+  await expect(sourceStageRow.getByRole('button', { name: '削除' })).toBeVisible()
+
   // 原本ビュー（P4-2）から抽出ジョブを実行（P5）
   await page.getByTestId('source-doc-DOC-000001').click()
   await expect(page.getByTestId('original-viewer')).toBeVisible()
@@ -333,6 +349,17 @@ test('原本取込→Word抽出→レビュー→②正本確定の全経路（P
   await page.getByTestId('rename-extracted-input-EXDOC-000001').press('Enter')
   await expect(page.getByTestId('rename-extracted-input-EXDOC-000001')).toHaveCount(0)
   await expect(extractedRow).toContainText('名称変更後の抽出データ')
+
+  // Pipeline ②はソート可能な抽出文書一覧と独自プレビューを表示する。
+  await page.getByTestId('stage-extracted').click()
+  await expect(page.getByTestId('stage-overview-extracted')).toBeVisible()
+  const extractedStageRow = page.getByTestId('stage-extracted-row-EXDOC-000001')
+  await extractedStageRow.click()
+  await expect(page.getByTestId('extracted-stage-preview')).toContainText('1. 概要')
+  await page.getByTestId('sort-item_count').click()
+  await expect(page.getByTestId('sort-item_count')).toContainText('▲')
+  await expect(extractedStageRow.getByRole('button', { name: 'アーカイブ' })).toBeVisible()
+  await expect(extractedStageRow.getByRole('button', { name: '削除' })).toBeVisible()
 
   // 抽出レビュー Editor（P5-6）: 共通要素一覧 + 構造プレビュー + Selection/Properties
   await page.getByTestId('stage-extracted').click()
@@ -375,6 +402,10 @@ test('原本取込→Word抽出→レビュー→②正本確定の全経路（P
   await page.getByTestId('selected-needsfix').click()
   await expect(rows.nth(1).locator('.review-needsfix')).toBeVisible()
   await expect(rows.nth(3).locator('.review-needsfix')).toBeVisible()
+  const draftExtractedDocuments = await page.evaluate(async () =>
+    window.api.invoke<{ status: string }[]>('extracted.list')
+  )
+  expect(draftExtractedDocuments.ok && draftExtractedDocuments.result[0]?.status).not.toBe('approved')
 
   // Shiftで連続範囲を選択できる。
   await rows.nth(5).click({ modifiers: ['Shift'] })
@@ -391,6 +422,10 @@ test('原本取込→Word抽出→レビュー→②正本確定の全経路（P
     page.getByTestId('extraction-review-editor').locator('.d2d-badge.review-confirmed').first()
   ).toBeVisible()
   await expect(page.getByTestId('extracted-unconfirmed-EXDOC-000001')).toContainText('未確定 0')
+  const approvedExtractedDocuments = await page.evaluate(async () =>
+    window.api.invoke<{ status: string }[]>('extracted.list')
+  )
+  expect(approvedExtractedDocuments.ok && approvedExtractedDocuments.result[0]?.status).toBe('approved')
 
   rmSync(docxPath, { force: true })
   rmSync(secondDocxPath, { force: true })
@@ -432,6 +467,16 @@ test('②→③統合・編集・確定（P7）', async () => {
   await expect(page.getByTestId('intermediate-doc-IMDOC-000001')).toHaveAttribute('title', /成果物: 統合設計書/)
   await expect(page.getByTestId('stage-intermediate')).toContainText('1')
   await expect(page.getByTestId('intermediate-unconfirmed-IMDOC-000001')).toContainText('未確定 0')
+
+  // Pipeline ③はフェーズ－成果物階層と独自プレビューを表示する。
+  await page.getByTestId('stage-intermediate').click()
+  await expect(page.getByTestId('stage-overview-intermediate')).toBeVisible()
+  await expect(page.getByTestId('stage-intermediate-hierarchy')).toContainText('詳細設計')
+  const intermediateStageRow = page.getByTestId('stage-intermediate-row-IMDOC-000001')
+  await intermediateStageRow.click()
+  await expect(page.getByTestId('intermediate-stage-preview')).toContainText('統合設計書')
+  await page.getByTestId('sort-artifact_type_id').click()
+  await expect(page.getByTestId('sort-artifact_type_id')).toContainText('▲')
 
   // 既存の取込関係は、取込先成果物を選択した時点で取込元チェックへ復元する
   await page.getByTestId('intermediate-import-button').click()
@@ -614,6 +659,10 @@ test('②→③統合・編集・確定（P7）', async () => {
   const statusCell = middleGrid.getByRole('row').nth(1).getByTitle('クリックで状態を切替')
   for (let i = 0; i < 3; i++) await statusCell.click()
   await expect(middleGrid.getByRole('row').nth(1)).toContainText('棄却')
+  const draftIntermediateDocuments = await page.evaluate(async () =>
+    window.api.invoke<{ status: string }[]>('intermediate.list')
+  )
+  expect(draftIntermediateDocuments.ok && draftIntermediateDocuments.result[0]?.status).not.toBe('approved')
   await page.getByTestId('intermediate-approve').click()
   await expect(page.getByTestId('intermediate-approve')).toContainText('正本確定済み')
   const approvedIntermediate = await page.evaluate(async () =>
@@ -628,6 +677,10 @@ test('②→③統合・編集・確定（P7）', async () => {
     approvedIntermediate.ok && approvedIntermediate.result.elements.every((item) => item.review?.status === 'approved')
   ).toBe(true)
   await expect(page.getByTestId('intermediate-unconfirmed-IMDOC-000001')).toContainText('未確定 0')
+  const approvedIntermediateDocuments = await page.evaluate(async () =>
+    window.api.invoke<{ status: string }[]>('intermediate.list')
+  )
+  expect(approvedIntermediateDocuments.ok && approvedIntermediateDocuments.result[0]?.status).toBe('approved')
 
   // 中間画面外からResourceを指定して共通Editor Providerを開ける
   await page.getByTestId('activity-search').click()
@@ -862,8 +915,15 @@ test('③→④候補生成→候補レビュー→採用の全経路（P8）', 
     await expect(page.getByTestId('design-tree')).toHaveAttribute('open', '')
     await expect(page.getByTestId('design-el-REQ-000001')).toHaveAttribute('title', /分類: REQ/)
 
+    // Pipeline ④はソート可能なモデル一覧を表示する。
+    await page.getByTestId('stage-design').click()
+    await expect(page.getByTestId('stage-overview-design')).toBeVisible()
+    await expect(page.getByTestId('stage-design-row-REQ-000001')).toContainText('応答時間要求（改）')
+    await page.getByTestId('sort-design_category').click()
+    await expect(page.getByTestId('sort-design_category')).toContainText('▲')
+
     // 設計要素ビューアで関係と根拠を確認（UI-013）
-    await page.getByTestId('design-el-FUNC-000001').click()
+    await page.getByTestId('stage-design-row-FUNC-000001').dblclick()
     await expect(page.getByTestId('design-element-viewer')).toBeVisible()
     await expect(page.getByTestId('design-element-viewer')).toContainText('satisfies')
     await expect(page.getByTestId('design-element-viewer')).toContainText('応答時間要求（改）')

@@ -17,6 +17,7 @@ export interface SourceDocumentItem {
   file_type: string
   file_hash: string
   status: string
+  is_archived: number
   is_current: number
   imported_at: string
 }
@@ -26,6 +27,7 @@ export interface ExtractedDocumentItem {
   code: string
   title: string | null
   status: string
+  is_archived: number
   extraction_status: string
   extractor_name: string
   extractor_version: string
@@ -100,9 +102,11 @@ export function DocumentsTree(): React.JSX.Element {
       if (
         [
           'source.imported',
+          'source.updated',
           'artifact.updated',
           'extraction.completed',
           'extracted.renamed',
+          'extracted.updated',
           'intermediate.updated',
           'job.updated'
         ].includes(event)

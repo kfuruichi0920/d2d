@@ -22,12 +22,14 @@ import { ModelPlaygroundEditor } from '../editors/ModelPlaygroundEditor'
 import { ArchiveDiffEditor, GitCommitViewer, StoreBrowserEditor } from '../views/HistoryViews'
 import { ReportPreviewEditor } from '../views/ReportViews'
 import { ResourceEditorPage } from '../editors/ResourceEditor'
+import { PipelineStageEditor, type PipelineStage } from '../editors/PipelineStageEditor'
 import { ResizeHandle } from './ResizeHandle'
 
 const TAB_DRAG_TYPE = 'application/x-d2d-editor-tab'
 
 function resolveEditor(uri: string): React.JSX.Element {
   if (uri === 'project://current') return <DashboardEditor />
+  if (uri.startsWith('stage://')) return <PipelineStageEditor stage={uri.slice('stage://'.length) as PipelineStage} />
   if (uri.startsWith('settings://')) return <SettingsEditor />
   if (uri.startsWith('project-settings://')) return <ProjectSettingsEditor />
   if (uri.startsWith('log://job/')) return <JobLogEditor jobId={uri.slice('log://job/'.length)} />
