@@ -11,6 +11,7 @@ import { useSelectionStore, type ExtractedItemSelection } from '../../stores/sel
 import { VirtualDataGrid } from '../common/VirtualDataGrid'
 import { StructuredJsonView } from '../common/StructuredJsonView'
 import { reviewStateFromEntityStatus, ReviewStatusBadge } from '../common/review'
+import { ResizablePaneGroup } from '../workbench/ResizablePaneGroup'
 
 interface TableCell {
   text: string
@@ -346,7 +347,7 @@ export function ExtractionReviewEditor({ uid }: { uid: string }): React.JSX.Elem
           {doc.status === 'approved' ? '正本確定済み' : '採用確定（②正本へ反映）'}
         </button>
       </div>
-      <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
+      <ResizablePaneGroup initialSizes={[1, 1]} testId="extraction-review-layout">
         <div style={{ flex: 1, minWidth: 0, padding: 8 }}>
           <VirtualDataGrid<ReviewElement>
             columns={columns}
@@ -409,7 +410,7 @@ export function ExtractionReviewEditor({ uid }: { uid: string }): React.JSX.Elem
             })
           )}
         </div>
-      </div>
+      </ResizablePaneGroup>
     </div>
   )
 }

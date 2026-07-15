@@ -338,6 +338,16 @@ test('原本取込→Word抽出→レビュー→②正本確定の全経路（P
   await page.getByTestId('stage-extracted').click()
   await page.getByTestId('extracted-doc-EXDOC-000001').click({ position: { x: 8, y: 8 } })
   await expect(page.getByTestId('extraction-review-editor')).toBeVisible()
+  const extractionLayout = page.getByTestId('extraction-review-layout')
+  const extractionFirstPane = extractionLayout.locator(':scope > .d2d-resizable-pane').first()
+  const extractionWidthBefore = (await extractionFirstPane.boundingBox())!.width
+  const extractionHandle = page.getByTestId('extraction-review-layout-handle-0')
+  const extractionHandleBox = (await extractionHandle.boundingBox())!
+  await page.mouse.move(extractionHandleBox.x + extractionHandleBox.width / 2, extractionHandleBox.y + 40)
+  await page.mouse.down()
+  await page.mouse.move(extractionHandleBox.x + extractionHandleBox.width / 2 + 40, extractionHandleBox.y + 40)
+  await page.mouse.up()
+  await expect.poll(async () => (await extractionFirstPane.boundingBox())!.width).toBeGreaterThan(extractionWidthBefore)
   const elementGrid = page.getByTestId('element-grid')
   const rows = elementGrid.locator('tbody tr.d2d-grid-row')
   await expect(elementGrid).toContainText('1. 概要')
@@ -433,6 +443,13 @@ test('②→③統合・編集・確定（P7）', async () => {
   await page.getByTestId('intermediate-doc-IMDOC-000001').click()
   await expect(page.getByTestId('intermediate-editor')).toBeVisible()
   await expect(page.getByTestId('intermediate-editor')).toContainText('design_doc / DD')
+  await expect(page.getByTestId('intermediate-import-layout-handle-0')).toBeVisible()
+  await expect(page.getByTestId('intermediate-import-layout-handle-1')).toBeVisible()
+  const importFirstPane = page.getByTestId('intermediate-import-layout').locator(':scope > .d2d-resizable-pane').first()
+  const importWidthBefore = (await importFirstPane.boundingBox())!.width
+  await page.getByTestId('intermediate-import-layout-handle-0').focus()
+  await page.keyboard.press('ArrowRight')
+  await expect.poll(async () => (await importFirstPane.boundingBox())!.width).toBeGreaterThan(importWidthBefore)
   // 空の成果物へ統合元要素を明示統合する
   const sourceGrid = page.getByTestId('intermediate-source-grid')
   await sourceGrid.getByRole('row').nth(1).click()
@@ -468,6 +485,12 @@ test('②→③統合・編集・確定（P7）', async () => {
   await textRow.click()
   await page.getByTestId('element-edit-open').click()
   await expect(page.getByTestId('resource-edit-dialog')).toBeVisible()
+  await expect(page.getByTestId('resource-editor-layout-handle-0')).toBeVisible()
+  const resourceSourcePane = page.getByTestId('resource-editor-layout').locator(':scope > .d2d-resizable-pane').first()
+  const resourceWidthBefore = (await resourceSourcePane.boundingBox())!.width
+  await page.getByTestId('resource-editor-layout-handle-0').focus()
+  await page.keyboard.press('ArrowRight')
+  await expect.poll(async () => (await resourceSourcePane.boundingBox())!.width).toBeGreaterThan(resourceWidthBefore)
   await expect(page.getByTestId('resource-merge-source')).toContainText('抽出元')
   await expect(page.getByTestId('resource-merge-target')).toBeVisible()
   await page.getByTestId('resource-rule-merge').click()
@@ -486,6 +509,8 @@ test('②→③統合・編集・確定（P7）', async () => {
   // 中間データ単独編集: 2ペイン切替、任意位置追加、Enter/ダブルクリック編集、複製、削除
   await page.getByTestId('intermediate-mode-standalone').click()
   await expect(page.getByTestId('intermediate-standalone-layout')).toBeVisible()
+  await expect(page.getByTestId('intermediate-standalone-layout-handle-0')).toBeVisible()
+  await expect(page.getByTestId('intermediate-standalone-layout-handle-1')).toHaveCount(0)
   await expect(page.getByTestId('intermediate-source-grid')).toHaveCount(0)
   await page.getByTestId('element-add-below').click()
   await page.getByTestId('edit-textarea').fill('単独編集で追加した要素')
@@ -585,6 +610,19 @@ test('②→③統合・編集・確定（P7）', async () => {
   await expect(page.getByTestId('intermediate-doc-IMDOC-000001').getByRole('button')).toHaveText(['チャンク'])
   await page.getByTestId('chunks-IMDOC-000001').click()
   await expect(page.getByTestId('chunk-editor')).toBeVisible()
+  await expect(page.getByTestId('chunk-editor-layout-handle-0')).toBeVisible()
+  await expect(page.getByTestId('chunk-editor-layout-handle-1')).toBeVisible()
+  await expect(page.getByTestId('chunk-source-i1').locator('.d2d-badge').first()).toHaveCSS('white-space', 'nowrap')
+  await expect(page.locator('.chunk-source-grid th').nth(1)).toHaveCSS('border-right-style', 'none')
+  await expect(page.getByTestId('chunk-editor').locator('.chunk-grid').nth(1).locator('th').nth(1)).toHaveCSS(
+    'border-right-style',
+    'none'
+  )
+  const chunkFirstPane = page.getByTestId('chunk-editor-layout').locator(':scope > .d2d-resizable-pane').first()
+  const chunkWidthBefore = (await chunkFirstPane.boundingBox())!.width
+  await page.getByTestId('chunk-editor-layout-handle-0').focus()
+  await page.keyboard.press('ArrowRight')
+  await expect.poll(async () => (await chunkFirstPane.boundingBox())!.width).toBeGreaterThan(chunkWidthBefore)
   await expect(page.getByTestId('chunk-source-i1').getByRole('checkbox')).toHaveCount(0)
   await page.getByTestId('chunk-source-i1').click()
   await page.getByRole('button', { name: 'チャンク作成' }).click()

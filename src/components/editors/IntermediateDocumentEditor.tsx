@@ -14,6 +14,7 @@ import { StructuredJsonView } from '../common/StructuredJsonView'
 import { ResourceEditor } from './ResourceEditor'
 import { resourceTypeLabel } from '../../types/resource'
 import { reviewStateFromEntityStatus, ReviewStatusBadge } from '../common/review'
+import { ResizablePaneGroup } from '../workbench/ResizablePaneGroup'
 
 interface IntermediateElement {
   id: string
@@ -972,17 +973,10 @@ export function IntermediateDocumentEditor({ uid }: { uid: string }): React.JSX.
           棄却
         </button>
       </div>
-      <div
-        style={{
-          flex: 1,
-          display: 'grid',
-          gridTemplateColumns:
-            editorMode === 'import'
-              ? 'minmax(240px,1fr) minmax(260px,1fr) minmax(300px,1.2fr)'
-              : 'minmax(360px,1fr) minmax(420px,1.25fr)',
-          minHeight: 0
-        }}
-        data-testid={editorMode === 'import' ? 'intermediate-import-layout' : 'intermediate-standalone-layout'}
+      <ResizablePaneGroup
+        key={editorMode}
+        initialSizes={editorMode === 'import' ? [1, 1, 1.2] : [1, 1.25]}
+        testId={editorMode === 'import' ? 'intermediate-import-layout' : 'intermediate-standalone-layout'}
       >
         {editorMode === 'import' && (
           <div style={{ minWidth: 0, minHeight: 0, overflow: 'hidden', padding: 8 }}>
@@ -1150,7 +1144,7 @@ export function IntermediateDocumentEditor({ uid }: { uid: string }): React.JSX.
             ))
           )}
         </div>
-      </div>
+      </ResizablePaneGroup>
       <span data-testid="properties-selection-source" hidden>
         {lastSelectedPane}
       </span>

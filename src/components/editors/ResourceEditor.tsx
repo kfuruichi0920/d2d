@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { invoke } from '../../services/backend'
 import { useJobsStore } from '../../stores/jobs-store'
+import { ResizablePaneGroup } from '../workbench/ResizablePaneGroup'
 
 interface FieldDefinition {
   name: string
@@ -358,7 +359,11 @@ export function ResourceEditor({
           。専有Resourceなら保存時に旧Resourceを削除し、共有Resourceなら元を保護します。
         </div>
       )}
-      <div className={context ? 'resource-merge-layout' : undefined}>
+      <ResizablePaneGroup
+        initialSizes={context ? [1, 1] : [1]}
+        testId="resource-editor-layout"
+        className={context ? 'resource-merge-layout' : undefined}
+      >
         {context && (
           <section className="resource-merge-source" data-testid="resource-merge-source">
             <h3>{targetType === data.type ? 'マージ元／抽出由来' : '変更前Resource'}</h3>
@@ -422,7 +427,7 @@ export function ResourceEditor({
             </button>
           </div>
         </section>
-      </div>
+      </ResizablePaneGroup>
       {confirming && (
         <div className="resource-loss-confirm" role="dialog" aria-modal="true" data-testid="resource-loss-confirm">
           <h3>Resource種別を変更しますか？</h3>

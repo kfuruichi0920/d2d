@@ -558,15 +558,11 @@ mark.d2d-term {
 }
 .chunk-grid th,
 .chunk-grid td {
-  border-right: 1px solid var(--d2d-border);
   border-bottom: 1px solid var(--d2d-border);
   padding: 4px 6px;
   vertical-align: top;
 }
-.chunk-grid th:last-child,
-.chunk-grid td:last-child {
-  border-right: 0;
-}
+
 .chunk-grid tbody tr:last-child td {
   border-bottom: 0;
 }
@@ -732,8 +728,6 @@ mark.d2d-term {
   font-family: Consolas, 'Courier New', monospace;
 }
 .resource-merge-layout {
-  display: grid;
-  grid-template-columns: minmax(320px, 1fr) minmax(360px, 1fr);
   min-height: 0;
   margin-top: 10px;
   border: 1px solid var(--d2d-border);
@@ -790,15 +784,7 @@ mark.d2d-term {
   border-left: 3px solid var(--d2d-warning);
   font-size: 11px;
 }
-@media (max-width: 900px) {
-  .resource-merge-layout {
-    grid-template-columns: 1fr;
-  }
-  .resource-merge-source {
-    border-right: 0;
-    border-bottom: 1px solid var(--d2d-border);
-  }
-}
+
 .resource-editor-actions {
   display: flex;
   justify-content: flex-end;
@@ -1143,4 +1129,28 @@ mark.d2d-term {
   border-radius: var(--d2d-radius);
   background: var(--d2d-bg);
   color: var(--d2d-fg);
+}
+
+/* 編集画面内の可変ペイン（P3-1、UI-038） */
+.d2d-resizable-pane-group {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.d2d-resizable-pane {
+  display: flex;
+  flex-basis: 0;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.d2d-resizable-pane > * {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+.chunk-source-grid .d2d-badge {
+  white-space: nowrap;
 }

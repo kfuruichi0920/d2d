@@ -6,6 +6,7 @@ import { invoke, onBackendEvent } from '../../services/backend'
 import { useEditorStore } from '../../stores/editor-store'
 import { useJobsStore } from '../../stores/jobs-store'
 import { reviewStateFromEntityStatus, ReviewStatusBadge } from '../common/review'
+import { ResizablePaneGroup } from '../workbench/ResizablePaneGroup'
 
 interface ElementRow {
   id: string
@@ -313,7 +314,7 @@ export function ChunkEditor({ uid }: { uid: string }): React.JSX.Element {
         </div>
       )}
 
-      <div style={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: '40% 27% 33%' }}>
+      <ResizablePaneGroup initialSizes={[40, 27, 33]} testId="chunk-editor-layout">
         <section
           tabIndex={0}
           onKeyDown={(event) => {
@@ -322,10 +323,10 @@ export function ChunkEditor({ uid }: { uid: string }): React.JSX.Element {
               moveSelection('item', event.key === 'ArrowUp' ? -1 : 1)
             }
           }}
-          style={{ overflow: 'auto', borderRight: '1px solid var(--d2d-border)' }}
+          style={{ overflow: 'auto' }}
         >
           <h3 style={{ padding: '0 8px' }}>成果物（確認済のみ選択可）</h3>
-          <table className="d2d-table chunk-grid" style={{ width: '100%', minWidth: 680 }}>
+          <table className="d2d-table chunk-grid chunk-source-grid" style={{ width: '100%', minWidth: 680 }}>
             <thead>
               <tr>
                 <th>状態</th>
@@ -390,7 +391,7 @@ export function ChunkEditor({ uid }: { uid: string }): React.JSX.Element {
               moveSelection('chunk', event.key === 'ArrowUp' ? -1 : 1)
             }
           }}
-          style={{ overflow: 'auto', borderRight: '1px solid var(--d2d-border)' }}
+          style={{ overflow: 'auto' }}
         >
           <h3 style={{ padding: '0 8px' }}>チャンク</h3>
           <table className="d2d-table chunk-grid" style={{ width: '100%', minWidth: 430 }}>
@@ -475,7 +476,7 @@ export function ChunkEditor({ uid }: { uid: string }): React.JSX.Element {
             )
           })}
         </section>
-      </div>
+      </ResizablePaneGroup>
     </div>
   )
 }
