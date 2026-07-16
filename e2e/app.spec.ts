@@ -37,6 +37,37 @@ test('Workbench シェルが表示される（P3-1）', async () => {
   await expect(page.getByTestId('pipeline-navigator')).toBeVisible()
   await expect(page.getByTestId('status-bar')).toBeVisible()
   await expect(page.getByTestId('welcome-editor')).toBeVisible()
+  await expect(page.getByTestId('welcome-editor')).toContainText('人が自然言語で書いた設計情報')
+  await expect(page.getByTestId('welcome-editor')).toContainText('オントロジーに写像した意味構造')
+
+  // 常時表示の検索導線からウェルカムも検索できる。
+  await page.getByTestId('open-screen-search').click()
+  await expect(page.getByTestId('screen-text-search')).toBeVisible()
+  await page.getByTestId('screen-text-search-input').fill('オントロジー')
+  await page.keyboard.press('Enter')
+  await page.keyboard.press('Escape')
+
+  // 3種のHelp Resourceを通常のEditorタブで開ける。
+  await page.getByRole('button', { name: '操作の流れ' }).click()
+  await expect(page.getByTestId('help-workflow')).toContainText('Human-in-the-loop')
+  await page.getByTestId('help-workflow').getByRole('button', { name: 'データスキーマ' }).click()
+  await expect(page.getByTestId('help-schema')).toContainText('entity_registry')
+  await page.getByTestId('help-schema').getByRole('button', { name: '設計モデル' }).click()
+  await expect(page.getByTestId('help-design-model')).toContainText('13分類')
+  await expect(page.getByTestId('help-design-model')).toContainText('owner_uid')
+  await page.getByRole('button', { name: '設計モデルの考え方 を閉じる' }).click()
+  await page.getByRole('button', { name: 'D2Dのデータスキーマ を閉じる' }).click()
+  await page.getByRole('button', { name: '操作の流れ を閉じる' }).click()
+  await expect(page.getByTestId('welcome-editor')).toBeVisible()
+
+  // Workbench内の全buttonは操作説明Tooltipを持つ。
+  await expect
+    .poll(() =>
+      page
+        .locator('button:visible')
+        .evaluateAll((buttons) => buttons.filter((button) => !(button as HTMLButtonElement).title.trim()).length)
+    )
+    .toBe(0)
 
   // Activity切替（Explorer → Search）。Review/JobsはPrimary Activityに置かない。
   await expect(page.getByTestId('activity-review')).toHaveCount(0)
@@ -686,6 +717,20 @@ test('②→③統合・編集・確定（P7）', async () => {
   await expect(firstSourceRow).toHaveAttribute('data-linked', 'true')
   await expect(firstSourceRow).not.toHaveAttribute('aria-disabled', 'true')
 
+  // 取込編集の成果物一覧はShift+上下で範囲を拡張・縮小する。
+  const firstArtifactRow = middleGrid.getByRole('row').nth(1)
+  const secondArtifactRow = middleGrid.getByRole('row').nth(2)
+  await firstArtifactRow.click()
+  await firstArtifactRow.focus()
+  await page.keyboard.press('Shift+ArrowDown')
+  await expect(firstArtifactRow).toHaveAttribute('aria-selected', 'true')
+  await expect(secondArtifactRow).toHaveAttribute('aria-selected', 'true')
+  await page.keyboard.press('Shift+ArrowUp')
+  await expect(firstArtifactRow).toHaveAttribute('aria-selected', 'true')
+  await expect(secondArtifactRow).toHaveAttribute('aria-selected', 'false')
+  // 次の関連強調検証で選択のsolid outlineと競合しないよう、2行目を単独選択する。
+  await secondArtifactRow.click()
+
   // 取込済み行も選択でき、Shift+上下で範囲選択し、成果物とプレビューをbased_onで強調する。
   await firstSourceRow.click()
   await firstSourceRow.focus()
@@ -759,6 +804,16 @@ test('②→③統合・編集・確定（P7）', async () => {
   await expect(page.getByTestId('intermediate-standalone-layout-handle-0')).toBeVisible()
   await expect(page.getByTestId('intermediate-standalone-layout-handle-1')).toHaveCount(0)
   await expect(page.getByTestId('intermediate-source-grid')).toHaveCount(0)
+  // 単独編集でも同じ成果物一覧のShift範囲選択を利用できる。
+  const standaloneFirstRow = middleGrid.getByRole('row').nth(1)
+  const standaloneSecondRow = middleGrid.getByRole('row').nth(2)
+  await standaloneFirstRow.click()
+  await standaloneFirstRow.focus()
+  await page.keyboard.press('Shift+ArrowDown')
+  await expect(standaloneFirstRow).toHaveAttribute('aria-selected', 'true')
+  await expect(standaloneSecondRow).toHaveAttribute('aria-selected', 'true')
+  await page.keyboard.press('Shift+ArrowUp')
+  await expect(standaloneSecondRow).toHaveAttribute('aria-selected', 'false')
   await page.getByTestId('element-add-below').click()
   await page.getByTestId('edit-textarea').fill('単独編集で追加した要素')
   await page.getByTestId('edit-save').click()
@@ -890,7 +945,16 @@ test('②→③統合・編集・確定（P7）', async () => {
   await page.keyboard.press('ArrowRight')
   await expect.poll(async () => (await chunkFirstPane.boundingBox())!.width).toBeGreaterThan(chunkWidthBefore)
   await expect(page.getByTestId('chunk-source-i1').getByRole('checkbox')).toHaveCount(0)
-  await page.getByTestId('chunk-source-i1').click()
+  const chunkSourceRows = page.locator('.chunk-source-grid tbody tr')
+  const firstChunkSourceRow = chunkSourceRows.first()
+  const secondChunkSourceRow = chunkSourceRows.nth(1)
+  await firstChunkSourceRow.click()
+  await firstChunkSourceRow.press('Shift+ArrowDown')
+  await expect(firstChunkSourceRow).toHaveAttribute('aria-selected', 'true')
+  await expect(secondChunkSourceRow).toHaveAttribute('aria-selected', 'true')
+  await secondChunkSourceRow.press('Shift+ArrowUp')
+  await expect(secondChunkSourceRow).toHaveAttribute('aria-selected', 'false')
+  await firstChunkSourceRow.click()
   await page.getByRole('button', { name: 'チャンク作成' }).click()
   await expect(page.getByTestId('chunk-editor')).toContainText('1')
   await expect(

@@ -9,6 +9,7 @@ import { SettingsEditor } from '../editors/SettingsEditor'
 import { ProjectSettingsEditor } from '../editors/ProjectSettingsEditor'
 import { JobLogEditor } from '../editors/JobLogEditor'
 import { WelcomeEditor } from '../editors/WelcomeEditor'
+import { HelpEditor, type HelpTopic } from '../editors/HelpEditor'
 import { ExtractionReviewEditor } from '../editors/ExtractionReviewEditor'
 import { OriginalViewer } from '../views/DocumentsTree'
 import { LlmRunViewer } from '../views/LlmViews'
@@ -27,6 +28,7 @@ import { ResizeHandle } from './ResizeHandle'
 const TAB_DRAG_TYPE = 'application/x-d2d-editor-tab'
 
 function resolveEditor(uri: string): React.JSX.Element {
+  if (uri.startsWith('help://')) return <HelpEditor topic={uri.slice('help://'.length) as HelpTopic} />
   if (uri === 'project://current') return <DashboardEditor />
   if (uri.startsWith('stage://')) return <PipelineStageEditor stage={uri.slice('stage://'.length) as PipelineStage} />
   if (uri.startsWith('settings://')) return <SettingsEditor />

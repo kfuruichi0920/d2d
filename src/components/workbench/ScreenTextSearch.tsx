@@ -1,23 +1,32 @@
 /** Workbench共通の画面内文字検索（P3-10、UI-049）。 */
 import { useEffect, useRef, useState } from 'react'
 
+export const OPEN_SCREEN_TEXT_SEARCH = 'd2d:open-screen-text-search'
+
 export function ScreenTextSearch(): React.JSX.Element | null {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
   useEffect(() => {
+    const openSearch = (): void => {
+      setOpen(true)
+      requestAnimationFrame(() => inputRef.current?.focus())
+    }
     const onKey = (event: KeyboardEvent): void => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'f') {
         event.preventDefault()
-        setOpen(true)
-        requestAnimationFrame(() => inputRef.current?.focus())
+        openSearch()
       } else if (event.key === 'Escape' && open) {
         event.preventDefault()
         setOpen(false)
       }
     }
     window.addEventListener('keydown', onKey, true)
-    return () => window.removeEventListener('keydown', onKey, true)
+    window.addEventListener(OPEN_SCREEN_TEXT_SEARCH, openSearch)
+    return () => {
+      window.removeEventListener('keydown', onKey, true)
+      window.removeEventListener(OPEN_SCREEN_TEXT_SEARCH, openSearch)
+    }
   }, [open])
   if (!open) return null
   const find = (backwards = false): void => {
