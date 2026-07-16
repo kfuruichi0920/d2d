@@ -12,9 +12,11 @@ export type DisplayMode = (typeof DISPLAY_MODES)[number]
 export interface ThemeState {
   displayMode: DisplayMode
   colorTheme: ColorTheme
+  /** ツール全体の基準文字サイズ（UI-037） */
+  fontSize: number
 }
 
-export const DEFAULT_THEME: ThemeState = { displayMode: 'dark', colorTheme: 'konjo' }
+export const DEFAULT_THEME: ThemeState = { displayMode: 'dark', colorTheme: 'konjo', fontSize: 13 }
 
 function resolveMode(mode: DisplayMode): 'light' | 'dark' {
   if (mode !== 'system') return mode
@@ -26,6 +28,7 @@ export function applyTheme(theme: ThemeState): void {
   const mode = resolveMode(theme.displayMode)
   const root = document.documentElement
   root.setAttribute('data-d2d-mode', mode)
+  root.style.setProperty('--d2d-font-size', Math.max(10, Math.min(20, theme.fontSize)) + 'px')
   const pandaTheme = theme.colorTheme === 'konjo' && mode === 'dark' ? 'konjo-dark' : theme.colorTheme
   root.setAttribute('data-panda-theme', pandaTheme)
 }

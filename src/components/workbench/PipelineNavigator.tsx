@@ -5,6 +5,7 @@
 import { useProjectStore } from '../../stores/project-store'
 import { useWorkbenchStore, type WorkMode } from '../../stores/workbench-store'
 import { useJobsStore } from '../../stores/jobs-store'
+import { useEditorStore } from '../../stores/editor-store'
 
 interface StageDef {
   key: string
@@ -25,9 +26,10 @@ const ARROWS = ['抽出▶', '統合▶', 'モデル化▶']
 export function PipelineNavigator(): React.JSX.Element {
   const stats = useProjectStore((s) => s.stats)
   const hasProject = useProjectStore((s) => s.project !== null)
-  const workMode = useWorkbenchStore((s) => s.workMode)
   const switchMode = useWorkbenchStore((s) => s.switchMode)
   const runningCount = useJobsStore((s) => s.runningCount)
+  const openResource = useEditorStore((s) => s.openResource)
+  const activeUri = useEditorStore((s) => s.activeUri)
 
   return (
     <nav className="wb-pipeline" data-testid="pipeline-navigator">
@@ -36,11 +38,14 @@ export function PipelineNavigator(): React.JSX.Element {
           {i > 0 && <span className="wb-stage-arrow">{ARROWS[i - 1]}</span>}
           <button
             type="button"
-            className={`wb-stage ${workMode === stage.mode && i !== 0 ? 'active' : ''}`}
+            className={`wb-stage ${activeUri === `stage://${stage.key}` ? 'active' : ''}`}
             data-testid={`stage-${stage.key}`}
             disabled={!hasProject}
-            onClick={() => switchMode(stage.mode)}
-            title={`${stage.label} — クリックで作業モードへ`}
+            onClick={() => {
+              switchMode(stage.mode)
+              openResource(`stage://${stage.key}`, `${stage.label}一覧`, { preview: false })
+            }}
+            title={`${stage.label} — 一覧を開く`}
           >
             {stage.label}
             <span className="count">{stats ? stage.count(stats) : '-'}</span>

@@ -99,6 +99,11 @@ export interface RendererApi {
     mode: 'file' | 'directory'
     filters?: { name: string; extensions: string[] }[]
   }): Promise<string | null>
+  /** 複数原本ファイル選択（Main経由、IMP-010） */
+  showOpenFilesDialog(options: {
+    title?: string
+    filters?: { name: string; extensions: string[] }[]
+  }): Promise<string[]>
 }
 
 declare global {

@@ -4,13 +4,15 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ColumnDef } from '@tanstack/react-table'
-import { invoke } from '../../services/backend'
+import { invoke, onBackendEvent } from '../../services/backend'
 import { useJobsStore } from '../../stores/jobs-store'
 import { useProjectStore } from '../../stores/project-store'
 import { useSelectionStore, type ExtractedItemSelection } from '../../stores/selection-store'
 import { VirtualDataGrid } from '../common/VirtualDataGrid'
 import { StructuredJsonView } from '../common/StructuredJsonView'
+import { DocumentPreviewMetaControls, useDocumentPreviewMeta } from '../common/DocumentPreviewMeta'
 import { reviewStateFromEntityStatus, ReviewStatusBadge } from '../common/review'
+import { ResizablePaneGroup } from '../workbench/ResizablePaneGroup'
 
 interface TableCell {
   text: string
@@ -30,7 +32,7 @@ interface ReviewElement {
   row_count?: number
   column_count?: number
   resource_uid?: string
-  review?: { status: string; code: string }
+  review?: { status: string; code: string; item_uid: string }
 }
 
 interface ExtractedDoc {
@@ -124,10 +126,15 @@ export function ExtractionReviewEditor({ uid }: { uid: string }): React.JSX.Elem
   const [activeId, setActiveId] = useState<string | null>(null)
   const [anchorId, setAnchorId] = useState<string | null>(null)
   const [previewMode, setPreviewMode] = useState<'visual' | 'structure'>('visual')
+  const [previewMeta, setPreviewMeta] = useDocumentPreviewMeta()
+  const [renameOpen, setRenameOpen] = useState(false)
+  const [renameTitle, setRenameTitle] = useState('')
   const previewRefs = useRef(new Map<string, HTMLElement>())
   const notify = useJobsStore((state) => state.notify)
   const setExtractedItems = useSelectionStore((state) => state.setExtractedItems)
   const clearExtractedItems = useSelectionStore((state) => state.clearExtractedItems)
+  const setSelectedItem = useSelectionStore((state) => state.setSelectedItem)
+  const clearSelectedItem = useSelectionStore((state) => state.clearSelectedItem)
 
   const load = useCallback(async () => {
     const result = await invoke<ExtractedDoc>('extracted.get', { uid })
@@ -143,6 +150,17 @@ export function ExtractionReviewEditor({ uid }: { uid: string }): React.JSX.Elem
     void load()
   }, [load])
 
+  useEffect(
+    () =>
+      onBackendEvent((event, payload) => {
+        if (event !== 'extracted.renamed') return
+        const renamed = payload as { uid?: string; title?: string }
+        if (renamed.uid !== uid || !renamed.title) return
+        setDoc((current) => (current ? { ...current, title: renamed.title ?? current.title } : current))
+      }),
+    [uid]
+  )
+
   useEffect(() => {
     if (!doc) return
     const selected = doc.elements
@@ -150,6 +168,7 @@ export function ExtractionReviewEditor({ uid }: { uid: string }): React.JSX.Elem
         selectedIds.has(element.id)
           ? {
               documentUid: uid,
+              entityUid: element.review?.item_uid ?? null,
               id: element.id,
               index,
               type: element.type,
@@ -166,9 +185,34 @@ export function ExtractionReviewEditor({ uid }: { uid: string }): React.JSX.Elem
       )
       .filter((item): item is ExtractedItemSelection => item !== null)
     setExtractedItems(selected)
-  }, [doc, selectedIds, setExtractedItems, uid])
+    const active = doc.elements.find((element) => element.id === activeId)
+    if (active?.review?.item_uid) {
+      setSelectedItem({
+        contextUri: `extracted://${uid}`,
+        uid: active.review.item_uid,
+        displayId: active.review.code,
+        entityType: 'extracted_item',
+        itemType: active.type,
+        status: active.review.status,
+        properties: {
+          elementId: active.id,
+          resourceUid: active.resource_uid,
+          type: active.type,
+          status: active.review.status,
+          sectionPath: active.section_path,
+          text: active.text ?? active.caption ?? active.image
+        }
+      })
+    }
+  }, [activeId, doc, selectedIds, setExtractedItems, setSelectedItem, uid])
 
-  useEffect(() => () => clearExtractedItems(), [clearExtractedItems])
+  useEffect(
+    () => () => {
+      clearExtractedItems()
+      clearSelectedItem(`extracted://${uid}`)
+    },
+    [clearExtractedItems, clearSelectedItem, uid]
+  )
 
   useEffect(() => {
     if (!activeId) return
@@ -264,6 +308,18 @@ export function ExtractionReviewEditor({ uid }: { uid: string }): React.JSX.Elem
     } else notify('error', '確定できませんでした', result.error.message)
   }
 
+  const renameDocument = async (): Promise<void> => {
+    const title = renameTitle.trim()
+    if (!title) return
+    const result = await invoke<{ title: string }>('extracted.rename', { uid, title })
+    if (!result.ok) {
+      notify('error', '抽出データの名称を変更できませんでした', result.error.message)
+      return
+    }
+    setDoc((current) => (current ? { ...current, title } : current))
+    setRenameOpen(false)
+    notify('info', '抽出データの名称を変更しました')
+  }
   const columns: ColumnDef<ReviewElement, unknown>[] = [
     {
       header: '状態',
@@ -312,6 +368,17 @@ export function ExtractionReviewEditor({ uid }: { uid: string }): React.JSX.Elem
         <button
           type="button"
           className="d2d-btn small"
+          data-testid="rename-extracted"
+          onClick={() => {
+            setRenameTitle(doc.title ?? doc.code)
+            setRenameOpen(true)
+          }}
+        >
+          名称変更
+        </button>
+        <button
+          type="button"
+          className="d2d-btn small"
           disabled={selectedElements.length === 0}
           onClick={() => void updateStatus(selectedElements, 'approved')}
           data-testid="selected-confirm"
@@ -346,7 +413,7 @@ export function ExtractionReviewEditor({ uid }: { uid: string }): React.JSX.Elem
           {doc.status === 'approved' ? '正本確定済み' : '採用確定（②正本へ反映）'}
         </button>
       </div>
-      <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
+      <ResizablePaneGroup initialSizes={[1, 1]} testId="extraction-review-layout">
         <div style={{ flex: 1, minWidth: 0, padding: 8 }}>
           <VirtualDataGrid<ReviewElement>
             columns={columns}
@@ -378,6 +445,7 @@ export function ExtractionReviewEditor({ uid }: { uid: string }): React.JSX.Elem
               structure_json
             </button>
           </div>
+          {previewMode === 'visual' && <DocumentPreviewMetaControls options={previewMeta} onChange={setPreviewMeta} />}
           {previewMode === 'structure' ? (
             <StructuredJsonView value={doc.structure} testId="extraction-structure-json" />
           ) : (
@@ -399,9 +467,11 @@ export function ExtractionReviewEditor({ uid }: { uid: string }): React.JSX.Elem
                   }}
                 >
                   <header>
-                    <span className="d2d-badge">{TYPE_LABELS[element.type] ?? element.type}</span>
-                    <code>{element.id}</code>
-                    {element.section_path && <span>{element.section_path}</span>}
+                    {previewMeta.parts && (
+                      <span className="d2d-badge">{TYPE_LABELS[element.type] ?? element.type}</span>
+                    )}
+                    {previewMeta.elementIds && <code>{element.id}</code>}
+                    {previewMeta.sections && element.section_path && <span>{element.section_path}</span>}
                   </header>
                   <ElementBody element={element} />
                 </article>
@@ -409,7 +479,38 @@ export function ExtractionReviewEditor({ uid }: { uid: string }): React.JSX.Elem
             })
           )}
         </div>
-      </div>
+      </ResizablePaneGroup>
+      {renameOpen && (
+        <div className="extraction-rename-dialog" role="dialog" aria-modal="true" data-testid="rename-extracted-dialog">
+          <h2>抽出データの名称変更</h2>
+          <label htmlFor="rename-extracted-input">名称</label>
+          <input
+            id="rename-extracted-input"
+            data-testid="rename-extracted-input"
+            value={renameTitle}
+            autoFocus
+            onChange={(event) => setRenameTitle(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') setRenameOpen(false)
+              if (event.key === 'Enter') void renameDocument()
+            }}
+          />
+          <div className="stage-import-dialog-actions">
+            <button type="button" className="d2d-btn" onClick={() => setRenameOpen(false)}>
+              キャンセル
+            </button>
+            <button
+              type="button"
+              className="d2d-btn primary"
+              data-testid="rename-extracted-save"
+              disabled={!renameTitle.trim()}
+              onClick={() => void renameDocument()}
+            >
+              保存
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

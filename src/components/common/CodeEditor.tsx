@@ -5,6 +5,7 @@
  */
 import { useEffect, useRef } from 'react'
 import type * as MonacoTypes from 'monaco-editor'
+import { useWorkbenchStore } from '../../stores/workbench-store'
 
 let monacoPromise: Promise<typeof import('monaco-editor')> | null = null
 
@@ -40,6 +41,7 @@ export function CodeEditor({
   onChange,
   height = '100%'
 }: CodeEditorProps): React.JSX.Element {
+  const fontSize = useWorkbenchStore((state) => state.theme.fontSize)
   const containerRef = useRef<HTMLDivElement>(null)
   const editorRef = useRef<MonacoTypes.editor.IStandaloneCodeEditor | null>(null)
   const onChangeRef = useRef(onChange)
@@ -56,7 +58,7 @@ export function CodeEditor({
         readOnly,
         theme: isDark ? 'vs-dark' : 'vs',
         minimap: { enabled: false },
-        fontSize: 12.5,
+        fontSize,
         automaticLayout: true,
         scrollBeyondLastLine: false
       })
@@ -71,6 +73,10 @@ export function CodeEditor({
     // 初期化は 1 回のみ（value 変更は下の effect で反映）
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  useEffect(() => {
+    editorRef.current?.updateOptions({ fontSize })
+  }, [fontSize])
 
   useEffect(() => {
     const editor = editorRef.current

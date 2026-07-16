@@ -86,6 +86,21 @@ export const MIGRATIONS: Migration[] = [
         'UPDATE chunk SET sort_order = (SELECT ranked.rn - 1 FROM (SELECT c2.uid, ROW_NUMBER() OVER (PARTITION BY c2.intermediate_document_uid ORDER BY c2.created_at, e.code) AS rn FROM chunk c2 JOIN entity_registry e ON e.uid=c2.uid) ranked WHERE ranked.uid=chunk.uid)'
       )
     }
+  },
+  {
+    // P3-7 / UI-047: Explorer非表示のアーカイブはレビュー・削除状態と独立して保持する。
+    version: '1.5.0',
+    description: 'Entityアーカイブ状態の追加（UI-047）',
+    apply(db) {
+      const columns = db.prepare('PRAGMA table_info(entity_registry)').all() as { name: string }[]
+      if (!columns.some((column) => column.name === 'is_archived'))
+        db.exec(
+          'ALTER TABLE entity_registry ADD COLUMN is_archived INTEGER NOT NULL DEFAULT 0 CHECK (is_archived IN (0, 1));'
+        )
+      db.exec(
+        'CREATE INDEX IF NOT EXISTS idx_entity_registry_archive ON entity_registry(project_uid, entity_type, is_archived, status);'
+      )
+    }
   }
 ]
 

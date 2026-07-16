@@ -5,7 +5,10 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { invoke, onBackendEvent } from '../../services/backend'
 import { useEditorStore } from '../../stores/editor-store'
 import { useJobsStore } from '../../stores/jobs-store'
+import { useSelectionStore } from '../../stores/selection-store'
 import { reviewStateFromEntityStatus, ReviewStatusBadge } from '../common/review'
+import { DocumentPreviewMetaControls, useDocumentPreviewMeta } from '../common/DocumentPreviewMeta'
+import { ResizablePaneGroup } from '../workbench/ResizablePaneGroup'
 
 interface ElementRow {
   id: string
@@ -65,6 +68,7 @@ export function ChunkEditor({ uid }: { uid: string }): React.JSX.Element {
   const [doc, setDoc] = useState<DocumentData | null>(null)
   const [chunks, setChunks] = useState<ChunkRow[]>([])
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set())
+  const [previewMeta, setPreviewMeta] = useDocumentPreviewMeta()
   const [activeItem, setActiveItem] = useState<string | null>(null)
   const [activePane, setActivePane] = useState<'item' | 'chunk'>('item')
   const [selectedChunk, setSelectedChunk] = useState<string | null>(null)
@@ -76,6 +80,8 @@ export function ChunkEditor({ uid }: { uid: string }): React.JSX.Element {
   const anchor = useRef<number | null>(null)
   const previewRefs = useRef(new Map<string, HTMLElement>())
   const notify = useJobsStore((s) => s.notify)
+  const setSelectedItem = useSelectionStore((state) => state.setSelectedItem)
+  const clearSelectedItem = useSelectionStore((state) => state.clearSelectedItem)
 
   const refresh = useCallback(async () => {
     const [d, c] = await Promise.all([
@@ -92,6 +98,45 @@ export function ChunkEditor({ uid }: { uid: string }): React.JSX.Element {
       if (event === 'intermediate.updated' || event === 'llm.candidate.generated') void refresh()
     })
   }, [refresh])
+
+  useEffect(() => {
+    if (activePane === 'chunk') {
+      const chunk = chunks.find((item) => item.uid === selectedChunk)
+      if (!chunk) return
+      setSelectedItem({
+        contextUri: `intermediate://${uid}`,
+        uid: chunk.uid,
+        displayId: chunk.code,
+        entityType: 'chunk',
+        title: chunk.title,
+        properties: {
+          itemCount: chunk.item_count,
+          tokenCount: chunk.token_count,
+          additionalPrompt: chunk.additional_prompt
+        }
+      })
+      return
+    }
+    const element = doc?.elements.find((item) => item.intermediate_item_uid === activeItem)
+    if (!element?.intermediate_item_uid) return
+    setSelectedItem({
+      contextUri: `intermediate://${uid}`,
+      uid: element.intermediate_item_uid,
+      displayId: element.intermediate_item_uid,
+      entityType: 'intermediate_item',
+      itemType: element.type,
+      status: element.review?.status,
+      properties: {
+        resourceUid: element.resource_uid,
+        type: element.type,
+        status: element.review?.status,
+        sectionPath: element.section_path,
+        text: element.text ?? element.image
+      }
+    })
+  }, [activeItem, activePane, chunks, doc, selectedChunk, setSelectedItem, uid])
+
+  useEffect(() => () => clearSelectedItem(`intermediate://${uid}`), [clearSelectedItem, uid])
 
   const loadChunk = async (chunkUid: string): Promise<void> => {
     setSelectedChunk(chunkUid)
@@ -313,7 +358,7 @@ export function ChunkEditor({ uid }: { uid: string }): React.JSX.Element {
         </div>
       )}
 
-      <div style={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: '40% 27% 33%' }}>
+      <ResizablePaneGroup initialSizes={[40, 27, 33]} testId="chunk-editor-layout" className="chunk-editor-layout">
         <section
           tabIndex={0}
           onKeyDown={(event) => {
@@ -322,10 +367,10 @@ export function ChunkEditor({ uid }: { uid: string }): React.JSX.Element {
               moveSelection('item', event.key === 'ArrowUp' ? -1 : 1)
             }
           }}
-          style={{ overflow: 'auto', borderRight: '1px solid var(--d2d-border)' }}
+          style={{ overflow: 'auto' }}
         >
           <h3 style={{ padding: '0 8px' }}>成果物（確認済のみ選択可）</h3>
-          <table className="d2d-table chunk-grid" style={{ width: '100%', minWidth: 680 }}>
+          <table className="d2d-table chunk-grid chunk-source-grid" style={{ width: '100%', minWidth: 680 }}>
             <thead>
               <tr>
                 <th>状態</th>
@@ -390,7 +435,7 @@ export function ChunkEditor({ uid }: { uid: string }): React.JSX.Element {
               moveSelection('chunk', event.key === 'ArrowUp' ? -1 : 1)
             }
           }}
-          style={{ overflow: 'auto', borderRight: '1px solid var(--d2d-border)' }}
+          style={{ overflow: 'auto' }}
         >
           <h3 style={{ padding: '0 8px' }}>チャンク</h3>
           <table className="d2d-table chunk-grid" style={{ width: '100%', minWidth: 430 }}>
@@ -431,6 +476,7 @@ export function ChunkEditor({ uid }: { uid: string }): React.JSX.Element {
 
         <section style={{ overflow: 'auto', padding: 12 }}>
           <h3>中間文書プレビュー</h3>
+          <DocumentPreviewMetaControls options={previewMeta} onChange={setPreviewMeta} />
           {doc.elements.map((row) => {
             const itemUid = row.intermediate_item_uid
             const selectedPreview = Boolean(itemUid && activePane === 'item' && selectedItems.has(itemUid))
@@ -469,13 +515,17 @@ export function ChunkEditor({ uid }: { uid: string }): React.JSX.Element {
                 }
                 style={common}
               >
-                <small className="d2d-badge">{row.type}</small>
+                <header>
+                  {previewMeta.parts && <small className="d2d-badge">{row.type}</small>}
+                  {previewMeta.elementIds && <code>{row.id}</code>}
+                  {previewMeta.sections && row.section_path && <span>{row.section_path}</span>}
+                </header>
                 {body}
               </article>
             )
           })}
         </section>
-      </div>
+      </ResizablePaneGroup>
     </div>
   )
 }

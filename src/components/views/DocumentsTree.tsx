@@ -12,10 +12,14 @@ import { DesignModelTree } from './DesignModelViews'
 export interface SourceDocumentItem {
   uid: string
   code: string
+  title: string | null
   file_name: string
   file_type: string
+  file_hash: string
   status: string
+  is_archived: number
   is_current: number
+  imported_at: string
 }
 
 export interface ExtractedDocumentItem {
@@ -23,7 +27,13 @@ export interface ExtractedDocumentItem {
   code: string
   title: string | null
   status: string
+  is_archived: number
+  extraction_status: string
+  extractor_name: string
+  extractor_version: string
+  extracted_at: string
   item_count: number
+  unconfirmed_count: number
   source_document_uid: string
 }
 
@@ -46,9 +56,13 @@ export interface IntermediateDocumentItem {
   code: string
   title: string | null
   status: string
+  is_archived: number
+  intermediate_status: string
+  generated_at: string
   artifact_type_id: string
   dev_phase_id: string
   item_count: number
+  unconfirmed_count: number
   sources?: { extracted_document_uid: string; order: number }[]
 }
 
@@ -58,11 +72,9 @@ export function DocumentsTree(): React.JSX.Element {
   const [intermediates, setIntermediates] = useState<IntermediateDocumentItem[]>([])
   const [artifacts, setArtifacts] = useState<ArtifactSetting[]>([])
   const [phases, setPhases] = useState<DevPhaseSetting[]>([])
-  const [importDialogOpen, setImportDialogOpen] = useState(false)
-  const [selectedArtifactUid, setSelectedArtifactUid] = useState<string | null>(null)
-  const [selectedSources, setSelectedSources] = useState<Set<string>>(new Set())
-  const openResource = useEditorStore((s) => s.openResource)
-  const notify = useJobsStore((s) => s.notify)
+  const openResource = useEditorStore((state) => state.openResource)
+  const extractedUnconfirmed = extracted.reduce((total, document) => total + document.unconfirmed_count, 0)
+  const intermediateUnconfirmed = intermediates.reduce((total, document) => total + document.unconfirmed_count, 0)
 
   const refresh = useCallback(async () => {
     const [docs, exts, mids, arts, devs] = await Promise.all([
@@ -83,294 +95,153 @@ export function DocumentsTree(): React.JSX.Element {
     void refresh()
     return onBackendEvent((event) => {
       if (
-        ['source.imported', 'artifact.updated', 'extraction.completed', 'intermediate.updated', 'job.updated'].includes(
-          event
-        )
-      ) {
+        [
+          'source.imported',
+          'source.updated',
+          'artifact.updated',
+          'extraction.completed',
+          'extracted.renamed',
+          'extracted.updated',
+          'intermediate.updated',
+          'job.updated'
+        ].includes(event)
+      )
         void refresh()
-      }
     })
   }, [refresh])
 
-  const importDocument = async (): Promise<void> => {
-    const filePath = await window.api.showOpenDialog({
-      title: '取込む原本ファイルを選択',
-      mode: 'file',
-      filters: [
-        {
-          name: '対象文書',
-          extensions: ['docx', 'xlsx', 'pptx', 'vsdx', 'pdf', 'txt', 'md', 'csv', 'tsv', 'json', 'jsonl', 'yaml']
-        }
-      ]
-    })
-    if (!filePath) return
-    const res = await invoke('document.import', { filePath })
-    if (!res.ok) notify('error', '取込を開始できませんでした', res.error.message)
-  }
-
   return (
     <div data-testid="documents-tree">
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '2px 4px' }}>
-        <span style={{ fontWeight: 700 }}>①原本</span>
-        <span style={{ color: 'var(--d2d-fg-muted)' }}>{sources.length}</span>
-        <span style={{ flex: 1 }} />
-        <button
-          type="button"
-          className="d2d-btn small"
-          onClick={() => void importDocument()}
-          data-testid="import-button"
-        >
-          取込…
-        </button>
-      </div>
-      {sources.map((doc) => (
-        <div
-          key={doc.uid}
-          className="d2d-list-row"
-          data-testid={`source-doc-${doc.code}`}
-          onClick={() => openResource(`original://${doc.uid}`, doc.file_name, { preview: true })}
-        >
-          <span style={{ color: 'var(--d2d-fg-muted)', fontSize: 11 }}>{doc.file_type}</span>
-          <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{doc.file_name}</span>
-          {doc.is_current === 0 && <span style={{ color: 'var(--d2d-fg-muted)', fontSize: 10 }}>旧版</span>}
-        </div>
-      ))}
-
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 4px 2px' }}>
-        <span style={{ fontWeight: 700 }}>②抽出データ</span>
-        <span style={{ color: 'var(--d2d-fg-muted)' }}>{extracted.length}</span>
-      </div>
-      {extracted.map((doc) => (
-        <div
-          key={doc.uid}
-          className="d2d-list-row"
-          data-testid={`extracted-doc-${doc.code}`}
-          onClick={() => openResource(`extracted://${doc.uid}`, `抽出: ${doc.title ?? doc.code}`, { preview: true })}
-        >
-          <ReviewStatusBadge status={reviewStateFromEntityStatus(doc.status)} />
-          <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{doc.title ?? doc.code}</span>
-          <span style={{ color: 'var(--d2d-fg-muted)', fontSize: 11 }}>{doc.item_count}要素</span>
-        </div>
-      ))}
-
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 4px 2px' }}>
-        <span style={{ fontWeight: 700 }}>③中間データ</span>
-        <span style={{ color: 'var(--d2d-fg-muted)' }}>{intermediates.length}</span>
-        <span style={{ flex: 1 }} />
-        <button
-          type="button"
-          className="d2d-btn small"
-          data-testid="intermediate-import-button"
-          onClick={() => {
-            setSelectedArtifactUid(null)
-            setSelectedSources(new Set())
-            setImportDialogOpen(true)
-          }}
-        >
-          取込
-        </button>
-      </div>
-      {phases
-        .filter((p) => p.is_active === 1)
-        .map((phase) => (
-          <div key={phase.uid} data-testid={`phase-${phase.dev_phase_id}`}>
-            <div style={{ padding: '5px 4px 2px', fontWeight: 600 }}>▾ {phase.dev_phase_name}</div>
-            {artifacts
-              .filter((a) => a.is_active === 1 && a.dev_phase_id === phase.dev_phase_id)
-              .map((artifact) => {
-                const doc = intermediates.find(
-                  (m) => m.dev_phase_id === phase.dev_phase_id && m.artifact_type_id === artifact.artifact_type_id
-                )
-                const sourceIds = doc?.sources?.map((x) => x.extracted_document_uid) ?? []
-                return (
-                  <div
-                    key={artifact.uid}
-                    data-testid={
-                      doc
-                        ? `intermediate-doc-${doc.code}`
-                        : `artifact-slot-${phase.dev_phase_id}-${artifact.artifact_type_id}`
-                    }
-                    style={{ paddingLeft: 14, marginBottom: 3 }}
-                  >
-                    <div
-                      className="d2d-list-row"
-                      style={{ paddingLeft: 0, alignItems: 'center' }}
-                      onClick={() =>
-                        doc &&
-                        openResource(`intermediate://${doc.uid}`, `③: ${doc.title ?? artifact.artifact_name}`, {
-                          preview: true
-                        })
-                      }
-                    >
-                      {doc && <ReviewStatusBadge status={reviewStateFromEntityStatus(doc.status)} />}
-                      <span style={{ flex: 1, minWidth: 0, fontWeight: 500 }}>{artifact.artifact_name}</span>
-                      {doc && (
-                        <button
-                          type="button"
-                          className="d2d-btn small"
-                          data-testid={`chunks-${doc.code}`}
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            openResource(`chunk://${doc.uid}`, `チャンク: ${doc.title ?? artifact.artifact_name}`, {
-                              preview: false
-                            })
-                          }}
-                        >
-                          チャンク
-                        </button>
-                      )}
-                    </div>
-                    <div
-                      style={{
-                        display: 'flex',
-                        flexDirection: 'column',
-                        padding: '1px 4px 3px 24px',
-                        color: 'var(--d2d-fg-muted)',
-                        fontSize: 11,
-                        overflowWrap: 'anywhere'
-                      }}
-                    >
-                      {sourceIds.length === 0 ? (
-                        <span>↳ 統合元未選択</span>
-                      ) : (
-                        sourceIds.map((id) => (
-                          <span key={id}>↳ {extracted.find((x) => x.uid === id)?.title ?? id}</span>
-                        ))
-                      )}
-                    </div>
-                  </div>
-                )
-              })}
+      <details open className="d2d-explorer-section" data-testid="explorer-section-original">
+        <summary className="d2d-explorer-section-header">
+          <span className="d2d-explorer-section-title">①原本</span>
+          <span className="d2d-explorer-section-count">{sources.length}</span>
+        </summary>
+        {sources.map((doc) => (
+          <div
+            key={doc.uid}
+            className="d2d-list-row"
+            data-testid={`source-doc-${doc.code}`}
+            title={`名称: ${doc.file_name}\nID: ${doc.code}\n形式: ${doc.file_type}\n状態: ${doc.status}\nSHA-256: ${doc.file_hash}\n取込日時: ${doc.imported_at}`}
+            onClick={() => openResource(`original://${doc.uid}`, doc.file_name, { preview: true })}
+          >
+            <span style={{ color: 'var(--d2d-fg-muted)', fontSize: 11 }}>{doc.file_type}</span>
+            <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{doc.file_name}</span>
+            {doc.is_current === 0 && <span style={{ color: 'var(--d2d-fg-muted)', fontSize: 10 }}>旧版</span>}
           </div>
         ))}
-      {importDialogOpen && (
-        <div
-          role="dialog"
-          data-testid="intermediate-source-dialog"
-          style={{
-            position: 'fixed',
-            inset: '12% 20%',
-            zIndex: 20,
-            background: 'var(--d2d-surface-raised)',
-            color: 'var(--d2d-fg)',
-            border: '1px solid var(--d2d-border)',
-            borderRadius: 'var(--d2d-radius)',
-            padding: 16,
-            boxShadow: '0 8px 30px #0008',
-            overflow: 'auto'
-          }}
-        >
-          <h3 style={{ marginTop: 0 }}>③中間データへ取込</h3>
-          <section data-testid="intermediate-import-targets">
-            <b>取込先（③中間データの成果物・1件選択）</b>
-            {phases
-              .filter((phase) => phase.is_active === 1)
-              .flatMap((phase) =>
-                artifacts
-                  .filter((artifact) => artifact.is_active === 1 && artifact.dev_phase_id === phase.dev_phase_id)
-                  .map((artifact) => {
-                    const checked = selectedArtifactUid === artifact.uid
-                    return (
-                      <label key={artifact.uid} style={{ display: 'block', padding: 6 }}>
-                        <input
-                          type="checkbox"
-                          data-testid={`intermediate-target-${phase.dev_phase_id}-${artifact.artifact_type_id}`}
-                          checked={checked}
-                          onChange={(event) => {
-                            if (!event.target.checked) {
-                              setSelectedArtifactUid(null)
-                              setSelectedSources(new Set())
-                              return
-                            }
-                            const existing = intermediates.find(
-                              (doc) =>
-                                doc.dev_phase_id === phase.dev_phase_id &&
-                                doc.artifact_type_id === artifact.artifact_type_id
-                            )
-                            setSelectedArtifactUid(artifact.uid)
-                            setSelectedSources(
-                              new Set(existing?.sources?.map((source) => source.extracted_document_uid) ?? [])
-                            )
-                          }}
-                        />{' '}
-                        {phase.dev_phase_name} / {artifact.artifact_name}
-                      </label>
-                    )
-                  })
-              )}
-          </section>
-          <section data-testid="intermediate-import-sources" style={{ marginTop: 12 }}>
-            <b>取込元（②抽出データ・複数選択可）</b>
-            {extracted
-              .filter((item) => item.status === 'approved')
-              .map((item) => (
-                <label key={item.uid} style={{ display: 'block', padding: 6 }}>
-                  <input
-                    type="checkbox"
-                    data-testid={`intermediate-source-${item.code}`}
-                    disabled={!selectedArtifactUid}
-                    checked={selectedSources.has(item.uid)}
-                    onChange={(event) =>
-                      setSelectedSources((current) => {
-                        const next = new Set(current)
-                        if (event.target.checked) next.add(item.uid)
-                        else next.delete(item.uid)
-                        return next
-                      })
-                    }
-                  />{' '}
-                  {item.title ?? item.code}
-                </label>
-              ))}
-          </section>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
-            <button className="d2d-btn" onClick={() => setImportDialogOpen(false)}>
-              キャンセル
-            </button>
-            <button
-              className="d2d-btn primary"
-              disabled={!selectedArtifactUid || selectedSources.size === 0}
-              onClick={() => void saveArtifactSources()}
+      </details>
+
+      <details open className="d2d-explorer-section" data-testid="explorer-section-extracted">
+        <summary className="d2d-explorer-section-header">
+          <span className="d2d-explorer-section-title">②抽出データ</span>
+          <span className="d2d-explorer-section-count">{extracted.length}</span>
+          <span
+            className={`d2d-unconfirmed-badge ${extractedUnconfirmed === 0 ? 'is-zero' : ''}`}
+            data-testid="extracted-unconfirmed-badge"
+            title="正本確定していない抽出要素数"
+          >
+            未確定 {extractedUnconfirmed}
+          </span>
+        </summary>
+        <p className="d2d-explorer-hint">編集する場合は、対象の抽出データを選択してください。</p>
+        {extracted.map((doc) => (
+          <div
+            key={doc.uid}
+            className="d2d-list-row"
+            data-testid={`extracted-doc-${doc.code}`}
+            title={`名称: ${doc.title ?? doc.code}\nID: ${doc.code}\n状態: ${doc.status} / ${doc.extraction_status}\n抽出器: ${doc.extractor_name} ${doc.extractor_version}\n要素数: ${doc.item_count}\n未確定: ${doc.unconfirmed_count}\n抽出日時: ${doc.extracted_at}`}
+            onClick={() => openResource(`extracted://${doc.uid}`, `抽出: ${doc.title ?? doc.code}`, { preview: true })}
+          >
+            <ReviewStatusBadge status={reviewStateFromEntityStatus(doc.status)} />
+            <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{doc.title ?? doc.code}</span>
+            <span
+              className={`d2d-unconfirmed-badge ${doc.unconfirmed_count === 0 ? 'is-zero' : ''}`}
+              data-testid={`extracted-unconfirmed-${doc.code}`}
             >
-              選択して取込
-            </button>
+              未確定 {doc.unconfirmed_count}
+            </span>
+            <span style={{ color: 'var(--d2d-fg-muted)', fontSize: 11 }}>{doc.item_count}要素</span>
           </div>
-        </div>
-      )}
+        ))}
+      </details>
+
+      <details open className="d2d-explorer-section" data-testid="explorer-section-intermediate">
+        <summary className="d2d-explorer-section-header">
+          <span className="d2d-explorer-section-title">③中間データ</span>
+          <span className="d2d-explorer-section-count">{intermediates.length}</span>
+          <span
+            className={`d2d-unconfirmed-badge ${intermediateUnconfirmed === 0 ? 'is-zero' : ''}`}
+            data-testid="intermediate-unconfirmed-badge"
+            title="正本確定していない中間要素数"
+          >
+            未確定 {intermediateUnconfirmed}
+          </span>
+        </summary>
+        {phases
+          .filter((phase) => phase.is_active === 1)
+          .map((phase) => (
+            <div key={phase.uid} data-testid={`phase-${phase.dev_phase_id}`}>
+              <div style={{ padding: '5px 4px 2px', fontWeight: 600 }}>▾ {phase.dev_phase_name}</div>
+              {artifacts
+                .filter((artifact) => artifact.is_active === 1 && artifact.dev_phase_id === phase.dev_phase_id)
+                .map((artifact) => {
+                  const doc = intermediates.find(
+                    (item) =>
+                      item.dev_phase_id === phase.dev_phase_id && item.artifact_type_id === artifact.artifact_type_id
+                  )
+                  const sourceIds = doc?.sources?.map((source) => source.extracted_document_uid) ?? []
+                  const tooltip = doc
+                    ? `名称: ${artifact.artifact_name}\nID: ${doc.code}\n状態: ${doc.status} / ${doc.intermediate_status}\n開発フェーズ: ${phase.dev_phase_name}\n成果物: ${artifact.artifact_name}\n要素数: ${doc.item_count}\n未確定: ${doc.unconfirmed_count}\n統合元: ${sourceIds.length}件\n生成日時: ${doc.generated_at}`
+                    : `名称: ${artifact.artifact_name}\n開発フェーズ: ${phase.dev_phase_name}\n成果物種別: ${artifact.artifact_type_id}\n状態: 未作成`
+                  return (
+                    <div
+                      key={artifact.uid}
+                      data-testid={
+                        doc
+                          ? `intermediate-doc-${doc.code}`
+                          : `artifact-slot-${phase.dev_phase_id}-${artifact.artifact_type_id}`
+                      }
+                      title={tooltip}
+                      style={{ paddingLeft: 14, marginBottom: 3 }}
+                    >
+                      <div
+                        className="d2d-list-row"
+                        style={{ paddingLeft: 0, alignItems: 'center' }}
+                        onClick={() =>
+                          doc &&
+                          openResource(`intermediate://${doc.uid}`, `③: ${artifact.artifact_name}`, { preview: true })
+                        }
+                      >
+                        {doc && <ReviewStatusBadge status={reviewStateFromEntityStatus(doc.status)} />}
+                        <span style={{ flex: 1, minWidth: 0, fontWeight: 500 }}>{artifact.artifact_name}</span>
+                        {doc && (
+                          <span
+                            className={`d2d-unconfirmed-badge ${doc.unconfirmed_count === 0 ? 'is-zero' : ''}`}
+                            data-testid={`intermediate-unconfirmed-${doc.code}`}
+                          >
+                            未確定 {doc.unconfirmed_count}
+                          </span>
+                        )}
+                      </div>
+                      <div className="d2d-explorer-sources">
+                        {sourceIds.length === 0 ? (
+                          <span>↳ 統合元未選択</span>
+                        ) : (
+                          sourceIds.map((id) => (
+                            <span key={id}>↳ {extracted.find((item) => item.uid === id)?.title ?? id}</span>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+            </div>
+          ))}
+      </details>
       <DesignModelTree />
     </div>
   )
-
-  async function saveArtifactSources(): Promise<void> {
-    const artifact = artifacts.find((item) => item.uid === selectedArtifactUid)
-    const phase = artifact ? phases.find((item) => item.dev_phase_id === artifact.dev_phase_id) : undefined
-    if (!artifact || !phase || selectedSources.size === 0) return
-
-    const existing = intermediates.find(
-      (doc) => doc.dev_phase_id === phase.dev_phase_id && doc.artifact_type_id === artifact.artifact_type_id
-    )
-    const res = existing
-      ? await invoke<{ sourceCount: number }>('intermediate.updateSources', {
-          uid: existing.uid,
-          extractedDocumentUids: [...selectedSources]
-        })
-      : await invoke<{ code: string }>('intermediate.create', {
-          extractedDocumentUids: [...selectedSources],
-          artifactTypeId: artifact.artifact_type_id,
-          devPhaseId: phase.dev_phase_id,
-          title: artifact.artifact_name,
-          importItems: false
-        })
-    if (res.ok) {
-      notify('info', existing ? '③中間データの取込元を更新しました' : '③中間データを作成しました')
-      setImportDialogOpen(false)
-      setSelectedArtifactUid(null)
-      setSelectedSources(new Set())
-      await refresh()
-    } else {
-      notify('error', '③中間データへ取込できませんでした', res.error.message)
-    }
-  }
 }
 
 /** 原本ビュー（V-01）。プレビューと抽出実行の起点 */

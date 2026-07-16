@@ -11,20 +11,6 @@ import { useJobsStore } from '../../stores/jobs-store'
 import { useProjectStore } from '../../stores/project-store'
 
 const CATEGORIES = ['STD', 'REQ', 'CST', 'FUNC', 'STRUCT', 'BEH', 'STATE', 'IF', 'DATA', 'VERIF', 'MGMT', 'IMPL']
-const RELATION_TYPES = [
-  'satisfies',
-  'allocated_to',
-  'verifies',
-  'contains',
-  'decomposes',
-  'implements',
-  'uses',
-  'calls',
-  'conflicts_with',
-  'relates_to',
-  'based_on'
-]
-
 interface CandidateElement {
   temp_id: string
   category: string
@@ -38,6 +24,12 @@ interface CandidateRelation {
   to_temp_id: string
   relation_type: string
   rationale?: string | null
+}
+
+interface AllowedRelationRule {
+  relationType: string
+  sourceCategory: string
+  targetCategory: string
 }
 
 interface CandidateSetResponse {
@@ -55,6 +47,7 @@ export function CandidateSetReviewEditor({ llmRunUid }: { llmRunUid: string }): 
   const [relations, setRelations] = useState<CandidateRelation[]>([])
   const [serverErrors, setServerErrors] = useState<string[]>([])
   const [adopting, setAdopting] = useState(false)
+  const [allowedRules, setAllowedRules] = useState<AllowedRelationRule[]>([])
   const notify = useJobsStore((s) => s.notify)
   const closeTab = useEditorStore((s) => s.closeTab)
 
@@ -71,6 +64,11 @@ export function CandidateSetReviewEditor({ llmRunUid }: { llmRunUid: string }): 
   useEffect(() => {
     void load()
   }, [load])
+  useEffect(() => {
+    void invoke<AllowedRelationRule[]>('design.listAllowedRelationRules').then((res) => {
+      if (res.ok) setAllowedRules(res.result)
+    })
+  }, [])
 
   // クライアント側の即時検証（未解決参照・自己参照・空タイトル）
   const clientErrors: string[] = []
@@ -84,6 +82,27 @@ export function CandidateSetReviewEditor({ llmRunUid }: { llmRunUid: string }): 
     if (r.from_temp_id === r.to_temp_id) clientErrors.push(`関係[${i}] が自己参照です`)
   })
 
+  const allowedTypes = (relation: CandidateRelation): string[] => {
+    const source = elements.find((e) => e.temp_id === relation.from_temp_id)?.category
+    const target = elements.find((e) => e.temp_id === relation.to_temp_id)?.category
+    return [
+      ...new Set(
+        allowedRules
+          .filter(
+            (rule) =>
+              (rule.sourceCategory === source || rule.sourceCategory === 'ANY') &&
+              (rule.targetCategory === target || rule.targetCategory === 'ANY')
+          )
+          .map((rule) => rule.relationType)
+      )
+    ]
+  }
+  const relationAllowed = (relation: CandidateRelation): boolean =>
+    allowedTypes(relation).includes(relation.relation_type)
+  relations.forEach((relation, i) => {
+    if (allowedRules.length > 0 && !relationAllowed(relation))
+      clientErrors.push(`関係[${i}] は許容外です: ${relation.relation_type}`)
+  })
   const titleOf = (tempId: string): string => elements.find((e) => e.temp_id === tempId)?.title ?? tempId
 
   const updateElement = (index: number, patch: Partial<CandidateElement>): void => {
@@ -252,7 +271,11 @@ export function CandidateSetReviewEditor({ llmRunUid }: { llmRunUid: string }): 
         </thead>
         <tbody>
           {relations.map((relation, i) => (
-            <tr key={i} data-testid={`relation-row-${i}`}>
+            <tr
+              key={i}
+              data-testid={`relation-row-${i}`}
+              className={allowedRules.length > 0 && !relationAllowed(relation) ? 'relation-candidate-invalid' : ''}
+            >
               <td style={tdStyle}>
                 <select
                   value={relation.from_temp_id}
@@ -270,9 +293,15 @@ export function CandidateSetReviewEditor({ llmRunUid }: { llmRunUid: string }): 
                   value={relation.relation_type}
                   onChange={(e) => updateRelation(i, { relation_type: e.target.value })}
                 >
-                  {RELATION_TYPES.map((t) => (
+                  {[
+                    ...new Set([
+                      ...(relationAllowed(relation) ? [] : [relation.relation_type]),
+                      ...allowedTypes(relation)
+                    ])
+                  ].map((t) => (
                     <option key={t} value={t}>
                       {t}
+                      {!allowedTypes(relation).includes(t) ? '（許容外）' : ''}
                     </option>
                   ))}
                 </select>

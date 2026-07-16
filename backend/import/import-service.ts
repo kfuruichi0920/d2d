@@ -117,6 +117,7 @@ export interface SourceDocumentListItem {
   code: string
   title: string | null
   status: string
+  is_archived: number
   file_name: string
   file_type: string
   file_hash: string
@@ -124,16 +125,20 @@ export interface SourceDocumentListItem {
   imported_at: string
 }
 
-export function listSourceDocuments(db: Database, projectUid: string): SourceDocumentListItem[] {
+export function listSourceDocuments(
+  db: Database,
+  projectUid: string,
+  options?: { includeArchived?: boolean }
+): SourceDocumentListItem[] {
   return db
     .prepare(
-      `SELECT e.uid, e.code, e.title, e.status, d.file_name, d.file_type, d.file_hash, d.is_current, d.imported_at
+      `SELECT e.uid, e.code, e.title, e.status, e.is_archived, d.file_name, d.file_type, d.file_hash, d.is_current, d.imported_at
          FROM source_document d
          JOIN entity_registry e ON e.uid = d.uid
-        WHERE e.project_uid = ? AND e.status <> 'deleted'
+        WHERE e.project_uid = ? AND e.status <> 'deleted' AND (? = 1 OR e.is_archived = 0)
         ORDER BY d.imported_at DESC`
     )
-    .all(projectUid) as SourceDocumentListItem[]
+    .all(projectUid, options?.includeArchived ? 1 : 0) as SourceDocumentListItem[]
 }
 
 export function getSourceDocument(
@@ -142,7 +147,7 @@ export function getSourceDocument(
 ): SourceDocumentListItem & { blob_relative_path: string | null } {
   const row = db
     .prepare(
-      `SELECT e.uid, e.code, e.title, e.status, d.file_name, d.file_type, d.file_hash, d.is_current, d.imported_at,
+      `SELECT e.uid, e.code, e.title, e.status, e.is_archived, d.file_name, d.file_type, d.file_hash, d.is_current, d.imported_at,
               b.relative_path AS blob_relative_path
          FROM source_document d
          JOIN entity_registry e ON e.uid = d.uid

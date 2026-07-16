@@ -14,6 +14,7 @@ import {
   createDesignElement,
   createTraceLink,
   listDesignElements,
+  listAllowedRelationRules,
   listTraceLinks
 } from './design-service'
 
@@ -85,6 +86,12 @@ describe('④設計モデル（P8）', () => {
     expect(checkRelationAllowed(db, 'depends_on', 'REQ', 'FUNC').allowed).toBe(false) // 非採用 relation_type
   })
 
+  it('候補編集用に許容関係ルールを返す（MODEL-010）', () => {
+    const rules = listAllowedRelationRules(db)
+    expect(rules).toContainEqual({ relationType: 'satisfies', sourceCategory: 'FUNC', targetCategory: 'REQ' })
+    expect(rules).toContainEqual({ relationType: 'relates_to', sourceCategory: 'ANY', targetCategory: 'ANY' })
+    expect(rules).not.toContainEqual({ relationType: 'satisfies', sourceCategory: 'REQ', targetCategory: 'FUNC' })
+  })
   it('createTraceLink: 許容外・必須属性欠落・重複を拒否する（P8-2）', () => {
     const req = createDesignElement(db, projectUid, { category: 'REQ', title: 'R1' })
     const func = createDesignElement(db, projectUid, { category: 'FUNC', title: 'F1' })

@@ -2,7 +2,7 @@
  * Local Backend プロセスの起動・停止・接続監視（P0-3）。
  * Main は Gateway として Backend への要求中継のみを行い、業務ロジックを持たない。
  */
-import { app, safeStorage, utilityProcess, type UtilityProcess } from 'electron'
+import { app, safeStorage, shell, utilityProcess, type UtilityProcess } from 'electron'
 import { join } from 'node:path'
 import type {
   ApiError,
@@ -189,6 +189,26 @@ export class BackendProcessManager {
             throw new Error('OS の資格情報保護機構が利用できません')
           }
           respond({ bridgeId: msg.bridgeId, ok: true, result: safeStorage.encryptString(plain).toString('base64') })
+          return
+        }
+        case 'shell.openPath': {
+          const path = String((msg.bridgeParams as { path?: unknown })?.path ?? '')
+          if (!path) throw new Error('開くファイルパスが指定されていません')
+          void shell
+            .openPath(path)
+            .then((error) => respond({ bridgeId: msg.bridgeId, ok: true, result: error }))
+            .catch((error) =>
+              respond({
+                bridgeId: msg.bridgeId,
+                ok: false,
+                error: {
+                  error_code: 'io',
+                  message: error instanceof Error ? error.message : String(error),
+                  detail: path,
+                  retryable: false
+                }
+              })
+            )
           return
         }
         case 'secure.decrypt': {

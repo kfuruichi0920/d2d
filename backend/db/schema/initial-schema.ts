@@ -117,6 +117,7 @@ CREATE TABLE entity_registry (
     code TEXT NOT NULL CHECK (code GLOB '*-[0-9][0-9][0-9][0-9][0-9][0-9]'),
     title TEXT,
     status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'review', 'approved', 'rejected', 'deleted')),
+    is_archived INTEGER NOT NULL DEFAULT 0 CHECK (is_archived IN (0, 1)),
     owner_uid TEXT,
     review_info_json TEXT,
     memo_json TEXT,

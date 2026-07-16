@@ -5,15 +5,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ColumnDef } from '@tanstack/react-table'
 import { invoke, onBackendEvent } from '../../services/backend'
-import { useEditorStore } from '../../stores/editor-store'
 import { useJobsStore } from '../../stores/jobs-store'
 import { useProjectStore } from '../../stores/project-store'
 import { useSelectionStore } from '../../stores/selection-store'
 import { VirtualDataGrid } from '../common/VirtualDataGrid'
 import { StructuredJsonView } from '../common/StructuredJsonView'
+import { DocumentPreviewMetaControls, useDocumentPreviewMeta } from '../common/DocumentPreviewMeta'
 import { ResourceEditor } from './ResourceEditor'
 import { resourceTypeLabel } from '../../types/resource'
 import { reviewStateFromEntityStatus, ReviewStatusBadge } from '../common/review'
+import { ResizablePaneGroup } from '../workbench/ResizablePaneGroup'
+import { ChunkEditor } from './ChunkEditor'
 
 interface IntermediateElement {
   id: string
@@ -26,6 +28,8 @@ interface IntermediateElement {
   resource_uid?: string
   review?: { status: string }
   source_resource_uids?: string[]
+  source_extracted_item_uids?: string[]
+  extracted_item_uid?: string
   item_type?: string
   intermediate_item_uid?: string
 }
@@ -34,6 +38,7 @@ interface IntermediateDoc {
   uid: string
   code: string
   title: string | null
+  artifact_name?: string | null
   status: string
   artifact_type_id: string
   dev_phase_id: string
@@ -43,15 +48,7 @@ interface IntermediateDoc {
   elements: IntermediateElement[]
 }
 
-interface TextCandidate {
-  llmRunUid: string
-  elementId: string
-  purpose: string
-  originalText: string
-  candidateText: string
-}
-
-type IntermediateEditorMode = 'import' | 'standalone'
+type IntermediateEditorMode = 'import' | 'standalone' | 'chunk'
 type ElementEditorAction = 'add' | 'edit'
 
 interface ElementEditorState {
@@ -100,25 +97,32 @@ function FigureElement({ element }: { element: IntermediateElement }): React.JSX
   )
 }
 
-export function IntermediateDocumentEditor({ uid }: { uid: string }): React.JSX.Element {
+export function IntermediateDocumentEditor({
+  uid,
+  initialMode = 'import'
+}: {
+  uid: string
+  initialMode?: IntermediateEditorMode
+}): React.JSX.Element {
   const [doc, setDoc] = useState<IntermediateDoc | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [activeId, setActiveId] = useState<string | null>(null)
   const [sourceItems, setSourceItems] = useState<(IntermediateElement & { source_title?: string })[]>([])
   const [sourceSelectedIds, setSourceSelectedIds] = useState<Set<string>>(new Set())
   const [sourceActiveId, setSourceActiveId] = useState<string | null>(null)
+  const [sourceAnchorId, setSourceAnchorId] = useState<string | null>(null)
   const [lastSelectedPane, setLastSelectedPane] = useState<'source' | 'intermediate'>('intermediate')
-  const [editorMode, setEditorMode] = useState<IntermediateEditorMode>('import')
+  const [editorMode, setEditorMode] = useState<IntermediateEditorMode>(initialMode)
   const [previewMode, setPreviewMode] = useState<'visual' | 'structure'>('visual')
+  const [previewMeta, setPreviewMeta] = useDocumentPreviewMeta()
   const previewRefs = useRef(new Map<string, HTMLElement>())
   const [elementEditor, setElementEditor] = useState<ElementEditorState | null>(null)
   const [resourceEditing, setResourceEditing] = useState<IntermediateElement | null>(null)
-  const [editCells, setEditCells] = useState<string[][] | null>(null)
-  const [candidate, setCandidate] = useState<TextCandidate | null>(null)
-  const [generating, setGenerating] = useState(false)
   const [terms, setTerms] = useState<string[]>([])
   const notify = useJobsStore((s) => s.notify)
   const setWorkbenchItems = useSelectionStore((s) => s.setWorkbenchItems)
+  const setSelectedItem = useSelectionStore((s) => s.setSelectedItem)
+  const clearSelectedItem = useSelectionStore((s) => s.clearSelectedItem)
 
   const load = useCallback(async () => {
     const [docRes, mdRes, termsRes] = await Promise.all([
@@ -145,7 +149,9 @@ export function IntermediateDocumentEditor({ uid }: { uid: string }): React.JSX.
         ? sourceItems
             .filter((e) => sourceSelectedIds.has(e.id))
             .map((e) => ({
+              contextUri: `intermediate://${uid}`,
               pane: 'extracted' as const,
+              entityUid: e.extracted_item_uid ?? null,
               id: e.id,
               type: e.type,
               resourceUid: e.resource_uid ?? null,
@@ -156,7 +162,9 @@ export function IntermediateDocumentEditor({ uid }: { uid: string }): React.JSX.
         : (doc?.elements ?? [])
             .filter((e) => selectedIds.has(e.id))
             .map((e) => ({
+              contextUri: `intermediate://${uid}`,
               pane: 'intermediate' as const,
+              entityUid: e.intermediate_item_uid ?? null,
               id: e.id,
               type: e.type,
               resourceUid: e.resource_uid ?? null,
@@ -164,7 +172,46 @@ export function IntermediateDocumentEditor({ uid }: { uid: string }): React.JSX.
               status: e.review?.status ?? 'draft'
             }))
     setWorkbenchItems(items)
-  }, [lastSelectedPane, sourceItems, sourceSelectedIds, doc, selectedIds, setWorkbenchItems])
+    const active =
+      lastSelectedPane === 'source'
+        ? sourceItems.find((element) => element.id === sourceActiveId)
+        : doc?.elements.find((element) => element.id === activeId)
+    const entityUid = lastSelectedPane === 'source' ? active?.extracted_item_uid : active?.intermediate_item_uid
+    if (active && entityUid) {
+      setSelectedItem({
+        contextUri: `intermediate://${uid}`,
+        uid: entityUid,
+        displayId: entityUid,
+        entityType: lastSelectedPane === 'source' ? 'extracted_item' : 'intermediate_item',
+        itemType: active.type,
+        status: active.review?.status,
+        properties: {
+          pane: lastSelectedPane === 'source' ? '統合元' : '成果物',
+          elementId: active.id,
+          resourceUid: active.resource_uid,
+          type: active.type,
+          status: active.review?.status,
+          sectionPath: active.section_path,
+          text: active.text ?? active.image,
+          sourceTitle:
+            'source_title' in active && typeof active.source_title === 'string' ? active.source_title : undefined
+        }
+      })
+    }
+  }, [
+    activeId,
+    doc,
+    lastSelectedPane,
+    selectedIds,
+    setSelectedItem,
+    setWorkbenchItems,
+    sourceActiveId,
+    sourceItems,
+    sourceSelectedIds,
+    uid
+  ])
+
+  useEffect(() => () => clearSelectedItem(`intermediate://${uid}`), [clearSelectedItem, uid])
 
   const selected = doc?.elements.find((e) => e.id === activeId) ?? null
 
@@ -194,22 +241,25 @@ export function IntermediateDocumentEditor({ uid }: { uid: string }): React.JSX.
   }, [activeId])
 
   const integrate = async (position: 'above' | 'below'): Promise<void> => {
-    if ((doc?.elements.length ?? 0) > 0 && (!activeId || selectedIds.size !== 1)) return
-    const resourceUids = sourceItems
-      .filter((x) => sourceSelectedIds.has(x.id))
-      .map((x) => x.resource_uid)
-      .filter((x): x is string => Boolean(x))
+    const extractedItemUids = sourceItems
+      .filter((item) => sourceSelectedIds.has(item.id))
+      .map((item) => item.extracted_item_uid)
+      .filter((itemUid): itemUid is string => Boolean(itemUid))
     await call(
       'intermediate.insertExtractedItems',
-      { resourceUids, targetElementId: activeId, position },
-      `${resourceUids.length}要素を統合しました`
+      { extractedItemUids, targetElementId: selectedIds.size === 1 ? activeId : undefined, position },
+      `${extractedItemUids.length}要素を成果物へ追加しました`
     )
   }
-  const applyStatus = async (status: string): Promise<void> => {
+  const unlinkSources = async (): Promise<void> => {
+    const extractedItemUids = sourceItems
+      .filter((item) => sourceSelectedIds.has(item.id))
+      .map((item) => item.extracted_item_uid)
+      .filter((itemUid): itemUid is string => Boolean(itemUid))
     await call(
-      'intermediate.updateItemStatuses',
-      { elementIds: [...selectedIds], status },
-      'レビュー状態を更新しました'
+      'intermediate.unlinkExtractedItems',
+      { extractedItemUids },
+      `${extractedItemUids.length}統合元の紐付けを解除しました`
     )
   }
   const move = async (direction: 'up' | 'down'): Promise<void> => {
@@ -293,149 +343,75 @@ export function IntermediateDocumentEditor({ uid }: { uid: string }): React.JSX.
     notify('info', '中間要素を複製しました')
   }
 
-  const merge = async (): Promise<void> => {
-    if (!doc || selectedIds.size < 2) return
+  const mergeAdjacent = async (direction: 'up' | 'down'): Promise<void> => {
+    if (!doc || !activeId || selectedIds.size !== 1) return
+    const index = doc.elements.findIndex((element) => element.id === activeId)
+    const adjacent = doc.elements[index + (direction === 'up' ? -1 : 1)]
+    if (!adjacent) return
     const result = await invoke<{ newElementId: string; warnings: string[] }>('intermediate.mergeElements', {
       uid,
-      elementIds: [...selectedIds]
+      elementIds: direction === 'up' ? [adjacent.id, activeId] : [activeId, adjacent.id]
     })
     if (!result.ok) {
-      notify('error', '要素をマージできませんでした', result.error.message)
+      notify('error', '要素を統合できませんでした', result.error.message)
       return
     }
     await load()
     setSelectedIds(new Set([result.result.newElementId]))
     setActiveId(result.result.newElementId)
     setLastSelectedPane('intermediate')
-    notify('info', `${selectedIds.size}要素を表示順でマージしました`)
+    notify('info', direction === 'up' ? '上の成果物要素へ統合しました' : '下の成果物要素と統合しました')
   }
-
-  const split = async (): Promise<void> => {
-    if (!selected?.text) return
-    const half = Math.floor(selected.text.length / 2)
-    const breakpoint = selected.text.indexOf('。', half)
-    const at = breakpoint > 0 && breakpoint < selected.text.length - 1 ? breakpoint + 1 : half
-    await call(
-      'intermediate.splitElement',
-      { elementId: selected.id, texts: [selected.text.slice(0, at), selected.text.slice(at)] },
-      '要素を分割しました'
-    )
-  }
-
-  const generateCandidate = async (purpose: 'normalize' | 'describe'): Promise<void> => {
-    if (!selected) return
-    setGenerating(true)
-    setCandidate(null)
-    try {
-      const enq = await invoke<{ jobId: string }>('intermediate.generateTextCandidate', {
-        uid,
-        elementId: selected.id,
-        purpose
-      })
-      if (!enq.ok) {
-        notify('error', '候補生成を開始できませんでした', enq.error.message)
-        return
-      }
-      for (let i = 0; i < 240; i++) {
-        const got = await invoke<{ status: string; output: TextCandidate; error?: { message: string } | null }>(
-          'job.get',
-          {
-            jobId: enq.result.jobId
-          }
-        )
-        if (got.ok && got.result.status === 'success') {
-          setCandidate(got.result.output)
-          return
-        }
-        if (got.ok && ['failed', 'aborted', 'partial'].includes(got.result.status)) {
-          notify('error', 'LLM 候補生成に失敗しました', got.result.error?.message)
-          return
-        }
-        await new Promise((r) => setTimeout(r, 500))
-      }
-      notify('error', 'LLM 候補生成がタイムアウトしました')
-    } finally {
-      setGenerating(false)
-    }
-  }
-
-  const adoptCandidate = async (): Promise<void> => {
-    if (!candidate) return
-    if (
-      await call(
-        'intermediate.adoptTextCandidate',
-        { elementId: candidate.elementId, newText: candidate.candidateText, llmRunUid: candidate.llmRunUid },
-        'LLM 候補を採用しました（根拠に llm_run を記録）'
-      )
-    ) {
-      setCandidate(null)
-    }
-  }
-
   const approve = async (): Promise<void> => {
     if (await call('intermediate.approve', {}, '③中間データを正本確定しました')) {
       void useProjectStore.getState().refreshStats()
     }
   }
 
-  /** ③→④: 全要素からチャンクを作成し LLM 候補を生成、候補セットレビューを開く（P8-3） */
-  const generateDesignCandidates = async (): Promise<void> => {
-    if (!doc) return
-    setGenerating(true)
-    try {
-      const chunkRes = await invoke<{ chunkUid: string }>('chunk.create', {
-        intermediateDocumentUid: uid,
-        elementIds: doc.elements.map((e) => e.id)
-      })
-      if (!chunkRes.ok) {
-        notify('error', 'チャンクを作成できませんでした', chunkRes.error.message)
-        return
-      }
-      const enq = await invoke<{ jobId: string }>('design.generateCandidates', { chunkUid: chunkRes.result.chunkUid })
-      if (!enq.ok) {
-        notify('error', '候補生成を開始できませんでした', enq.error.message)
-        return
-      }
-      for (let i = 0; i < 240; i++) {
-        const got = await invoke<{
-          status: string
-          output: { llmRunUid: string; elementCount: number }
-          error?: { message: string } | null
-        }>('job.get', { jobId: enq.result.jobId })
-        if (got.ok && got.result.status === 'success') {
-          notify('info', `④モデル候補を生成しました（要素 ${got.result.output.elementCount} 件）`)
-          useEditorStore
-            .getState()
-            .openResource(`candidate://${got.result.output.llmRunUid}`, '④候補セット', { preview: false })
-          return
-        }
-        if (got.ok && ['failed', 'aborted', 'partial'].includes(got.result.status)) {
-          notify('error', '④候補生成に失敗しました', got.result.error?.message)
-          return
-        }
-        await new Promise((r) => setTimeout(r, 500))
-      }
-      notify('error', '④候補生成がタイムアウトしました')
-    } finally {
-      setGenerating(false)
-    }
-  }
-
-  const integratedResourceUids = new Set(
-    doc?.elements.flatMap((e) => e.source_resource_uids ?? [e.resource_uid ?? '']) ?? []
+  const integratedSourceItemIds = new Set(
+    doc?.elements.flatMap((element) => element.source_extracted_item_uids ?? []) ?? []
   )
-  const activeSourceResource = sourceItems.find((e) => e.id === sourceActiveId)?.resource_uid
+  const selectedSourceItemUids = new Set(
+    sourceItems
+      .filter((item) => sourceSelectedIds.has(item.id) && item.extracted_item_uid)
+      .map((item) => item.extracted_item_uid!)
+  )
   const relatedCenterIds = new Set(
     doc?.elements
-      .filter((e) => activeSourceResource && e.source_resource_uids?.includes(activeSourceResource))
-      .map((e) => e.id) ?? []
+      .filter((element) => element.source_extracted_item_uids?.some((itemUid) => selectedSourceItemUids.has(itemUid)))
+      .map((element) => element.id) ?? []
   )
-  const activeCenter = doc?.elements.find((e) => e.id === activeId)
+  const selectedCenterSourceUids = new Set(
+    doc?.elements
+      .filter((element) => selectedIds.has(element.id))
+      .flatMap((element) => element.source_extracted_item_uids ?? []) ?? []
+  )
   const relatedSourceIds = new Set(
     sourceItems
-      .filter((e) => e.resource_uid && activeCenter?.source_resource_uids?.includes(e.resource_uid))
-      .map((e) => e.id)
+      .filter((item) => item.extracted_item_uid && selectedCenterSourceUids.has(item.extracted_item_uid))
+      .map((item) => item.id)
   )
+  const linkedSourceItemCount = sourceItems.filter(
+    (item) => item.extracted_item_uid && integratedSourceItemIds.has(item.extracted_item_uid)
+  ).length
+  const integratedSourceRowIds = new Set(
+    sourceItems
+      .filter((item) => item.extracted_item_uid && integratedSourceItemIds.has(item.extracted_item_uid))
+      .map((item) => item.id)
+  )
+
+  useEffect(() => {
+    if (lastSelectedPane !== 'source') return
+    const selectedItemUids = new Set(
+      sourceItems
+        .filter((item) => sourceSelectedIds.has(item.id) && item.extracted_item_uid)
+        .map((item) => item.extracted_item_uid!)
+    )
+    const related = doc?.elements.find((element) =>
+      element.source_extracted_item_uids?.some((itemUid) => selectedItemUids.has(itemUid))
+    )
+    if (related) previewRefs.current.get(related.id)?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  }, [lastSelectedPane, sourceActiveId, sourceSelectedIds, sourceItems, doc])
   const cycleStatus = async (element: IntermediateElement): Promise<void> => {
     const statuses = ['draft', 'approved', 'review', 'rejected']
     const current = element.review?.status ?? 'draft'
@@ -519,13 +495,11 @@ export function IntermediateDocumentEditor({ uid }: { uid: string }): React.JSX.
 
   const sourceColumns: ColumnDef<IntermediateElement & { source_title?: string }, unknown>[] = [
     {
-      header: '選択',
-      cell: ({ row }) =>
-        row.original.resource_uid && integratedResourceUids.has(row.original.resource_uid) ? (
-          <span className="d2d-badge status-success">統合済</span>
-        ) : (
-          <input type="checkbox" readOnly checked={sourceSelectedIds.has(row.original.id)} />
-        )
+      header: '状態',
+      accessorKey: 'review',
+      cell: ({ row }) => (
+        <ReviewStatusBadge status={reviewStateFromEntityStatus(row.original.review?.status ?? 'draft')} />
+      )
     },
     { header: '統合元', accessorKey: 'source_title' },
     { header: '種別', accessorKey: 'type' },
@@ -534,8 +508,53 @@ export function IntermediateDocumentEditor({ uid }: { uid: string }): React.JSX.
 
   if (!doc) return <div className="d2d-empty">読込中…</div>
 
-  const canText = selected && ['paragraph', 'heading', 'list_item', 'caption'].includes(selected.type)
-  const canMerge = selectedIds.size >= 2
+  const modeButtons = (
+    <div style={{ display: 'flex', gap: 4 }} aria-label="中間データ編集画面切替">
+      <button
+        type="button"
+        className={`d2d-btn small${editorMode === 'import' ? ' primary' : ''}`}
+        data-testid="intermediate-mode-import"
+        onClick={() => setEditorMode('import')}
+      >
+        中間データ取込編集
+      </button>
+      <button
+        type="button"
+        className={`d2d-btn small${editorMode === 'standalone' ? ' primary' : ''}`}
+        data-testid="intermediate-mode-standalone"
+        onClick={() => {
+          setEditorMode('standalone')
+          setLastSelectedPane('intermediate')
+        }}
+      >
+        中間データ単独編集
+      </button>
+      <button
+        type="button"
+        className={`d2d-btn small${editorMode === 'chunk' ? ' primary' : ''}`}
+        data-testid="intermediate-mode-chunk"
+        onClick={() => setEditorMode('chunk')}
+      >
+        チャンク編集
+      </button>
+    </div>
+  )
+
+  if (editorMode === 'chunk') {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }} data-testid="intermediate-editor">
+        <div className="intermediate-editor-header">
+          <h1 style={{ fontSize: 14, margin: 0 }}>{doc.artifact_name ?? doc.title ?? doc.code}</h1>
+          <ReviewStatusBadge status={reviewStateFromEntityStatus(doc.status)} />
+          {modeButtons}
+        </div>
+        <ChunkEditor uid={uid} />
+      </div>
+    )
+  }
+  const selectedIndex = activeId ? doc.elements.findIndex((element) => element.id === activeId) : -1
+  const allItemsApproved =
+    doc.status === 'approved' && doc.elements.every((element) => element.review?.status === 'approved')
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }} data-testid="intermediate-editor">
@@ -548,179 +567,24 @@ export function IntermediateDocumentEditor({ uid }: { uid: string }): React.JSX.
           borderBottom: '1px solid var(--d2d-border)'
         }}
       >
-        <h1 style={{ fontSize: 14, margin: 0 }}>{doc.title ?? doc.code}</h1>
+        <h1 style={{ fontSize: 14, margin: 0 }}>{doc.artifact_name ?? doc.title ?? doc.code}</h1>
         <ReviewStatusBadge status={reviewStateFromEntityStatus(doc.status)} />
         <span style={{ color: 'var(--d2d-fg-muted)' }}>
           {doc.artifact_type_id} / {doc.dev_phase_id} / {doc.elements.length} 要素 / 統合元 {doc.sources.length} 文書
         </span>
-        <div style={{ display: 'flex', gap: 4 }} aria-label="中間データ編集画面切替">
-          <button
-            type="button"
-            className={`d2d-btn small${editorMode === 'import' ? ' primary' : ''}`}
-            data-testid="intermediate-mode-import"
-            onClick={() => setEditorMode('import')}
-          >
-            中間データ取込編集
-          </button>
-          <button
-            type="button"
-            className={`d2d-btn small${editorMode === 'standalone' ? ' primary' : ''}`}
-            data-testid="intermediate-mode-standalone"
-            onClick={() => {
-              setEditorMode('standalone')
-              setLastSelectedPane('intermediate')
-            }}
-          >
-            中間データ単独編集
-          </button>
-        </div>
+        {modeButtons}
         <span style={{ flex: 1 }} />
-        <button
-          type="button"
-          className="d2d-btn"
-          disabled={generating}
-          onClick={() => void generateDesignCandidates()}
-          data-testid="generate-design-candidates"
-          title="全要素からチャンクを作成し、LLM で④設計モデル候補を生成します"
-        >
-          {generating ? '生成中…' : '④モデル候補を生成（LLM）'}
-        </button>
+
         <button
           type="button"
           className="d2d-btn primary"
           onClick={() => void approve()}
-          disabled={doc.status === 'approved'}
+          disabled={allItemsApproved}
           data-testid="intermediate-approve"
         >
-          {doc.status === 'approved' ? '正本確定済み' : '③正本として確定'}
+          {allItemsApproved ? '正本確定済み' : '③正本として確定'}
         </button>
       </div>
-
-      <div
-        style={{
-          display: 'flex',
-          gap: 6,
-          alignItems: 'center',
-          padding: '4px 12px',
-          borderBottom: '1px solid var(--d2d-border)'
-        }}
-        data-testid="intermediate-element-actions"
-      >
-        {doc.elements.length === 0 ? (
-          <button
-            type="button"
-            className="d2d-btn small"
-            data-testid="element-add-first"
-            onClick={() => openAddEditor('below')}
-          >
-            要素を追加
-          </button>
-        ) : (
-          <>
-            <button
-              type="button"
-              className="d2d-btn small"
-              data-testid="element-add-above"
-              disabled={!selected || selectedIds.size !== 1}
-              onClick={() => openAddEditor('above')}
-            >
-              上に追加
-            </button>
-            <button
-              type="button"
-              className="d2d-btn small"
-              data-testid="element-add-below"
-              disabled={!selected || selectedIds.size !== 1}
-              onClick={() => openAddEditor('below')}
-            >
-              下に追加
-            </button>
-          </>
-        )}
-        <button
-          type="button"
-          className="d2d-btn small"
-          data-testid="element-duplicate"
-          disabled={!selected || selectedIds.size !== 1}
-          onClick={() => void duplicateSelected()}
-        >
-          複製
-        </button>
-        <button
-          type="button"
-          className="d2d-btn small"
-          data-testid="element-edit-open"
-          disabled={!selected || selectedIds.size !== 1}
-          onClick={() => selected && openElementEditor(selected)}
-        >
-          編集
-        </button>
-        <button
-          type="button"
-          className="d2d-btn small danger"
-          data-testid="element-delete"
-          disabled={selectedIds.size === 0}
-          onClick={() => void removeSelected()}
-        >
-          削除
-        </button>
-        <span style={{ color: 'var(--d2d-fg-muted)', fontSize: 11 }}>ダブルクリック / Space / Enter でも編集</span>
-      </div>
-      {selected && (
-        <div
-          style={{
-            display: 'flex',
-            gap: 6,
-            alignItems: 'center',
-            padding: '4px 12px',
-            borderBottom: '1px solid var(--d2d-border)'
-          }}
-          data-testid="element-toolbar"
-        >
-          <span style={{ color: 'var(--d2d-fg-muted)' }}>選択: {selected.id}</span>
-          {canMerge && (
-            <button type="button" className="d2d-btn small" onClick={() => void merge()} data-testid="merge-button">
-              マージ
-            </button>
-          )}
-          {selected.type === 'paragraph' && (
-            <button type="button" className="d2d-btn small" onClick={() => void split()}>
-              分割
-            </button>
-          )}
-          {canText && (
-            <button
-              type="button"
-              className="d2d-btn small"
-              disabled={generating}
-              onClick={() => void generateCandidate('normalize')}
-              data-testid="normalize-button"
-            >
-              {generating ? '生成中…' : 'LLM正規化候補'}
-            </button>
-          )}
-          {(selected.type === 'table' || selected.type === 'figure') && (
-            <button
-              type="button"
-              className="d2d-btn small"
-              disabled={generating}
-              onClick={() => void generateCandidate('describe')}
-            >
-              {generating ? '生成中…' : 'LLM説明候補'}
-            </button>
-          )}
-          {selected.type === 'table' && (
-            <button
-              type="button"
-              className="d2d-btn small"
-              onClick={() => setEditCells((selected.rows ?? []).map((row) => row.map((cell) => cell.text)))}
-              data-testid="edit-table-button"
-            >
-              表を編集
-            </button>
-          )}
-        </div>
-      )}
 
       {resourceEditing?.resource_uid && resourceEditing.intermediate_item_uid && (
         <div role="dialog" aria-modal="true" className="resource-editor-dialog" data-testid="resource-edit-dialog">
@@ -813,180 +677,152 @@ export function IntermediateDocumentEditor({ uid }: { uid: string }): React.JSX.
         </div>
       )}
 
-      {editCells && selected && (
-        <div
-          style={{ padding: '6px 12px', borderBottom: '1px solid var(--d2d-border)' }}
-          data-testid="table-cell-editor"
-        >
-          <div style={{ fontWeight: 700, fontSize: 12, marginBottom: 4 }}>
-            表グリッド編集（EDIT-022。保存でセルIDを付与した新リソースへ反映）
-          </div>
-          <table style={{ borderCollapse: 'collapse' }}>
-            <tbody>
-              {editCells.map((row, rowNo) => (
-                <tr key={rowNo}>
-                  {row.map((cell, colNo) => (
-                    <td key={colNo} style={{ border: '1px solid var(--d2d-border)', padding: 2 }}>
-                      <input
-                        value={cell}
-                        style={{ width: 130 }}
-                        data-testid={`cell-${rowNo}-${colNo}`}
-                        onChange={(e) =>
-                          setEditCells((prev) =>
-                            prev!.map((r, i) => (i === rowNo ? r.map((c, j) => (j === colNo ? e.target.value : c)) : r))
-                          )
-                        }
-                      />
-                    </td>
-                  ))}
-                  <td>
-                    <button
-                      type="button"
-                      className="d2d-btn small"
-                      title="この行の右に列を追加"
-                      onClick={() => setEditCells((prev) => prev!.map((r, i) => (i === rowNo ? [...r, ''] : r)))}
-                    >
-                      +列
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
-            <button
-              type="button"
-              className="d2d-btn small"
-              onClick={() => setEditCells((prev) => [...prev!, prev![0]!.map(() => '')])}
-            >
-              +行
-            </button>
-            <button
-              type="button"
-              className="d2d-btn primary small"
-              data-testid="table-save"
-              onClick={() =>
-                void call(
-                  'table.editIntermediateTable',
-                  { elementId: selected.id, cells: editCells },
-                  '表を編集しました（セルIDを付与）'
-                ).then((ok) => ok && setEditCells(null))
-              }
-            >
-              保存
-            </button>
-            <button type="button" className="d2d-btn small" onClick={() => setEditCells(null)}>
-              キャンセル
-            </button>
-          </div>
+      <div className="intermediate-operation-toolbar" data-testid="intermediate-operation-toolbar">
+        <div className="intermediate-operation-group" data-testid="source-link-actions">
+          <b>①統合元→成果物 操作</b>
+          {editorMode === 'import' ? (
+            <>
+              <button
+                type="button"
+                className="d2d-btn small"
+                data-testid="source-add-above"
+                disabled={sourceSelectedIds.size === 0}
+                onClick={() => void integrate('above')}
+              >
+                上に追加
+              </button>
+              <button
+                type="button"
+                className="d2d-btn small"
+                data-testid="source-add-below"
+                disabled={sourceSelectedIds.size === 0}
+                onClick={() => void integrate('below')}
+              >
+                下に追加
+              </button>
+              <button
+                type="button"
+                className="d2d-btn small"
+                data-testid="source-unlink"
+                disabled={sourceSelectedIds.size === 0}
+                onClick={() => void unlinkSources()}
+              >
+                紐付解除
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                className="d2d-btn small"
+                data-testid="element-add-above"
+                disabled={doc.elements.length > 0 && selectedIds.size !== 1}
+                onClick={() => openAddEditor('above')}
+              >
+                上に追加
+              </button>
+              <button
+                type="button"
+                className="d2d-btn small"
+                data-testid="element-add-below"
+                disabled={doc.elements.length > 0 && selectedIds.size !== 1}
+                onClick={() => openAddEditor('below')}
+              >
+                下に追加
+              </button>
+            </>
+          )}
         </div>
-      )}
-
-      {candidate && (
-        <div
-          data-testid="candidate-panel"
-          style={{
-            padding: '6px 12px',
-            borderBottom: '1px solid var(--d2d-border)',
-            borderLeft: '3px solid var(--d2d-review-candidate)'
-          }}
-        >
-          <div style={{ fontWeight: 700 }}>
-            LLM {candidate.purpose === 'normalize' ? '正規化' : '説明'}候補（採用まで正本を変更しません）
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, margin: '4px 0' }}>
-            <div>
-              <div style={{ color: 'var(--d2d-fg-muted)', fontSize: 11 }}>元</div>
-              <div style={{ whiteSpace: 'pre-wrap' }}>{candidate.originalText || '（なし）'}</div>
-            </div>
-            <div>
-              <div style={{ color: 'var(--d2d-fg-muted)', fontSize: 11 }}>候補</div>
-              <div style={{ whiteSpace: 'pre-wrap' }} data-testid="candidate-text">
-                {candidate.candidateText}
-              </div>
-            </div>
-          </div>
-          <div style={{ display: 'flex', gap: 6 }}>
-            <button
-              type="button"
-              className="d2d-btn primary small"
-              onClick={() => void adoptCandidate()}
-              data-testid="candidate-adopt"
-            >
-              採用
-            </button>
-            <button type="button" className="d2d-btn small" onClick={() => setCandidate(null)}>
-              棄却
-            </button>
-          </div>
+        <div className="intermediate-operation-group" data-testid="artifact-compose-actions">
+          <b>②成果物 操作</b>
+          <button
+            type="button"
+            className="d2d-btn small"
+            data-testid="merge-up"
+            disabled={selectedIds.size !== 1 || selectedIndex <= 0}
+            onClick={() => void mergeAdjacent('up')}
+          >
+            ↑統合
+          </button>
+          <button
+            type="button"
+            className="d2d-btn small"
+            data-testid="merge-down"
+            disabled={selectedIds.size !== 1 || selectedIndex < 0 || selectedIndex >= doc.elements.length - 1}
+            onClick={() => void mergeAdjacent('down')}
+          >
+            ↓統合
+          </button>
+          <button
+            type="button"
+            className="d2d-btn small"
+            data-testid="element-duplicate"
+            disabled={selectedIds.size !== 1}
+            onClick={() => void duplicateSelected()}
+          >
+            複製
+          </button>
+          <button
+            type="button"
+            className="d2d-btn small danger"
+            data-testid="element-delete"
+            disabled={selectedIds.size === 0}
+            onClick={() => void removeSelected()}
+          >
+            削除
+          </button>
         </div>
-      )}
-
-      <div style={{ display: 'flex', gap: 6, padding: '4px 12px', borderBottom: '1px solid var(--d2d-border)' }}>
-        {editorMode === 'import' && (
-          <>
-            <button
-              className="d2d-btn small"
-              disabled={sourceSelectedIds.size === 0 || (doc.elements.length > 0 && selectedIds.size !== 1)}
-              onClick={() => void integrate('above')}
-            >
-              {doc.elements.length === 0 ? '選択②を最初に統合' : '選択②を上へ統合'}
-            </button>
-            <button
-              className="d2d-btn small"
-              disabled={sourceSelectedIds.size === 0 || selectedIds.size !== 1}
-              onClick={() => void integrate('below')}
-            >
-              選択②を下へ統合
-            </button>
-            <span style={{ borderLeft: '1px solid var(--d2d-border)' }} />
-          </>
-        )}
-        <button className="d2d-btn small" onClick={() => void move('up')}>
-          ↑移動
-        </button>
-        <button className="d2d-btn small" onClick={() => void move('down')}>
-          ↓移動
-        </button>
-        <button className="d2d-btn small" onClick={() => void hierarchy(-1)}>
-          階層を上げる
-        </button>
-        <button className="d2d-btn small" onClick={() => void hierarchy(1)}>
-          階層を下げる
-        </button>
-        <button
-          className="d2d-btn small danger"
-          disabled={selectedIds.size === 0}
-          onClick={() => void removeSelected()}
-        >
-          選択行を削除
-        </button>
-        <span style={{ flex: 1 }} />
-        <button className="d2d-btn small" onClick={() => void applyStatus('approved')}>
-          確認済みにする
-        </button>
-        <button className="d2d-btn small" onClick={() => void applyStatus('needs_fix')}>
-          要修正
-        </button>
-        <button className="d2d-btn small" onClick={() => void applyStatus('rejected')}>
-          棄却
-        </button>
+        <div className="intermediate-operation-group" data-testid="artifact-layout-actions">
+          <b>③成果物 操作</b>
+          <button
+            type="button"
+            className="d2d-btn small"
+            disabled={selectedIds.size === 0}
+            onClick={() => void move('up')}
+          >
+            ↑移動
+          </button>
+          <button
+            type="button"
+            className="d2d-btn small"
+            disabled={selectedIds.size === 0}
+            onClick={() => void move('down')}
+          >
+            ↓移動
+          </button>
+          <button
+            type="button"
+            className="d2d-btn small"
+            disabled={selectedIds.size === 0}
+            onClick={() => void hierarchy(-1)}
+          >
+            階層を上げる
+          </button>
+          <button
+            type="button"
+            className="d2d-btn small"
+            disabled={selectedIds.size === 0}
+            onClick={() => void hierarchy(1)}
+          >
+            階層を下げる
+          </button>
+        </div>
+        <span className="intermediate-edit-hint">Resource種別ラベル / ダブルクリック / Space / Enter で編集</span>
       </div>
-      <div
-        style={{
-          flex: 1,
-          display: 'grid',
-          gridTemplateColumns:
-            editorMode === 'import'
-              ? 'minmax(240px,1fr) minmax(260px,1fr) minmax(300px,1.2fr)'
-              : 'minmax(360px,1fr) minmax(420px,1.25fr)',
-          minHeight: 0
-        }}
-        data-testid={editorMode === 'import' ? 'intermediate-import-layout' : 'intermediate-standalone-layout'}
+      <ResizablePaneGroup
+        key={editorMode}
+        initialSizes={editorMode === 'import' ? [1, 1, 1.2] : [1, 1.25]}
+        testId={editorMode === 'import' ? 'intermediate-import-layout' : 'intermediate-standalone-layout'}
       >
         {editorMode === 'import' && (
           <div style={{ minWidth: 0, minHeight: 0, overflow: 'hidden', padding: 8 }}>
-            <b>統合元 extracted_item</b>
+            <div className="intermediate-source-heading">
+              <b>統合元 extracted_item</b>
+              <span className="intermediate-source-linked-legend">青字: 取込済み（成果物とbased_onで紐付済み）</span>
+              <span data-testid="source-link-summary">
+                紐付済 {linkedSourceItemCount} / 全 {sourceItems.length}
+              </span>
+            </div>
             <VirtualDataGrid
               columns={sourceColumns}
               data={sourceItems}
@@ -994,20 +830,53 @@ export function IntermediateDocumentEditor({ uid }: { uid: string }): React.JSX.
               selectedRowIds={sourceSelectedIds}
               activeRowId={sourceActiveId}
               relatedRowIds={relatedSourceIds}
-              isRowDisabled={(e) => Boolean(e.resource_uid && integratedResourceUids.has(e.resource_uid))}
-              height="calc(100% - 22px)"
+              accentRowIds={integratedSourceRowIds}
+              height="calc(100% - 44px)"
               onRowClick={(e, event) => {
-                if (e.resource_uid && integratedResourceUids.has(e.resource_uid)) return
-                setSourceSelectedIds(selectRows(sourceItems, e, event, sourceSelectedIds, sourceActiveId))
+                setSourceSelectedIds(selectRows(sourceItems, e, event, sourceSelectedIds, sourceAnchorId))
                 setSourceActiveId(e.id)
+                if (!event.shiftKey) setSourceAnchorId(e.id)
                 setLastSelectedPane('source')
               }}
               onRowKeyDown={(e, event) => {
-                if (event.key === ' ' || event.key === 'Enter') {
+                if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
                   event.preventDefault()
-                  if (e.resource_uid && integratedResourceUids.has(e.resource_uid)) return
-                  setSourceSelectedIds(selectRows(sourceItems, e, event, sourceSelectedIds, sourceActiveId))
+                  const currentIndex = sourceItems.findIndex((item) => item.id === (sourceActiveId ?? e.id))
+                  const nextIndex = Math.max(
+                    0,
+                    Math.min(sourceItems.length - 1, currentIndex + (event.key === 'ArrowUp' ? -1 : 1))
+                  )
+                  const next = sourceItems[nextIndex]
+                  if (!next) return
+                  if (event.shiftKey) {
+                    const anchor = sourceAnchorId ?? e.id
+                    setSourceSelectedIds(
+                      selectRows(
+                        sourceItems,
+                        next,
+                        { ctrlKey: false, metaKey: false, shiftKey: true },
+                        sourceSelectedIds,
+                        anchor
+                      )
+                    )
+                  } else {
+                    setSourceSelectedIds(new Set([next.id]))
+                    setSourceAnchorId(next.id)
+                  }
+                  setSourceActiveId(next.id)
+                  setLastSelectedPane('source')
+                  requestAnimationFrame(() => {
+                    const row = document.querySelector<HTMLTableRowElement>(
+                      `[data-testid="intermediate-source-grid"] tr[data-row-id="${next.id}"]`
+                    )
+                    row?.focus()
+                    row?.scrollIntoView({ block: 'nearest' })
+                  })
+                } else if (event.key === ' ' || event.key === 'Enter') {
+                  event.preventDefault()
+                  setSourceSelectedIds(selectRows(sourceItems, e, event, sourceSelectedIds, sourceAnchorId))
                   setSourceActiveId(e.id)
+                  if (!event.shiftKey) setSourceAnchorId(e.id)
                   setLastSelectedPane('source')
                 }
               }}
@@ -1095,6 +964,7 @@ export function IntermediateDocumentEditor({ uid }: { uid: string }): React.JSX.
               structure_json
             </button>
           </div>
+          {previewMode === 'visual' && <DocumentPreviewMetaControls options={previewMeta} onChange={setPreviewMeta} />}
           {previewMode === 'structure' ? (
             <StructuredJsonView value={doc.structure} testId="intermediate-structure-json" />
           ) : (
@@ -1114,6 +984,11 @@ export function IntermediateDocumentEditor({ uid }: { uid: string }): React.JSX.
                 onDoubleClick={() => openElementEditor(e)}
                 style={{ marginLeft: (e.level ?? 0) * 14 }}
               >
+                <header>
+                  {previewMeta.parts && <span className="d2d-badge">{resourceTypeLabel(e.item_type)}</span>}
+                  {previewMeta.elementIds && <code>{e.id}</code>}
+                  {previewMeta.sections && e.section_path && <span>{e.section_path}</span>}
+                </header>
                 <button
                   type="button"
                   className="resource-type-button"
@@ -1150,7 +1025,7 @@ export function IntermediateDocumentEditor({ uid }: { uid: string }): React.JSX.
             ))
           )}
         </div>
-      </div>
+      </ResizablePaneGroup>
       <span data-testid="properties-selection-source" hidden>
         {lastSelectedPane}
       </span>
