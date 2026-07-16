@@ -3,6 +3,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { invoke, onBackendEvent } from '../../services/backend'
+import { moveKeyboardRangeSelection } from '../../utils/keyboard-range-selection'
 import { useEditorStore } from '../../stores/editor-store'
 import { useJobsStore } from '../../stores/jobs-store'
 import { useSelectionStore } from '../../stores/selection-store'
@@ -78,6 +79,7 @@ export function ChunkEditor({ uid }: { uid: string }): React.JSX.Element {
   const [editingPrompt, setEditingPrompt] = useState(false)
   const [generating, setGenerating] = useState(false)
   const anchor = useRef<number | null>(null)
+  const keyboardAnchor = useRef<string | null>(null)
   const previewRefs = useRef(new Map<string, HTMLElement>())
   const notify = useJobsStore((s) => s.notify)
   const setSelectedItem = useSelectionStore((state) => state.setSelectedItem)
@@ -171,12 +173,13 @@ export function ChunkEditor({ uid }: { uid: string }): React.JSX.Element {
       }
       return new Set([itemUid])
     })
+    if (!event.shiftKey) keyboardAnchor.current = itemUid
     setActiveItem(itemUid)
     setActivePane('item')
     previewRefs.current.get(itemUid)?.scrollIntoView({ block: 'nearest' })
   }
 
-  const moveSelection = (side: 'item' | 'chunk', delta: number): void => {
+  const moveSelection = (side: 'item' | 'chunk', delta: -1 | 1, extend = false): void => {
     if (side === 'chunk') {
       if (chunks.length === 0) return
       const current = chunks.findIndex((chunk) => chunk.uid === selectedChunk)
@@ -185,14 +188,21 @@ export function ChunkEditor({ uid }: { uid: string }): React.JSX.Element {
       return
     }
     if (!doc) return
-    const eligible = doc.elements.filter((row) => row.review?.status === 'approved' && row.intermediate_item_uid)
-    const current = eligible.findIndex((row) => row.intermediate_item_uid === activeItem)
-    const next = eligible[Math.max(0, Math.min(eligible.length - 1, current + delta))] ?? eligible[0]
-    if (!next?.intermediate_item_uid) return
-    setActiveItem(next.intermediate_item_uid)
+    const next = moveKeyboardRangeSelection(
+      doc.elements,
+      activeItem,
+      keyboardAnchor.current,
+      delta,
+      extend,
+      (row) => row.intermediate_item_uid,
+      (row) => row.review?.status === 'approved'
+    )
+    if (!next) return
+    setActiveItem(next.activeId)
     setActivePane('item')
-    setSelectedItems(new Set([next.intermediate_item_uid]))
-    previewRefs.current.get(next.intermediate_item_uid)?.scrollIntoView({ block: 'nearest' })
+    setSelectedItems(next.selectedIds)
+    keyboardAnchor.current = next.anchorId
+    previewRefs.current.get(next.activeId)?.scrollIntoView({ block: 'nearest' })
   }
 
   const create = async (): Promise<void> => {
@@ -361,10 +371,12 @@ export function ChunkEditor({ uid }: { uid: string }): React.JSX.Element {
       <ResizablePaneGroup initialSizes={[40, 27, 33]} testId="chunk-editor-layout" className="chunk-editor-layout">
         <section
           tabIndex={0}
+          data-testid="chunk-source-pane"
+          aria-label="成果物一覧。Shift+上下矢印で複数選択"
           onKeyDown={(event) => {
             if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
               event.preventDefault()
-              moveSelection('item', event.key === 'ArrowUp' ? -1 : 1)
+              moveSelection('item', event.key === 'ArrowUp' ? -1 : 1, event.shiftKey)
             }
           }}
           style={{ overflow: 'auto' }}
@@ -391,7 +403,14 @@ export function ChunkEditor({ uid }: { uid: string }): React.JSX.Element {
                     key={row.id}
                     data-testid={`chunk-source-${row.id}`}
                     aria-selected={selected}
+                    tabIndex={row.review?.status === 'approved' ? 0 : -1}
                     onClick={(event) => chooseItem(row, index, event)}
+                    onKeyDown={(event) => {
+                      if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return
+                      event.preventDefault()
+                      event.stopPropagation()
+                      moveSelection('item', event.key === 'ArrowUp' ? -1 : 1, event.shiftKey)
+                    }}
                     className={selected ? 'chunk-row-selected' : related ? 'chunk-row-related' : undefined}
                     style={{ opacity: row.review?.status === 'approved' ? 1 : 0.45 }}
                   >

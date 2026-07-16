@@ -11,6 +11,7 @@ import {
   addIntermediateElement,
   createChunk,
   createIntermediateDocument,
+  ensureIntermediateDocument,
   insertExtractedItems,
   unlinkExtractedItems,
   deleteIntermediateItems,
@@ -94,7 +95,29 @@ function resolveArtifactAndPhase(
 }
 
 export function registerIntermediateApi(router: ApiRouter, jobs: JobManager): void {
-  /** ②（承認済み）→③ 統合生成（P7-1） */
+  /** 設定済み成果物に対応する空③を必要時に作成して返す（P7-1、MID-001、UI-048）。 */
+  router.register('intermediate.ensureArtifact', (params) => {
+    const p = asRecord(params)
+    const artifactUid = requireString(p, 'artifactUid')
+    const { db, info } = requireProject()
+    const artifact = listArtifactSettings(db, info.projectUid).find(
+      (item) => item.uid === artifactUid && item.is_active === 1
+    )
+    if (!artifact || !artifact.dev_phase_id) {
+      throw new BackendError('not_found', '開発フェーズに所属する有効な成果物設定が見つかりません', artifactUid)
+    }
+    const phase = listDevPhases(db, info.projectUid).find(
+      (item) => item.dev_phase_id === artifact.dev_phase_id && item.is_active === 1
+    )
+    if (!phase) throw new BackendError('not_found', '有効な開発フェーズが見つかりません', artifact.dev_phase_id)
+    return ensureIntermediateDocument(db, info.projectUid, {
+      title: artifact.artifact_name,
+      artifactTypeId: artifact.artifact_type_id,
+      devPhaseId: phase.dev_phase_id
+    })
+  })
+
+  /** ②（レビュー状態を問わない）→③ 統合元登録／生成（P7-1） */
   router.register('intermediate.create', (params) => {
     const p = asRecord(params)
     const { db, info } = requireProject()
@@ -311,7 +334,7 @@ export function registerIntermediateApi(router: ApiRouter, jobs: JobManager): vo
         const item = element.resource_uid
           ? (db
               .prepare(
-                `SELECT i.uid, i.item_type, e.status FROM extracted_item i JOIN entity_registry e ON e.uid=i.uid WHERE i.extracted_document_uid=? AND i.resource_uid=?`
+                `SELECT i.uid, i.item_type, e.status FROM extracted_item i JOIN entity_registry e ON e.uid=i.resource_uid WHERE i.extracted_document_uid=? AND i.resource_uid=?`
               )
               .get(source.extracted_document_uid, element.resource_uid) as
               { uid: string; item_type: string; status: string } | undefined)

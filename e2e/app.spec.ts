@@ -37,6 +37,37 @@ test('Workbench シェルが表示される（P3-1）', async () => {
   await expect(page.getByTestId('pipeline-navigator')).toBeVisible()
   await expect(page.getByTestId('status-bar')).toBeVisible()
   await expect(page.getByTestId('welcome-editor')).toBeVisible()
+  await expect(page.getByTestId('welcome-editor')).toContainText('人が自然言語で書いた設計情報')
+  await expect(page.getByTestId('welcome-editor')).toContainText('オントロジーに写像した意味構造')
+
+  // 常時表示の検索導線からウェルカムも検索できる。
+  await page.getByTestId('open-screen-search').click()
+  await expect(page.getByTestId('screen-text-search')).toBeVisible()
+  await page.getByTestId('screen-text-search-input').fill('オントロジー')
+  await page.keyboard.press('Enter')
+  await page.keyboard.press('Escape')
+
+  // 3種のHelp Resourceを通常のEditorタブで開ける。
+  await page.getByRole('button', { name: '操作の流れ' }).click()
+  await expect(page.getByTestId('help-workflow')).toContainText('Human-in-the-loop')
+  await page.getByTestId('help-workflow').getByRole('button', { name: 'データスキーマ' }).click()
+  await expect(page.getByTestId('help-schema')).toContainText('entity_registry')
+  await page.getByTestId('help-schema').getByRole('button', { name: '設計モデル' }).click()
+  await expect(page.getByTestId('help-design-model')).toContainText('13分類')
+  await expect(page.getByTestId('help-design-model')).toContainText('owner_uid')
+  await page.getByRole('button', { name: '設計モデルの考え方 を閉じる' }).click()
+  await page.getByRole('button', { name: 'D2Dのデータスキーマ を閉じる' }).click()
+  await page.getByRole('button', { name: '操作の流れ を閉じる' }).click()
+  await expect(page.getByTestId('welcome-editor')).toBeVisible()
+
+  // Workbench内の全buttonは操作説明Tooltipを持つ。
+  await expect
+    .poll(() =>
+      page
+        .locator('button:visible')
+        .evaluateAll((buttons) => buttons.filter((button) => !(button as HTMLButtonElement).title.trim()).length)
+    )
+    .toBe(0)
 
   // Activity切替（Explorer → Search）。Review/JobsはPrimary Activityに置かない。
   await expect(page.getByTestId('activity-review')).toHaveCount(0)
@@ -375,6 +406,8 @@ test('原本取込→Word抽出→レビュー→②正本確定の全経路（P
   await expect(sourceStageRow).toHaveAttribute('aria-selected', 'true')
   await expect(page.getByTestId('source-stage-preview')).toContainText('原本は読み取り専用です')
   await expect(page.getByTestId('source-open-external')).toBeVisible()
+  await expect(page.getByTestId('extract-button')).toBeVisible()
+  await expect(page.getByTestId('extract-button')).toBeEnabled()
   await page.getByTestId('sort-file_name').click()
   await expect(page.getByTestId('sort-file_name')).toContainText('▲')
   const archivedSourceRow = page.getByTestId('stage-source-row-DOC-000002')
@@ -388,6 +421,8 @@ test('原本取込→Word抽出→レビュー→②正本確定の全経路（P
   await page.getByTestId('source-doc-DOC-000001').click()
   await expect(page.getByTestId('original-viewer')).toBeVisible()
   await expect(page.getByTestId('original-viewer')).toContainText('SHA-256')
+  await expect(page.getByTestId('source-open-external')).toBeVisible()
+  await expect(page.getByTestId('extract-button')).toContainText('②抽出データの生成（抽出ジョブ実行）')
   await page.getByTestId('extract-button').click()
 
   // 抽出完了 → ②抽出データがツリーへ出現
@@ -396,6 +431,10 @@ test('原本取込→Word抽出→レビュー→②正本確定の全経路（P
   await expect(extractedRow).toContainText(basename(docxPath))
   await expect(extractedRow).toHaveAttribute('title', /抽出器:/)
   await expect(page.getByTestId('stage-extracted')).toContainText('1')
+  await expect(page.getByTestId('extract-button')).toBeDisabled()
+  await page.getByTestId('stage-source').click()
+  await page.getByTestId('stage-source-row-DOC-000001').click()
+  await expect(page.getByTestId('extract-button')).toBeDisabled()
   await expect(page.getByTestId('extracted-unconfirmed-EXDOC-000001')).toContainText(/未確定 [1-9]/)
   await expect(page.getByTestId('explorer-section-extracted')).toContainText(
     '編集する場合は、対象の抽出データを選択してください。'
@@ -537,11 +576,38 @@ test('②→③統合・編集・確定（P7）', async () => {
   await page.getByTestId('artifact-phase').selectOption('DD')
   await page.getByTestId('artifact-add').click()
 
-  // Pipeline ③一覧上部の「取込」で、取込先成果物1件と取込元②複数件を選択する
+  // 設定した成果物は取込元がなくてもExplorerへ表示し、選択時に空の③編集画面を開ける。
   await expect(page.getByTestId('documents-tree')).not.toContainText('フェーズ未定義成果物')
   await expect(page.getByTestId('documents-tree')).not.toContainText('③へ統合')
-  await expect(page.getByTestId('artifact-slot-DD-design_doc')).toBeVisible()
+  const artifactSlot = page.getByTestId('artifact-slot-DD-design_doc')
+  await expect(artifactSlot).toBeVisible()
+  await expect(page.getByTestId('phase-DD').getByText('フェーズ', { exact: true })).toBeVisible()
+  await expect(artifactSlot.getByText('成果物', { exact: true })).toBeVisible()
   await expect(page.getByTestId('explorer-section-intermediate').getByRole('button')).toHaveCount(0)
+  await artifactSlot.click()
+  await expect(page.getByTestId('intermediate-editor')).toBeVisible()
+  await expect(page.getByTestId('intermediate-grid').getByRole('row')).toHaveCount(1)
+  await expect(page.getByTestId('intermediate-doc-IMDOC-000001')).toBeVisible()
+
+  // 未確認の②も取込候補に表示され、各要素の抽出レビュー状態を取込編集へ引き継ぐ。
+  const draftSource = await page.evaluate(async () => {
+    const list = await window.api.invoke<Array<{ uid: string }>>('extracted.list')
+    if (!list.ok || !list.result[0]) return false
+    const detail = await window.api.invoke<{ elements: Array<{ resource_uid?: string }> }>('extracted.get', {
+      uid: list.result[0].uid
+    })
+    const resourceUid = detail.ok ? detail.result.elements[0]?.resource_uid : undefined
+    if (!resourceUid) return false
+    const updated = await window.api.invoke('extracted.updateItemStatus', {
+      extractedDocumentUid: list.result[0].uid,
+      resourceUid,
+      status: 'draft'
+    })
+    return updated.ok
+  })
+  expect(draftSource).toBe(true)
+
+  // Pipeline ③一覧上部の「取込」で、取込先成果物1件と取込元②複数件を選択する
   await page.getByTestId('stage-intermediate').click()
   await page.getByTestId('intermediate-import-button').click()
   const sourceDialog = page.getByTestId('intermediate-source-dialog')
@@ -551,9 +617,10 @@ test('②→③統合・編集・確定（P7）', async () => {
   const targetCheckbox = page.getByTestId('intermediate-target-DD-design_doc')
   const sourceCheckbox = sourceDialog.getByTestId('intermediate-source-EXDOC-000001')
   await expect(sourceCheckbox).toBeDisabled()
+  await expect(sourceDialog.getByTestId('intermediate-import-sources').locator('.review-unconfirmed')).toBeVisible()
   await targetCheckbox.check()
   await sourceCheckbox.check()
-  await sourceDialog.getByRole('button', { name: '選択して取込' }).click()
+  await sourceDialog.getByRole('button', { name: '選択内容を保存' }).click()
   await expect(page.getByTestId('intermediate-doc-IMDOC-000001')).toBeVisible({ timeout: 15_000 })
   await expect(page.getByTestId('intermediate-doc-IMDOC-000001')).toHaveAttribute('title', /成果物: 統合設計書/)
   await expect(page.getByTestId('stage-intermediate')).toContainText('1')
@@ -572,11 +639,18 @@ test('②→③統合・編集・確定（P7）', async () => {
   await page.getByTestId('sort-artifact_type_id').click()
   await expect(page.getByTestId('sort-artifact_type_id')).toContainText('▲')
 
-  // 既存の取込関係は、取込先成果物を選択した時点で取込元チェックへ復元する
+  // ③ステージは成果物の下に取込元を表示し、この画面から取込対象を削除できる。
+  const stageSources = page.getByTestId('stage-intermediate-hierarchy').locator('.stage-intermediate-sources').first()
+  await expect(stageSources).toContainText('名称変更後の抽出データ')
+  await stageSources.getByRole('button', { name: '削除' }).click()
+  await expect(stageSources).toContainText('未選択')
+
+  // 取込先成果物を選ぶと既存関係を復元し、未確認の②も再度選択して保存できる。
   await page.getByTestId('intermediate-import-button').click()
   await page.getByTestId('intermediate-target-DD-design_doc').check()
-  await expect(page.getByTestId('intermediate-source-EXDOC-000001')).toBeChecked()
-  await page.getByTestId('intermediate-source-dialog').getByRole('button', { name: 'キャンセル' }).click()
+  await expect(page.getByTestId('intermediate-source-EXDOC-000001')).not.toBeChecked()
+  await page.getByTestId('intermediate-source-EXDOC-000001').check()
+  await page.getByTestId('intermediate-source-dialog').getByRole('button', { name: '選択内容を保存' }).click()
 
   // 同一成果物の重複は最新1件以外を自動アーカイブし、③一覧から削除・復元できる。
   const duplicateIntermediate = await page.evaluate(async () => {
@@ -620,11 +694,20 @@ test('②→③統合・編集・確定（P7）', async () => {
   const sourceItemCount = (await sourceGrid.getByRole('row').count()) - 1
   const firstSourceRow = sourceGrid.getByRole('row').nth(1)
   await expect(firstSourceRow).toContainText('未確認')
+  await expect(firstSourceRow.locator('.review-unconfirmed')).toBeVisible()
   await firstSourceRow.click()
   await sourceGrid
     .getByRole('row')
     .last()
     .click({ modifiers: ['Shift'] })
+  await expect(page.getByTestId('source-add-above')).toHaveAttribute(
+    'title',
+    /選択中の統合元要素を、選択中の成果物要素の上に追加し、based_onで関連付けます/
+  )
+  await expect(page.getByTestId('source-add-below')).toHaveAttribute(
+    'title',
+    /選択中の統合元要素を、選択中の成果物要素の下に追加し、based_onで関連付けます/
+  )
   await page.getByTestId('source-add-below').click()
   const middleGrid = page.getByTestId('intermediate-grid')
   await expect(middleGrid).toContainText('1. 概要')
@@ -633,6 +716,20 @@ test('②→③統合・編集・確定（P7）', async () => {
   )
   await expect(firstSourceRow).toHaveAttribute('data-linked', 'true')
   await expect(firstSourceRow).not.toHaveAttribute('aria-disabled', 'true')
+
+  // 取込編集の成果物一覧はShift+上下で範囲を拡張・縮小する。
+  const firstArtifactRow = middleGrid.getByRole('row').nth(1)
+  const secondArtifactRow = middleGrid.getByRole('row').nth(2)
+  await firstArtifactRow.click()
+  await firstArtifactRow.focus()
+  await page.keyboard.press('Shift+ArrowDown')
+  await expect(firstArtifactRow).toHaveAttribute('aria-selected', 'true')
+  await expect(secondArtifactRow).toHaveAttribute('aria-selected', 'true')
+  await page.keyboard.press('Shift+ArrowUp')
+  await expect(firstArtifactRow).toHaveAttribute('aria-selected', 'true')
+  await expect(secondArtifactRow).toHaveAttribute('aria-selected', 'false')
+  // 次の関連強調検証で選択のsolid outlineと競合しないよう、2行目を単独選択する。
+  await secondArtifactRow.click()
 
   // 取込済み行も選択でき、Shift+上下で範囲選択し、成果物とプレビューをbased_onで強調する。
   await firstSourceRow.click()
@@ -645,12 +742,13 @@ test('②→③統合・編集・確定（P7）', async () => {
     /related/
   )
 
-  // 同じ統合元を別成果物要素へ再利用でき、紐付解除は当該統合元のbased_onだけを外す。
+  // 同じ統合元を別成果物要素へ再利用でき、「削除」は当該統合元のbased_onだけを外す。
+  await middleGrid.getByRole('row').nth(1).click()
   await firstSourceRow.click()
   const artifactRowsBeforeReuse = await middleGrid.getByRole('row').count()
   await page.getByTestId('source-add-below').click()
   await expect(middleGrid.getByRole('row')).toHaveCount(artifactRowsBeforeReuse + 1)
-  await page.getByTestId('source-unlink').click()
+  await page.getByTestId('source-delete').click()
   await expect(firstSourceRow).not.toHaveAttribute('data-linked', 'true')
   await expect(page.getByTestId('source-link-summary')).toContainText(
     `紐付済 ${sourceItemCount - 1} / 全 ${sourceItemCount}`
@@ -706,6 +804,16 @@ test('②→③統合・編集・確定（P7）', async () => {
   await expect(page.getByTestId('intermediate-standalone-layout-handle-0')).toBeVisible()
   await expect(page.getByTestId('intermediate-standalone-layout-handle-1')).toHaveCount(0)
   await expect(page.getByTestId('intermediate-source-grid')).toHaveCount(0)
+  // 単独編集でも同じ成果物一覧のShift範囲選択を利用できる。
+  const standaloneFirstRow = middleGrid.getByRole('row').nth(1)
+  const standaloneSecondRow = middleGrid.getByRole('row').nth(2)
+  await standaloneFirstRow.click()
+  await standaloneFirstRow.focus()
+  await page.keyboard.press('Shift+ArrowDown')
+  await expect(standaloneFirstRow).toHaveAttribute('aria-selected', 'true')
+  await expect(standaloneSecondRow).toHaveAttribute('aria-selected', 'true')
+  await page.keyboard.press('Shift+ArrowUp')
+  await expect(standaloneSecondRow).toHaveAttribute('aria-selected', 'false')
   await page.getByTestId('element-add-below').click()
   await page.getByTestId('edit-textarea').fill('単独編集で追加した要素')
   await page.getByTestId('edit-save').click()
@@ -837,7 +945,16 @@ test('②→③統合・編集・確定（P7）', async () => {
   await page.keyboard.press('ArrowRight')
   await expect.poll(async () => (await chunkFirstPane.boundingBox())!.width).toBeGreaterThan(chunkWidthBefore)
   await expect(page.getByTestId('chunk-source-i1').getByRole('checkbox')).toHaveCount(0)
-  await page.getByTestId('chunk-source-i1').click()
+  const chunkSourceRows = page.locator('.chunk-source-grid tbody tr')
+  const firstChunkSourceRow = chunkSourceRows.first()
+  const secondChunkSourceRow = chunkSourceRows.nth(1)
+  await firstChunkSourceRow.click()
+  await firstChunkSourceRow.press('Shift+ArrowDown')
+  await expect(firstChunkSourceRow).toHaveAttribute('aria-selected', 'true')
+  await expect(secondChunkSourceRow).toHaveAttribute('aria-selected', 'true')
+  await secondChunkSourceRow.press('Shift+ArrowUp')
+  await expect(secondChunkSourceRow).toHaveAttribute('aria-selected', 'false')
+  await firstChunkSourceRow.click()
   await page.getByRole('button', { name: 'チャンク作成' }).click()
   await expect(page.getByTestId('chunk-editor')).toContainText('1')
   await expect(

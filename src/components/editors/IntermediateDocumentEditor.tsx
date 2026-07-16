@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ColumnDef } from '@tanstack/react-table'
 import { invoke, onBackendEvent } from '../../services/backend'
+import { moveKeyboardRangeSelection } from '../../utils/keyboard-range-selection'
 import { useJobsStore } from '../../stores/jobs-store'
 import { useProjectStore } from '../../stores/project-store'
 import { useSelectionStore } from '../../stores/selection-store'
@@ -106,6 +107,7 @@ export function IntermediateDocumentEditor({
 }): React.JSX.Element {
   const [doc, setDoc] = useState<IntermediateDoc | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [itemAnchorId, setItemAnchorId] = useState<string | null>(null)
   const [activeId, setActiveId] = useState<string | null>(null)
   const [sourceItems, setSourceItems] = useState<(IntermediateElement & { source_title?: string })[]>([])
   const [sourceSelectedIds, setSourceSelectedIds] = useState<Set<string>>(new Set())
@@ -251,7 +253,7 @@ export function IntermediateDocumentEditor({
       `${extractedItemUids.length}要素を成果物へ追加しました`
     )
   }
-  const unlinkSources = async (): Promise<void> => {
+  const deleteSourceLinks = async (): Promise<void> => {
     const extractedItemUids = sourceItems
       .filter((item) => sourceSelectedIds.has(item.id))
       .map((item) => item.extracted_item_uid)
@@ -259,8 +261,10 @@ export function IntermediateDocumentEditor({
     await call(
       'intermediate.unlinkExtractedItems',
       { extractedItemUids },
-      `${extractedItemUids.length}統合元の紐付けを解除しました`
+      `${extractedItemUids.length}統合元の成果物対応を削除しました`
     )
+    setSourceSelectedIds(new Set())
+    setSourceActiveId(null)
   }
   const move = async (direction: 'up' | 'down'): Promise<void> => {
     await call('intermediate.reorderItems', { elementIds: [...selectedIds], direction }, '表示順を更新しました')
@@ -686,8 +690,9 @@ export function IntermediateDocumentEditor({
                 type="button"
                 className="d2d-btn small"
                 data-testid="source-add-above"
-                disabled={sourceSelectedIds.size === 0}
+                disabled={sourceSelectedIds.size === 0 || (doc.elements.length > 0 && selectedIds.size !== 1)}
                 onClick={() => void integrate('above')}
+                title="選択中の統合元要素を、選択中の成果物要素の上に追加し、based_onで関連付けます"
               >
                 上に追加
               </button>
@@ -695,19 +700,21 @@ export function IntermediateDocumentEditor({
                 type="button"
                 className="d2d-btn small"
                 data-testid="source-add-below"
-                disabled={sourceSelectedIds.size === 0}
+                disabled={sourceSelectedIds.size === 0 || (doc.elements.length > 0 && selectedIds.size !== 1)}
                 onClick={() => void integrate('below')}
+                title="選択中の統合元要素を、選択中の成果物要素の下に追加し、based_onで関連付けます"
               >
                 下に追加
               </button>
               <button
                 type="button"
                 className="d2d-btn small"
-                data-testid="source-unlink"
+                data-testid="source-delete"
                 disabled={sourceSelectedIds.size === 0}
-                onClick={() => void unlinkSources()}
+                onClick={() => void deleteSourceLinks()}
+                title="選択中の統合元要素と成果物要素のbased_on対応を削除します。抽出データ自体は削除しません"
               >
-                紐付解除
+                削除
               </button>
             </>
           ) : (
@@ -903,27 +910,31 @@ export function IntermediateDocumentEditor({
             relatedRowIds={relatedCenterIds}
             height="calc(100% - 22px)"
             onRowClick={(e, event) => {
-              setSelectedIds(selectRows(doc.elements, e, event, selectedIds, activeId))
+              setSelectedIds(selectRows(doc.elements, e, event, selectedIds, itemAnchorId))
               setActiveId(e.id)
+              if (!event.shiftKey) setItemAnchorId(e.id)
               setLastSelectedPane('intermediate')
               if (event.detail >= 2) openElementEditor(e)
             }}
             onRowKeyDown={(e, event) => {
               if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
                 event.preventDefault()
-                const currentIndex = doc.elements.findIndex((item) => item.id === (activeId ?? e.id))
-                const nextIndex = Math.max(
-                  0,
-                  Math.min(doc.elements.length - 1, currentIndex + (event.key === 'ArrowUp' ? -1 : 1))
+                const next = moveKeyboardRangeSelection(
+                  doc.elements,
+                  activeId ?? e.id,
+                  itemAnchorId,
+                  event.key === 'ArrowUp' ? -1 : 1,
+                  event.shiftKey,
+                  (item) => item.id
                 )
-                const next = doc.elements[nextIndex]
                 if (next) {
-                  setSelectedIds(new Set([next.id]))
-                  setActiveId(next.id)
+                  setSelectedIds(next.selectedIds)
+                  setActiveId(next.activeId)
+                  setItemAnchorId(next.anchorId)
                   setLastSelectedPane('intermediate')
                   requestAnimationFrame(() => {
                     const row = document.querySelector<HTMLTableRowElement>(
-                      `[data-testid="intermediate-grid"] tr[data-row-id="${next.id}"]`
+                      `[data-testid="intermediate-grid"] tr[data-row-id="${next.activeId}"]`
                     )
                     row?.focus()
                     row?.scrollIntoView({ block: 'nearest' })
@@ -933,6 +944,7 @@ export function IntermediateDocumentEditor({
                 event.preventDefault()
                 setSelectedIds(new Set([e.id]))
                 setActiveId(e.id)
+                setItemAnchorId(e.id)
                 setLastSelectedPane('intermediate')
                 openElementEditor(e)
               }

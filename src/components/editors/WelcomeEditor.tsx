@@ -1,35 +1,93 @@
 import { executeCommand } from '../../services/command-registry'
 import { getCommandContext } from '../../services/builtin-commands'
+import { useEditorStore } from '../../stores/editor-store'
+
+const helpItems = [
+  {
+    uri: 'help://workflow',
+    icon: '①→④',
+    title: '操作の流れ',
+    description: '原本から設計モデル、トレーサビリティ分析まで'
+  },
+  {
+    uri: 'help://schema',
+    icon: 'DB',
+    title: 'データスキーマ',
+    description: '共通台帳・Resource・関係・ファイル保管の構造'
+  },
+  { uri: 'help://design-model', icon: '13', title: '設計モデル', description: '13分類、関係、候補レビューの考え方' }
+]
 
 export function WelcomeEditor(): React.JSX.Element {
+  const openResource = useEditorStore((state) => state.openResource)
   return (
-    <div style={{ padding: 32, maxWidth: 560 }} data-testid="welcome-editor">
-      <h1 style={{ fontSize: 20, marginTop: 0 }}>
-        <span style={{ color: 'var(--d2d-accent)' }}>D2D</span> — 設計情報デジタル化・トレーサビリティ支援ツール
-      </h1>
-      <p style={{ color: 'var(--d2d-fg-muted)' }}>
-        Word / Excel / PowerPoint / PDF 等の設計文書を段階的にデジタル化し、①原本 → ②抽出 → ③中間 → ④設計モデルの
-        トレーサビリティを人間レビュー前提（human-in-the-loop）で管理します。
+    <main className="d2d-welcome" data-testid="welcome-editor">
+      <section className="d2d-welcome-hero">
+        <span className="d2d-help-eyebrow">DESIGN TO DATA</span>
+        <h1>
+          <span>D2D</span> — 設計情報を、たどれる意味構造へ
+        </h1>
+        <p>
+          D2Dは、従来の設計文書を段階的にデータ化し、根拠から設計・検証・実装までの
+          トレーサビリティを人間レビュー前提で管理する設計支援ツールです。
+        </p>
+        <div className="d2d-welcome-actions">
+          <button
+            type="button"
+            className="d2d-btn primary"
+            title="既存のD2Dプロジェクトを選択して開きます"
+            onClick={() => void executeCommand('project.open', undefined, getCommandContext())}
+          >
+            プロジェクトを開く…
+          </button>
+          <button
+            type="button"
+            className="d2d-btn"
+            title="保存先を選択して新しいD2Dプロジェクトを作成します"
+            onClick={() => void executeCommand('project.createInFolder', undefined, getCommandContext())}
+          >
+            新規プロジェクトを作成…
+          </button>
+        </div>
+      </section>
+
+      <section className="d2d-terms" aria-label="D2Dの用語定義">
+        <div>
+          <span>文書</span>
+          <h2>人が自然言語で書いた設計情報</h2>
+          <p>Word、Excel、PowerPoint、PDFなど、従来どおり文章・表・図で表現された成果物です。</p>
+        </div>
+        <div className="d2d-term-arrow" aria-hidden="true">
+          意味を保って写像 →
+        </div>
+        <div>
+          <span>データ</span>
+          <h2>オントロジーに写像した意味構造</h2>
+          <p>要求・機能・構造・検証などの種類と、それらの関係を機械と人が共通にたどれる形です。</p>
+        </div>
+      </section>
+
+      <section>
+        <h2 className="d2d-welcome-section-title">まず全体像を知る</h2>
+        <div className="d2d-help-launchers">
+          {helpItems.map((item) => (
+            <button
+              key={item.uri}
+              type="button"
+              title={`${item.title}のヘルプを開きます`}
+              onClick={() => openResource(item.uri, item.title)}
+            >
+              <span>{item.icon}</span>
+              <b>{item.title}</b>
+              <small>{item.description}</small>
+              <i aria-hidden="true">→</i>
+            </button>
+          ))}
+        </div>
+      </section>
+      <p className="d2d-welcome-shortcuts">
+        Ctrl+F 画面内検索 / Ctrl+Shift+P コマンドパレット / Ctrl+1〜6 作業モード切替
       </p>
-      <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
-        <button
-          type="button"
-          className="d2d-btn primary"
-          onClick={() => void executeCommand('project.open', undefined, getCommandContext())}
-        >
-          プロジェクトを開く…
-        </button>
-        <button
-          type="button"
-          className="d2d-btn"
-          onClick={() => void executeCommand('project.createInFolder', undefined, getCommandContext())}
-        >
-          新規プロジェクトを作成…
-        </button>
-      </div>
-      <p style={{ color: 'var(--d2d-fg-muted)', marginTop: 24, fontSize: 11.5 }}>
-        Ctrl+Shift+P でコマンドパレット / Ctrl+1〜6 で作業モード切替（M0〜M5）
-      </p>
-    </div>
+    </main>
   )
 }

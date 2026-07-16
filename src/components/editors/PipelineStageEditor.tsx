@@ -2,7 +2,7 @@
  * Pipeline Stage Overview（P3-7、UI-046/047）。
  * ①〜④をソート可能な一覧として開き、①②のアーカイブ／論理削除と②③の読取プレビューを提供する。
  */
-import { useCallback, useEffect, useMemo, useState, type KeyboardEvent } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useState, type KeyboardEvent } from 'react'
 import { invoke, onBackendEvent } from '../../services/backend'
 import { useEditorStore } from '../../stores/editor-store'
 import { useJobsStore } from '../../stores/jobs-store'
@@ -10,7 +10,12 @@ import { useProjectStore } from '../../stores/project-store'
 import { useSelectionStore } from '../../stores/selection-store'
 import { reviewStateFromEntityStatus, ReviewStatusBadge } from '../common/review'
 import { resourceTypeLabel } from '../../types/resource'
-import type { SourceDocumentItem, ExtractedDocumentItem, IntermediateDocumentItem } from '../views/DocumentsTree'
+import {
+  OriginalActions,
+  type SourceDocumentItem,
+  type ExtractedDocumentItem,
+  type IntermediateDocumentItem
+} from '../views/DocumentsTree'
 import type { DesignElementRow } from '../views/DesignModelViews'
 import { ResizablePaneGroup } from '../workbench/ResizablePaneGroup'
 import { IntermediateImportDialog } from './IntermediateImportDialog'
@@ -249,7 +254,9 @@ export function PipelineStageEditor({ stage }: { stage: PipelineStage }): React.
         [
           'source.imported',
           'source.updated',
+          'artifact.updated',
           'extraction.completed',
+          'job.updated',
           'extracted.updated',
           'intermediate.updated',
           'design_model.updated'
@@ -300,6 +307,33 @@ export function PipelineStageEditor({ stage }: { stage: PipelineStage }): React.
       return
     }
     notify('info', `${filePaths.length}件の原本取込Jobを登録しました`)
+  }
+
+  const ensureArtifact = async (artifact: ArtifactSetting): Promise<void> => {
+    const result = await invoke<{ intermediateDocumentUid: string }>('intermediate.ensureArtifact', {
+      artifactUid: artifact.uid
+    })
+    if (!result.ok) {
+      notify('error', '中間データを開けませんでした', result.error.message)
+      return
+    }
+    await refresh()
+    setSelectedUid(result.result.intermediateDocumentUid)
+  }
+
+  const removeIntermediateSource = async (row: IntermediateDocumentItem, sourceDocumentUid: string): Promise<void> => {
+    const result = await invoke('intermediate.updateSources', {
+      uid: row.uid,
+      extractedDocumentUids: (row.sources ?? [])
+        .map((source) => source.extracted_document_uid)
+        .filter((uid) => uid !== sourceDocumentUid)
+    })
+    if (!result.ok) {
+      notify('error', '取込元から削除できませんでした', result.error.message)
+      return
+    }
+    notify('info', '取込元から抽出データを削除しました')
+    await refresh()
   }
 
   const createStateMachine = async (): Promise<void> => {
@@ -381,7 +415,7 @@ export function PipelineStageEditor({ stage }: { stage: PipelineStage }): React.
             : stage === 'extracted'
               ? extracted.length
               : stage === 'intermediate'
-                ? intermediates.length
+                ? artifacts.filter((artifact) => artifact.is_active === 1 && artifact.dev_phase_id).length
                 : models.length}
           件
         </span>
@@ -572,11 +606,14 @@ export function PipelineStageEditor({ stage }: { stage: PipelineStage }): React.
               rows={intermediates}
               phases={phases}
               artifacts={artifacts}
+              extracted={extracted}
               sort={sort}
               onSort={changeSort}
               selectedUid={selectedUid}
               orderedUids={intermediateOrderedUids}
               onSelect={setSelectedUid}
+              onOpenArtifact={(artifact) => void ensureArtifact(artifact)}
+              onRemoveSource={(row, sourceUid) => void removeIntermediateSource(row, sourceUid)}
               onArchive={(row) =>
                 void mutate(
                   'intermediate.setArchived',
@@ -640,17 +677,7 @@ export function PipelineStageEditor({ stage }: { stage: PipelineStage }): React.
                   <dd>{selectedSource.imported_at}</dd>
                 </dl>
                 <p>原本は読み取り専用です。内容表示と編集はOSにインストールされたアプリを使用します。</p>
-                <button
-                  className="d2d-btn primary"
-                  data-testid="source-open-external"
-                  onClick={() =>
-                    void invoke('document.openExternal', { uid: selectedSource.uid }).then((result) => {
-                      if (!result.ok) notify('error', '原本を開けませんでした', result.error.message)
-                    })
-                  }
-                >
-                  OSアプリで開く
-                </button>
+                <OriginalActions doc={selectedSource} />
               </div>
             )}
             {stage === 'extracted' && selectedUid && <DocumentPreview uid={selectedUid} kind="extracted" />}
@@ -675,38 +702,59 @@ function IntermediateHierarchy({
   rows,
   phases,
   artifacts,
+  extracted,
   sort,
   onSort,
   selectedUid,
   orderedUids,
   onSelect,
+  onOpenArtifact,
+  onRemoveSource,
   onArchive,
   onDelete
 }: {
   rows: IntermediateDocumentItem[]
   phases: DevPhaseSetting[]
   artifacts: ArtifactSetting[]
+  extracted: ExtractedDocumentItem[]
   sort: SortState
   onSort: (key: string) => void
   selectedUid: string | null
   orderedUids: string[]
   onSelect: (uid: string) => void
+  onOpenArtifact: (artifact: ArtifactSetting) => void
+  onRemoveSource: (row: IntermediateDocumentItem, sourceUid: string) => void
   onArchive: (row: IntermediateDocumentItem) => void
   onDelete: (row: IntermediateDocumentItem, artifactName: string) => void
 }): React.JSX.Element {
   return (
     <div data-testid="stage-intermediate-hierarchy">
       {[...phases]
+        .filter((phase) => phase.is_active === 1)
         .sort((a, b) => a.sort_order - b.sort_order)
         .map((phase) => {
-          const phaseRows = sortedRows(
-            rows.filter((row) => row.dev_phase_id === phase.dev_phase_id),
-            sort
+          const phaseArtifacts = artifacts.filter(
+            (artifact) => artifact.is_active === 1 && artifact.dev_phase_id === phase.dev_phase_id
           )
-          if (phaseRows.length === 0) return null
+          if (phaseArtifacts.length === 0) return null
+          const phaseEntries = phaseArtifacts.reduce<
+            Array<{ artifact: ArtifactSetting; row?: IntermediateDocumentItem }>
+          >((entries, artifact) => {
+            const matchingRows = rows.filter(
+              (item) => item.dev_phase_id === phase.dev_phase_id && item.artifact_type_id === artifact.artifact_type_id
+            )
+            entries.push(
+              ...(matchingRows.length > 0
+                ? matchingRows.map((row) => ({ artifact, row }))
+                : [{ artifact, row: undefined }])
+            )
+            return entries
+          }, [])
           return (
             <section key={phase.uid} className="stage-phase-group">
-              <h2>{phase.dev_phase_name}</h2>
+              <h2>
+                <span className="d2d-hierarchy-kind">フェーズ</span> {phase.dev_phase_name}
+              </h2>
               <table className="d2d-table stage-table">
                 <thead>
                   <tr>
@@ -720,52 +768,90 @@ function IntermediateHierarchy({
                   </tr>
                 </thead>
                 <tbody>
-                  {phaseRows.map((row) => {
-                    const artifact = artifacts.find(
-                      (item) => item.dev_phase_id === row.dev_phase_id && item.artifact_type_id === row.artifact_type_id
-                    )
+                  {phaseEntries.map(({ artifact, row }) => {
+                    const sourceIds = row?.sources?.map((source) => source.extracted_document_uid) ?? []
+                    const activate = (): void => (row ? onSelect(row.uid) : onOpenArtifact(artifact))
                     return (
-                      <tr
-                        key={row.uid}
-                        className={selectedUid === row.uid ? 'selected' : ''}
-                        aria-selected={selectedUid === row.uid}
-                        tabIndex={0}
-                        data-stage-row-uid={row.uid}
-                        onClick={() => onSelect(row.uid)}
-                        onKeyDown={(event) => handleStageRowKey(event, row.uid, orderedUids, onSelect)}
-                        data-testid={`stage-intermediate-row-${row.code}`}
-                      >
-                        <td>
-                          <ReviewStatusBadge status={reviewStateFromEntityStatus(row.status)} />
-                        </td>
-                        <td>{artifact?.artifact_name ?? row.artifact_type_id}</td>
-                        <td>{row.code}</td>
-                        <td>{row.item_count}</td>
-                        <td>{row.unconfirmed_count}</td>
-                        <td>{row.is_archived ? 'アーカイブ' : '表示中'}</td>
-                        <td className="stage-actions">
-                          <button
-                            type="button"
-                            className="d2d-btn small"
-                            onClick={(event) => {
-                              event.stopPropagation()
-                              onArchive(row)
-                            }}
-                          >
-                            {row.is_archived ? '解除' : 'アーカイブ'}
-                          </button>
-                          <button
-                            type="button"
-                            className="d2d-btn small danger"
-                            onClick={(event) => {
-                              event.stopPropagation()
-                              onDelete(row, artifact?.artifact_name ?? row.artifact_type_id)
-                            }}
-                          >
-                            削除
-                          </button>
-                        </td>
-                      </tr>
+                      <Fragment key={`${artifact.uid}:${row?.uid ?? 'slot'}`}>
+                        <tr
+                          className={row && selectedUid === row.uid ? 'selected' : ''}
+                          aria-selected={row ? selectedUid === row.uid : false}
+                          tabIndex={0}
+                          data-stage-row-uid={row?.uid ?? artifact.uid}
+                          onClick={activate}
+                          onKeyDown={(event) => {
+                            if (row) handleStageRowKey(event, row.uid, orderedUids, onSelect)
+                            else if (event.key === 'Enter' || event.key === ' ') {
+                              event.preventDefault()
+                              activate()
+                            }
+                          }}
+                          data-testid={
+                            row
+                              ? `stage-intermediate-row-${row.code}`
+                              : `stage-artifact-slot-${phase.dev_phase_id}-${artifact.artifact_type_id}`
+                          }
+                        >
+                          <td>
+                            {row ? <ReviewStatusBadge status={reviewStateFromEntityStatus(row.status)} /> : '未作成'}
+                          </td>
+                          <td>
+                            <span className="d2d-hierarchy-kind artifact">成果物</span> {artifact.artifact_name}
+                          </td>
+                          <td>{row?.code ?? '—'}</td>
+                          <td>{row?.item_count ?? 0}</td>
+                          <td>{row?.unconfirmed_count ?? 0}</td>
+                          <td>{row ? (row.is_archived ? 'アーカイブ' : '表示中') : '設定済み'}</td>
+                          <td className="stage-actions">
+                            {row && (
+                              <>
+                                <button
+                                  type="button"
+                                  className="d2d-btn small"
+                                  onClick={(event) => {
+                                    event.stopPropagation()
+                                    onArchive(row)
+                                  }}
+                                >
+                                  {row.is_archived ? '解除' : 'アーカイブ'}
+                                </button>
+                                <button
+                                  type="button"
+                                  className="d2d-btn small danger"
+                                  onClick={(event) => {
+                                    event.stopPropagation()
+                                    onDelete(row, artifact.artifact_name)
+                                  }}
+                                >
+                                  削除
+                                </button>
+                              </>
+                            )}
+                          </td>
+                        </tr>
+                        <tr className="stage-intermediate-sources">
+                          <td colSpan={7}>
+                            <b>取込元:</b>{' '}
+                            {sourceIds.length === 0
+                              ? '未選択'
+                              : sourceIds.map((sourceUid) => (
+                                  <span key={sourceUid} className="stage-intermediate-source">
+                                    {extracted.find((item) => item.uid === sourceUid)?.title ?? sourceUid}
+                                    {row && (
+                                      <button
+                                        type="button"
+                                        className="d2d-btn small danger"
+                                        onClick={() => onRemoveSource(row, sourceUid)}
+                                        title="この抽出データを成果物の取込元から削除します"
+                                      >
+                                        削除
+                                      </button>
+                                    )}
+                                  </span>
+                                ))}
+                          </td>
+                        </tr>
+                      </Fragment>
                     )
                   })}
                 </tbody>

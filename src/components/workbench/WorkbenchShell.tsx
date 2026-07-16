@@ -21,6 +21,7 @@ import { PrimarySideBar } from './PrimarySideBar'
 import { ResizeHandle } from './ResizeHandle'
 import { SecondarySideBar } from './SecondarySideBar'
 import { ScreenTextSearch } from './ScreenTextSearch'
+import { GlobalButtonTooltips } from './GlobalButtonTooltips'
 import { StatusBar } from './StatusBar'
 import { TitleBar } from './TitleBar'
 
@@ -107,6 +108,7 @@ export function WorkbenchShell(): React.JSX.Element {
   return (
     <div className="wb-root" data-testid="workbench">
       <TitleBar />
+      <GlobalButtonTooltips />
       <ScreenTextSearch />
       <PipelineNavigator />
       <div className="wb-main">
