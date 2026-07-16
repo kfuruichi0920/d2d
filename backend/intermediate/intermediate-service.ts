@@ -1,7 +1,7 @@
 /**
  * ③中間データ処理（P7、MID-001〜005、sdd_data_structure §2.11）。
  *
- * - ②抽出文書（承認済み）を成果物単位に統合して intermediate_document を生成する
+ * - プロジェクト設定の成果物単位に intermediate_document を生成し、②抽出文書を任意に統合元登録する
  * - ③の要素は intermediate_item として resource_* を参照する（②とリソースを共有）
  * - 編集・マージ・分割は新リソース（新 uid/code）を作り、based_on + transform_note で
  *   元 ID を追跡する（MID-005、EXT-014/015）
@@ -206,17 +206,59 @@ export interface CreateIntermediateResult {
   sourceCount: number
 }
 
+export interface EnsureIntermediateInput {
+  title: string
+  artifactTypeId: string
+  devPhaseId: string
+}
+
+/** 設定済み成果物に対応する③を返し、未作成なら統合元なしの空③を作成する（P7-1、MID-001）。 */
+export function ensureIntermediateDocument(
+  db: Database,
+  projectUid: string,
+  input: EnsureIntermediateInput
+): CreateIntermediateResult & { created: boolean } {
+  const existing = db
+    .prepare(
+      `SELECT d.uid, e.code,
+              (SELECT COUNT(*) FROM intermediate_item i WHERE i.intermediate_document_uid=d.uid) AS element_count,
+              d.structure_json
+         FROM intermediate_document d JOIN entity_registry e ON e.uid=d.uid
+        WHERE e.project_uid=? AND e.status<>'deleted' AND e.is_archived=0
+          AND d.artifact_type_id=? AND d.dev_phase_id=?
+        ORDER BY d.generated_at DESC, e.code DESC LIMIT 1`
+    )
+    .get(projectUid, input.artifactTypeId, input.devPhaseId) as
+    { uid: string; code: string; element_count: number; structure_json: string } | undefined
+  if (existing) {
+    const structure = JSON.parse(existing.structure_json) as IntermediateStructure
+    return {
+      intermediateDocumentUid: existing.uid,
+      code: existing.code,
+      elementCount: existing.element_count,
+      sourceCount: structure.sources.length,
+      created: false
+    }
+  }
+  return {
+    ...createIntermediateDocument(db, projectUid, {
+      extractedDocumentUids: [],
+      title: input.title,
+      artifactTypeId: input.artifactTypeId,
+      devPhaseId: input.devPhaseId,
+      importItems: false
+    }),
+    created: true
+  }
+}
+
 export function createIntermediateDocument(
   db: Database,
   projectUid: string,
   input: CreateIntermediateInput
 ): CreateIntermediateResult {
-  if (input.extractedDocumentUids.length === 0) {
-    throw new BackendError('validation', '統合対象の②抽出文書を 1 件以上指定してください', '')
-  }
-
   const txn = db.transaction((): CreateIntermediateResult => {
-    // 統合対象の検証: 承認済み（②正本）のみ統合できる
+    // 統合元はレビュー状態を問わず登録し、各要素の状態を取込編集画面へ引き継ぐ。
     const sources: { uid: string; title: string | null; structure: { elements: IntermediateElement[] } }[] = []
     for (const uid of input.extractedDocumentUids) {
       const row = db
@@ -226,13 +268,6 @@ export function createIntermediateDocument(
         .get(uid) as { status: string; title: string | null; structure_json: string } | undefined
       if (!row) {
         throw new BackendError('not_found', `②抽出文書が見つかりません: ${uid}`, '')
-      }
-      if (row.status !== 'approved') {
-        throw new BackendError(
-          'validation',
-          '未確定（レビュー前）の②抽出データは統合できません',
-          `${uid} status=${row.status}。抽出レビューで採用確定してください（SRS §2.2）`
-        )
       }
       sources.push({ uid, title: row.title, structure: JSON.parse(row.structure_json) })
     }
@@ -305,9 +340,6 @@ export function updateIntermediateSources(
   extractedDocumentUids: string[]
 ): { sourceCount: number } {
   const sourceUids = [...new Set(extractedDocumentUids)]
-  if (sourceUids.length === 0) {
-    throw new BackendError('validation', '統合対象の②抽出文書を 1 件以上指定してください', '')
-  }
 
   const txn = db.transaction(() => {
     const structure = loadStructure(db, docUid)
@@ -316,9 +348,6 @@ export function updateIntermediateSources(
         .prepare(`SELECT status FROM entity_registry WHERE uid=? AND entity_type='extracted_document'`)
         .get(uid) as { status: string } | undefined
       if (!source) throw new BackendError('not_found', `②抽出文書が見つかりません: ${uid}`, '')
-      if (source.status !== 'approved') {
-        throw new BackendError('validation', '未確定（レビュー前）の②抽出データは統合できません', uid)
-      }
     }
 
     const removed = structure.sources
@@ -426,7 +455,7 @@ export function insertExtractedItems(
 /** 選択した統合元 extracted_item へのアイテム単位 based_on を成果物全体から解除する。 */
 export function unlinkExtractedItems(db: Database, docUid: string, extractedItemUids: string[]): { unlinked: number } {
   const uniqueUids = [...new Set(extractedItemUids)]
-  if (uniqueUids.length === 0) throw new BackendError('validation', '紐付解除する統合元を選択してください', '')
+  if (uniqueUids.length === 0) throw new BackendError('validation', '成果物対応を削除する統合元を選択してください', '')
   const placeholders = uniqueUids.map(() => '?').join(',')
   const txn = db.transaction(() => {
     const links = db

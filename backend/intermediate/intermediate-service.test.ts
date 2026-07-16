@@ -16,6 +16,7 @@ import {
   duplicateIntermediateElement,
   editElementText,
   editIntermediateElement,
+  ensureIntermediateDocument,
   ensureIntermediateItemTraceLinks,
   estimateTokens,
   getChunk,
@@ -311,15 +312,34 @@ describe('③中間データ（P7）', () => {
     ).toBeUndefined()
   })
 
-  it('未承認の②は統合を拒否する（SRS §2.2 原則10）', () => {
+  it('設定済み成果物は統合元なしで作成でき、同じ成果物を再度開いても重複作成しない（MID-001）', () => {
+    const first = ensureIntermediateDocument(db, projectUid, {
+      title: '統合設計書',
+      artifactTypeId: 'design_doc',
+      devPhaseId: 'DD'
+    })
+    expect(first).toMatchObject({ created: true, elementCount: 0, sourceCount: 0 })
+    expect(structureOf(first.intermediateDocumentUid)).toMatchObject({ sources: [], elements: [] })
+
+    const second = ensureIntermediateDocument(db, projectUid, {
+      title: '統合設計書',
+      artifactTypeId: 'design_doc',
+      devPhaseId: 'DD'
+    })
+    expect(second).toMatchObject({ created: false, intermediateDocumentUid: first.intermediateDocumentUid })
+  })
+
+  it('未確認の②も統合元に登録でき、統合元を0件へ戻せる（MID-006）', () => {
     db.prepare(`UPDATE entity_registry SET status = 'draft' WHERE uid = ?`).run(extractedUid)
-    expect(() =>
-      createIntermediateDocument(db, projectUid, {
-        extractedDocumentUids: [extractedUid],
-        artifactTypeId: 'design_doc',
-        devPhaseId: 'DD'
-      })
-    ).toThrowError(/統合できません/)
+    const doc = createIntermediateDocument(db, projectUid, {
+      extractedDocumentUids: [extractedUid],
+      artifactTypeId: 'design_doc',
+      devPhaseId: 'DD',
+      importItems: false
+    })
+    expect(doc.sourceCount).toBe(1)
+    expect(updateIntermediateSources(db, projectUid, doc.intermediateDocumentUid, [])).toEqual({ sourceCount: 0 })
+    expect(structureOf(doc.intermediateDocumentUid).sources).toEqual([])
   })
 
   it('単独編集で任意位置追加・複製・種別変更を非破壊で行う（P7-2 / MID-004/005）', () => {

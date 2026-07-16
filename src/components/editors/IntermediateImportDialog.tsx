@@ -4,6 +4,7 @@
 import { useEffect, useState } from 'react'
 import { invoke } from '../../services/backend'
 import { useJobsStore } from '../../stores/jobs-store'
+import { reviewStateFromEntityStatus, ReviewStatusBadge } from '../common/review'
 import type { ExtractedDocumentItem, IntermediateDocumentItem } from '../views/DocumentsTree'
 
 interface ArtifactSetting {
@@ -53,7 +54,7 @@ export function IntermediateImportDialog({
   const save = async (): Promise<void> => {
     const artifact = artifacts.find((item) => item.uid === selectedArtifactUid)
     const phase = artifact ? phases.find((item) => item.dev_phase_id === artifact.dev_phase_id) : undefined
-    if (!artifact || !phase || selectedSources.size === 0) return
+    if (!artifact || !phase) return
     const existing = intermediates.find(
       (doc) => doc.dev_phase_id === phase.dev_phase_id && doc.artifact_type_id === artifact.artifact_type_id
     )
@@ -120,27 +121,25 @@ export function IntermediateImportDialog({
       </section>
       <section data-testid="intermediate-import-sources">
         <b>取込元（②抽出データ・複数選択可）</b>
-        {extracted
-          .filter((item) => item.status === 'approved')
-          .map((item) => (
-            <label key={item.uid}>
-              <input
-                type="checkbox"
-                data-testid={`intermediate-source-${item.code}`}
-                disabled={!selectedArtifactUid}
-                checked={selectedSources.has(item.uid)}
-                onChange={(event) =>
-                  setSelectedSources((current) => {
-                    const next = new Set(current)
-                    if (event.target.checked) next.add(item.uid)
-                    else next.delete(item.uid)
-                    return next
-                  })
-                }
-              />{' '}
-              {item.title ?? item.code}
-            </label>
-          ))}
+        {extracted.map((item) => (
+          <label key={item.uid}>
+            <input
+              type="checkbox"
+              data-testid={`intermediate-source-${item.code}`}
+              disabled={!selectedArtifactUid}
+              checked={selectedSources.has(item.uid)}
+              onChange={(event) =>
+                setSelectedSources((current) => {
+                  const next = new Set(current)
+                  if (event.target.checked) next.add(item.uid)
+                  else next.delete(item.uid)
+                  return next
+                })
+              }
+            />{' '}
+            <ReviewStatusBadge status={reviewStateFromEntityStatus(item.status)} /> {item.title ?? item.code}
+          </label>
+        ))}
       </section>
       <div className="stage-import-dialog-actions">
         <button type="button" className="d2d-btn" onClick={onClose}>
@@ -149,10 +148,10 @@ export function IntermediateImportDialog({
         <button
           type="button"
           className="d2d-btn primary"
-          disabled={!selectedArtifactUid || selectedSources.size === 0 || saving}
+          disabled={!selectedArtifactUid || saving}
           onClick={() => void save()}
         >
-          {saving ? '取込中…' : '選択して取込'}
+          {saving ? '保存中…' : '選択内容を保存'}
         </button>
       </div>
     </div>

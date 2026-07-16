@@ -545,11 +545,38 @@ test('②→③統合・編集・確定（P7）', async () => {
   await page.getByTestId('artifact-phase').selectOption('DD')
   await page.getByTestId('artifact-add').click()
 
-  // Pipeline ③一覧上部の「取込」で、取込先成果物1件と取込元②複数件を選択する
+  // 設定した成果物は取込元がなくてもExplorerへ表示し、選択時に空の③編集画面を開ける。
   await expect(page.getByTestId('documents-tree')).not.toContainText('フェーズ未定義成果物')
   await expect(page.getByTestId('documents-tree')).not.toContainText('③へ統合')
-  await expect(page.getByTestId('artifact-slot-DD-design_doc')).toBeVisible()
+  const artifactSlot = page.getByTestId('artifact-slot-DD-design_doc')
+  await expect(artifactSlot).toBeVisible()
+  await expect(page.getByTestId('phase-DD').getByText('フェーズ', { exact: true })).toBeVisible()
+  await expect(artifactSlot.getByText('成果物', { exact: true })).toBeVisible()
   await expect(page.getByTestId('explorer-section-intermediate').getByRole('button')).toHaveCount(0)
+  await artifactSlot.click()
+  await expect(page.getByTestId('intermediate-editor')).toBeVisible()
+  await expect(page.getByTestId('intermediate-grid').getByRole('row')).toHaveCount(1)
+  await expect(page.getByTestId('intermediate-doc-IMDOC-000001')).toBeVisible()
+
+  // 未確認の②も取込候補に表示され、各要素の抽出レビュー状態を取込編集へ引き継ぐ。
+  const draftSource = await page.evaluate(async () => {
+    const list = await window.api.invoke<Array<{ uid: string }>>('extracted.list')
+    if (!list.ok || !list.result[0]) return false
+    const detail = await window.api.invoke<{ elements: Array<{ resource_uid?: string }> }>('extracted.get', {
+      uid: list.result[0].uid
+    })
+    const resourceUid = detail.ok ? detail.result.elements[0]?.resource_uid : undefined
+    if (!resourceUid) return false
+    const updated = await window.api.invoke('extracted.updateItemStatus', {
+      extractedDocumentUid: list.result[0].uid,
+      resourceUid,
+      status: 'draft'
+    })
+    return updated.ok
+  })
+  expect(draftSource).toBe(true)
+
+  // Pipeline ③一覧上部の「取込」で、取込先成果物1件と取込元②複数件を選択する
   await page.getByTestId('stage-intermediate').click()
   await page.getByTestId('intermediate-import-button').click()
   const sourceDialog = page.getByTestId('intermediate-source-dialog')
@@ -559,9 +586,10 @@ test('②→③統合・編集・確定（P7）', async () => {
   const targetCheckbox = page.getByTestId('intermediate-target-DD-design_doc')
   const sourceCheckbox = sourceDialog.getByTestId('intermediate-source-EXDOC-000001')
   await expect(sourceCheckbox).toBeDisabled()
+  await expect(sourceDialog.getByTestId('intermediate-import-sources').locator('.review-unconfirmed')).toBeVisible()
   await targetCheckbox.check()
   await sourceCheckbox.check()
-  await sourceDialog.getByRole('button', { name: '選択して取込' }).click()
+  await sourceDialog.getByRole('button', { name: '選択内容を保存' }).click()
   await expect(page.getByTestId('intermediate-doc-IMDOC-000001')).toBeVisible({ timeout: 15_000 })
   await expect(page.getByTestId('intermediate-doc-IMDOC-000001')).toHaveAttribute('title', /成果物: 統合設計書/)
   await expect(page.getByTestId('stage-intermediate')).toContainText('1')
@@ -580,11 +608,18 @@ test('②→③統合・編集・確定（P7）', async () => {
   await page.getByTestId('sort-artifact_type_id').click()
   await expect(page.getByTestId('sort-artifact_type_id')).toContainText('▲')
 
-  // 既存の取込関係は、取込先成果物を選択した時点で取込元チェックへ復元する
+  // ③ステージは成果物の下に取込元を表示し、この画面から取込対象を削除できる。
+  const stageSources = page.getByTestId('stage-intermediate-hierarchy').locator('.stage-intermediate-sources').first()
+  await expect(stageSources).toContainText('名称変更後の抽出データ')
+  await stageSources.getByRole('button', { name: '削除' }).click()
+  await expect(stageSources).toContainText('未選択')
+
+  // 取込先成果物を選ぶと既存関係を復元し、未確認の②も再度選択して保存できる。
   await page.getByTestId('intermediate-import-button').click()
   await page.getByTestId('intermediate-target-DD-design_doc').check()
-  await expect(page.getByTestId('intermediate-source-EXDOC-000001')).toBeChecked()
-  await page.getByTestId('intermediate-source-dialog').getByRole('button', { name: 'キャンセル' }).click()
+  await expect(page.getByTestId('intermediate-source-EXDOC-000001')).not.toBeChecked()
+  await page.getByTestId('intermediate-source-EXDOC-000001').check()
+  await page.getByTestId('intermediate-source-dialog').getByRole('button', { name: '選択内容を保存' }).click()
 
   // 同一成果物の重複は最新1件以外を自動アーカイブし、③一覧から削除・復元できる。
   const duplicateIntermediate = await page.evaluate(async () => {
@@ -628,11 +663,20 @@ test('②→③統合・編集・確定（P7）', async () => {
   const sourceItemCount = (await sourceGrid.getByRole('row').count()) - 1
   const firstSourceRow = sourceGrid.getByRole('row').nth(1)
   await expect(firstSourceRow).toContainText('未確認')
+  await expect(firstSourceRow.locator('.review-unconfirmed')).toBeVisible()
   await firstSourceRow.click()
   await sourceGrid
     .getByRole('row')
     .last()
     .click({ modifiers: ['Shift'] })
+  await expect(page.getByTestId('source-add-above')).toHaveAttribute(
+    'title',
+    /選択中の統合元要素を、選択中の成果物要素の上に追加し、based_onで関連付けます/
+  )
+  await expect(page.getByTestId('source-add-below')).toHaveAttribute(
+    'title',
+    /選択中の統合元要素を、選択中の成果物要素の下に追加し、based_onで関連付けます/
+  )
   await page.getByTestId('source-add-below').click()
   const middleGrid = page.getByTestId('intermediate-grid')
   await expect(middleGrid).toContainText('1. 概要')
@@ -653,12 +697,13 @@ test('②→③統合・編集・確定（P7）', async () => {
     /related/
   )
 
-  // 同じ統合元を別成果物要素へ再利用でき、紐付解除は当該統合元のbased_onだけを外す。
+  // 同じ統合元を別成果物要素へ再利用でき、「削除」は当該統合元のbased_onだけを外す。
+  await middleGrid.getByRole('row').nth(1).click()
   await firstSourceRow.click()
   const artifactRowsBeforeReuse = await middleGrid.getByRole('row').count()
   await page.getByTestId('source-add-below').click()
   await expect(middleGrid.getByRole('row')).toHaveCount(artifactRowsBeforeReuse + 1)
-  await page.getByTestId('source-unlink').click()
+  await page.getByTestId('source-delete').click()
   await expect(firstSourceRow).not.toHaveAttribute('data-linked', 'true')
   await expect(page.getByTestId('source-link-summary')).toContainText(
     `紐付済 ${sourceItemCount - 1} / 全 ${sourceItemCount}`

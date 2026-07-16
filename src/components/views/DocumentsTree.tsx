@@ -74,6 +74,7 @@ export function DocumentsTree(): React.JSX.Element {
   const [artifacts, setArtifacts] = useState<ArtifactSetting[]>([])
   const [phases, setPhases] = useState<DevPhaseSetting[]>([])
   const openResource = useEditorStore((state) => state.openResource)
+  const notify = useJobsStore((state) => state.notify)
   const extractedUnconfirmed = extracted.reduce((total, document) => total + document.unconfirmed_count, 0)
   const intermediateUnconfirmed = intermediates.reduce((total, document) => total + document.unconfirmed_count, 0)
 
@@ -91,6 +92,20 @@ export function DocumentsTree(): React.JSX.Element {
     if (arts.ok) setArtifacts(arts.result)
     if (devs.ok) setPhases(devs.result)
   }, [])
+
+  const openArtifact = async (artifact: ArtifactSetting): Promise<void> => {
+    const result = await invoke<{ intermediateDocumentUid: string }>('intermediate.ensureArtifact', {
+      artifactUid: artifact.uid
+    })
+    if (!result.ok) {
+      notify('error', '中間データを開けませんでした', result.error.message)
+      return
+    }
+    await refresh()
+    openResource(`intermediate://${result.result.intermediateDocumentUid}`, `③: ${artifact.artifact_name}`, {
+      preview: true
+    })
+  }
 
   useEffect(() => {
     void refresh()
@@ -170,7 +185,9 @@ export function DocumentsTree(): React.JSX.Element {
       <details open className="d2d-explorer-section" data-testid="explorer-section-intermediate">
         <summary className="d2d-explorer-section-header">
           <span className="d2d-explorer-section-title">③中間データ</span>
-          <span className="d2d-explorer-section-count">{intermediates.length}</span>
+          <span className="d2d-explorer-section-count">
+            {artifacts.filter((artifact) => artifact.is_active === 1 && artifact.dev_phase_id).length}
+          </span>
           <span
             className={`d2d-unconfirmed-badge ${intermediateUnconfirmed === 0 ? 'is-zero' : ''}`}
             data-testid="intermediate-unconfirmed-badge"
@@ -182,8 +199,11 @@ export function DocumentsTree(): React.JSX.Element {
         {phases
           .filter((phase) => phase.is_active === 1)
           .map((phase) => (
-            <div key={phase.uid} data-testid={`phase-${phase.dev_phase_id}`}>
-              <div style={{ padding: '5px 4px 2px', fontWeight: 600 }}>▾ {phase.dev_phase_name}</div>
+            <div key={phase.uid} className="d2d-explorer-phase" data-testid={`phase-${phase.dev_phase_id}`}>
+              <div className="d2d-explorer-phase-label">
+                <span className="d2d-hierarchy-kind">フェーズ</span>
+                <span>▾ {phase.dev_phase_name}</span>
+              </div>
               {artifacts
                 .filter((artifact) => artifact.is_active === 1 && artifact.dev_phase_id === phase.dev_phase_id)
                 .map((artifact) => {
@@ -207,13 +227,10 @@ export function DocumentsTree(): React.JSX.Element {
                       style={{ paddingLeft: 14, marginBottom: 3 }}
                     >
                       <div
-                        className="d2d-list-row"
-                        style={{ paddingLeft: 0, alignItems: 'center' }}
-                        onClick={() =>
-                          doc &&
-                          openResource(`intermediate://${doc.uid}`, `③: ${artifact.artifact_name}`, { preview: true })
-                        }
+                        className="d2d-list-row d2d-explorer-artifact-row"
+                        onClick={() => void openArtifact(artifact)}
                       >
+                        <span className="d2d-hierarchy-kind artifact">成果物</span>
                         {doc && <ReviewStatusBadge status={reviewStateFromEntityStatus(doc.status)} />}
                         <span style={{ flex: 1, minWidth: 0, fontWeight: 500 }}>{artifact.artifact_name}</span>
                         {doc && (

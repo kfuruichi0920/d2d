@@ -251,7 +251,7 @@ export function IntermediateDocumentEditor({
       `${extractedItemUids.length}要素を成果物へ追加しました`
     )
   }
-  const unlinkSources = async (): Promise<void> => {
+  const deleteSourceLinks = async (): Promise<void> => {
     const extractedItemUids = sourceItems
       .filter((item) => sourceSelectedIds.has(item.id))
       .map((item) => item.extracted_item_uid)
@@ -259,8 +259,10 @@ export function IntermediateDocumentEditor({
     await call(
       'intermediate.unlinkExtractedItems',
       { extractedItemUids },
-      `${extractedItemUids.length}統合元の紐付けを解除しました`
+      `${extractedItemUids.length}統合元の成果物対応を削除しました`
     )
+    setSourceSelectedIds(new Set())
+    setSourceActiveId(null)
   }
   const move = async (direction: 'up' | 'down'): Promise<void> => {
     await call('intermediate.reorderItems', { elementIds: [...selectedIds], direction }, '表示順を更新しました')
@@ -686,8 +688,9 @@ export function IntermediateDocumentEditor({
                 type="button"
                 className="d2d-btn small"
                 data-testid="source-add-above"
-                disabled={sourceSelectedIds.size === 0}
+                disabled={sourceSelectedIds.size === 0 || (doc.elements.length > 0 && selectedIds.size !== 1)}
                 onClick={() => void integrate('above')}
+                title="選択中の統合元要素を、選択中の成果物要素の上に追加し、based_onで関連付けます"
               >
                 上に追加
               </button>
@@ -695,19 +698,21 @@ export function IntermediateDocumentEditor({
                 type="button"
                 className="d2d-btn small"
                 data-testid="source-add-below"
-                disabled={sourceSelectedIds.size === 0}
+                disabled={sourceSelectedIds.size === 0 || (doc.elements.length > 0 && selectedIds.size !== 1)}
                 onClick={() => void integrate('below')}
+                title="選択中の統合元要素を、選択中の成果物要素の下に追加し、based_onで関連付けます"
               >
                 下に追加
               </button>
               <button
                 type="button"
                 className="d2d-btn small"
-                data-testid="source-unlink"
+                data-testid="source-delete"
                 disabled={sourceSelectedIds.size === 0}
-                onClick={() => void unlinkSources()}
+                onClick={() => void deleteSourceLinks()}
+                title="選択中の統合元要素と成果物要素のbased_on対応を削除します。抽出データ自体は削除しません"
               >
-                紐付解除
+                削除
               </button>
             </>
           ) : (
