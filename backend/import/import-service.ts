@@ -1,5 +1,5 @@
 /**
- * ①原本インポート（P4-1、IMP-001〜009）。
+ * ①原本インポート・抽出済み判定（P4-1 / P4-2、IMP-001〜009、UI-010 / UI-046）。
  * 原本を改変せず blobs/originals/ へコピーし、source_document を登録する。
  */
 import type { Database } from 'better-sqlite3'
@@ -123,6 +123,7 @@ export interface SourceDocumentListItem {
   file_hash: string
   is_current: number
   imported_at: string
+  has_extracted_data: number
 }
 
 export function listSourceDocuments(
@@ -132,7 +133,8 @@ export function listSourceDocuments(
 ): SourceDocumentListItem[] {
   return db
     .prepare(
-      `SELECT e.uid, e.code, e.title, e.status, e.is_archived, d.file_name, d.file_type, d.file_hash, d.is_current, d.imported_at
+      `SELECT e.uid, e.code, e.title, e.status, e.is_archived, d.file_name, d.file_type, d.file_hash, d.is_current, d.imported_at,
+              EXISTS(SELECT 1 FROM extracted_document x WHERE x.source_document_uid = d.uid) AS has_extracted_data
          FROM source_document d
          JOIN entity_registry e ON e.uid = d.uid
         WHERE e.project_uid = ? AND e.status <> 'deleted' AND (? = 1 OR e.is_archived = 0)
@@ -148,6 +150,7 @@ export function getSourceDocument(
   const row = db
     .prepare(
       `SELECT e.uid, e.code, e.title, e.status, e.is_archived, d.file_name, d.file_type, d.file_hash, d.is_current, d.imported_at,
+              EXISTS(SELECT 1 FROM extracted_document x WHERE x.source_document_uid = d.uid) AS has_extracted_data,
               b.relative_path AS blob_relative_path
          FROM source_document d
          JOIN entity_registry e ON e.uid = d.uid

@@ -70,6 +70,7 @@ describe('取込〜②抽出保存（P4-1 / P5-2）', () => {
     const list = listSourceDocuments(db, projectUid)
     expect(list).toHaveLength(1)
     expect(list[0]!.is_current).toBe(1)
+    expect(list[0]!.has_extracted_data).toBe(0)
 
     const batch = db.prepare(`SELECT batch_type, status FROM batch_operation_info`).get() as {
       batch_type: string
@@ -100,6 +101,7 @@ describe('取込〜②抽出保存（P4-1 / P5-2）', () => {
     }
     expect(renamed.title).toBe('任意の抽出名称')
     expect(listSourceDocuments(db, projectUid)[0]!.file_name).toBe('spec.docx')
+    expect(listSourceDocuments(db, projectUid)[0]!.has_extracted_data).toBe(1)
   })
   it('旧バイナリ形式（.doc）は拒否する（SRS §3.1）', () => {
     const src = join(dir, 'old.doc')

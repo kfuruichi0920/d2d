@@ -97,7 +97,7 @@ export function registerDocumentApi(router: ApiRouter, jobs: JobManager): void {
     eventBus.emit('source.updated', { kind: 'deleted' })
     return { deleted: true }
   })
-  /** 原本から②抽出ジョブを開始（現状 Word のみ。他形式は P5 後続） */
+  /** 原本から②抽出ジョブを開始（P4-2 / P5、UI-010 / UI-046。現状 Word のみ） */
   router.register('document.extract', (params) => {
     const p = asRecord(params)
     const { db } = requireProject()
@@ -107,6 +107,13 @@ export function registerDocumentApi(router: ApiRouter, jobs: JobManager): void {
         'validation',
         `${doc.file_type} 形式の抽出は未実装です（P5 後続で対応）`,
         '現在は Word (.docx) のみ抽出できます'
+      )
+    }
+    if (doc.has_extracted_data) {
+      throw new BackendError(
+        'validation',
+        'この原本の抽出データは既に存在します',
+        '既存の②抽出データを使用してください'
       )
     }
     return jobs.enqueue('extract.word', { sourceDocumentUid: doc.uid })

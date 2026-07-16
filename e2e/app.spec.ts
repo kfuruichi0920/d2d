@@ -375,6 +375,8 @@ test('原本取込→Word抽出→レビュー→②正本確定の全経路（P
   await expect(sourceStageRow).toHaveAttribute('aria-selected', 'true')
   await expect(page.getByTestId('source-stage-preview')).toContainText('原本は読み取り専用です')
   await expect(page.getByTestId('source-open-external')).toBeVisible()
+  await expect(page.getByTestId('extract-button')).toBeVisible()
+  await expect(page.getByTestId('extract-button')).toBeEnabled()
   await page.getByTestId('sort-file_name').click()
   await expect(page.getByTestId('sort-file_name')).toContainText('▲')
   const archivedSourceRow = page.getByTestId('stage-source-row-DOC-000002')
@@ -388,6 +390,8 @@ test('原本取込→Word抽出→レビュー→②正本確定の全経路（P
   await page.getByTestId('source-doc-DOC-000001').click()
   await expect(page.getByTestId('original-viewer')).toBeVisible()
   await expect(page.getByTestId('original-viewer')).toContainText('SHA-256')
+  await expect(page.getByTestId('source-open-external')).toBeVisible()
+  await expect(page.getByTestId('extract-button')).toContainText('②抽出データの生成（抽出ジョブ実行）')
   await page.getByTestId('extract-button').click()
 
   // 抽出完了 → ②抽出データがツリーへ出現
@@ -396,6 +400,10 @@ test('原本取込→Word抽出→レビュー→②正本確定の全経路（P
   await expect(extractedRow).toContainText(basename(docxPath))
   await expect(extractedRow).toHaveAttribute('title', /抽出器:/)
   await expect(page.getByTestId('stage-extracted')).toContainText('1')
+  await expect(page.getByTestId('extract-button')).toBeDisabled()
+  await page.getByTestId('stage-source').click()
+  await page.getByTestId('stage-source-row-DOC-000001').click()
+  await expect(page.getByTestId('extract-button')).toBeDisabled()
   await expect(page.getByTestId('extracted-unconfirmed-EXDOC-000001')).toContainText(/未確定 [1-9]/)
   await expect(page.getByTestId('explorer-section-extracted')).toContainText(
     '編集する場合は、対象の抽出データを選択してください。'

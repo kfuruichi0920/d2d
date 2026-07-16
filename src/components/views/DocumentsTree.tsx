@@ -20,6 +20,7 @@ export interface SourceDocumentItem {
   is_archived: number
   is_current: number
   imported_at: string
+  has_extracted_data: number
 }
 
 export interface ExtractedDocumentItem {
@@ -244,21 +245,17 @@ export function DocumentsTree(): React.JSX.Element {
   )
 }
 
-/** 原本ビュー（V-01）。プレビューと抽出実行の起点 */
-export function OriginalViewer({ uid }: { uid: string }): React.JSX.Element {
-  const [doc, setDoc] = useState<(SourceDocumentItem & { file_hash: string; imported_at: string }) | null>(null)
+/** 原本の共通操作（P4-2 / P5、UI-010 / UI-046）。選択経路によらず同じ操作を提示する。 */
+export function OriginalActions({ doc }: { doc: SourceDocumentItem }): React.JSX.Element {
   const notify = useJobsStore((s) => s.notify)
 
-  useEffect(() => {
-    void invoke<SourceDocumentItem & { file_hash: string; imported_at: string }>('document.get', { uid }).then(
-      (res) => {
-        if (res.ok) setDoc(res.result)
-      }
-    )
-  }, [uid])
+  const openExternal = async (): Promise<void> => {
+    const result = await invoke('document.openExternal', { uid: doc.uid })
+    if (!result.ok) notify('error', '原本を開けませんでした', result.error.message)
+  }
 
   const extract = async (): Promise<void> => {
-    const res = await invoke('document.extract', { uid })
+    const res = await invoke('document.extract', { uid: doc.uid })
     if (res.ok) {
       notify('info', '抽出ジョブを開始しました')
       void executeCommand('job.openPanel')
@@ -266,6 +263,43 @@ export function OriginalViewer({ uid }: { uid: string }): React.JSX.Element {
       notify('error', '抽出を開始できませんでした', res.error.message)
     }
   }
+
+  return (
+    <div className="stage-actions" style={{ marginTop: 12 }}>
+      <button type="button" className="d2d-btn" onClick={() => void openExternal()} data-testid="source-open-external">
+        OSアプリで開く
+      </button>
+      <button
+        type="button"
+        className="d2d-btn primary"
+        onClick={() => void extract()}
+        disabled={doc.file_type !== 'word' || Boolean(doc.has_extracted_data)}
+        data-testid="extract-button"
+        title={doc.has_extracted_data ? 'この原本の抽出データは既に存在します' : undefined}
+      >
+        ②抽出データの生成（{doc.file_type === 'word' ? '抽出ジョブ実行' : `${doc.file_type} は P5 後続対応`}）
+      </button>
+    </div>
+  )
+}
+
+/** 原本ビュー（V-01）。プレビューと原本共通操作の起点 */
+export function OriginalViewer({ uid }: { uid: string }): React.JSX.Element {
+  const [doc, setDoc] = useState<(SourceDocumentItem & { file_hash: string; imported_at: string }) | null>(null)
+
+  useEffect(() => {
+    const refresh = (): void => {
+      void invoke<SourceDocumentItem & { file_hash: string; imported_at: string }>('document.get', { uid }).then(
+        (res) => {
+          if (res.ok) setDoc(res.result)
+        }
+      )
+    }
+    refresh()
+    return onBackendEvent((event) => {
+      if (['artifact.updated', 'extraction.completed', 'extracted.updated', 'job.updated'].includes(event)) refresh()
+    })
+  }, [uid])
 
   if (!doc) return <div className="d2d-empty">読込中…</div>
 
@@ -282,17 +316,7 @@ export function OriginalViewer({ uid }: { uid: string }): React.JSX.Element {
         <dt>取込日時</dt>
         <dd>{doc.imported_at}</dd>
       </dl>
-      <div style={{ marginTop: 12 }}>
-        <button
-          type="button"
-          className="d2d-btn primary"
-          onClick={() => void extract()}
-          disabled={doc.file_type !== 'word'}
-          data-testid="extract-button"
-        >
-          ②抽出データを生成（{doc.file_type === 'word' ? '抽出ジョブ実行' : `${doc.file_type} は P5 後続対応`}）
-        </button>
-      </div>
+      <OriginalActions doc={doc} />
       <p style={{ color: 'var(--d2d-fg-muted)', marginTop: 16, fontSize: 11.5 }}>
         原本は blobs/originals/ に無改変で保管されています（IMP-009）。
       </p>

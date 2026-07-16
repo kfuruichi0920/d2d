@@ -35,6 +35,7 @@
 | P3/P7 追加    | Explorer閲覧専用化・ステージ操作集約・③重複整理・中間3モード切替                    | de2566f         |
 | P3 追加       | SecondaryをProperties／Relations／Reviewへ整理、共通Selection・コメントtrace化      | 6514664         |
 | P3/P8/P12追加 | 全画面検索・プレビュー表示切替・Relations遷移・Store全件閲覧・関係候補ルール検証    | 本コミット      |
+| P4/P5追加     | 原本選択経路の操作統一・抽出データ存在時の抽出実行無効化（ユニット168件／E2E 18件） | 本コミット      |
 
 ## 恒久制約（違反するとビルド/実行が壊れる、または設計方針違反）
 
@@ -62,6 +63,7 @@
 - Explorer未確定Badgeは文書状態ではなく要素単位で集計し、extracted_itemはresource_uid、intermediate_itemはitem uidに対応するentity_registry.statusがapproved／deleted以外の件数を表示する。削除済みを除く子要素が1件以上かつ全件approvedの場合だけ抽出／中間文書もapprovedとし、それ以外はdraftへ同期する。
 - Explorerの①〜④は強調した折りたたみ見出しとし、原本・抽出・中間・設計モデル各行は保持プロパティをTooltip表示する。Explorerは一覧と選択によるEditor表示に限定し、取込・名称変更・チャンク・モデル追加ボタンを置かない。Pipeline Navigatorの各ステージはEditor Areaにソート可能な一覧を開き、①は一覧上部の取込からWindows複数ファイル選択を直接開く読取専用詳細、②は独自プレビューとExplorer選択案内、③は一覧上部の取込とフェーズ－成果物階層、④はモデル一覧と追加操作を表示する。原本はファイルごとに独立した `import.source` Jobへ登録する（実行はJob Managerの直列制約を維持）。
 - 抽出文書の初期 `entity_registry.title` は原本の `source_document.file_name` と同一にする。後の名称変更は抽出文書の `entity_registry.title` だけを更新し、原本名・blob・traceは変更しない。
+- ①原本はPipeline NavigatorとExplorerのどちらから選択しても「OSアプリで開く」と「②抽出データの生成（抽出ジョブ実行）」を表示する。`source_document.uid`を参照する`extracted_document`が存在する場合は抽出実行を無効表示し、Backendも重複実行を拒否する。
 - ①原本・②抽出・③中間の通常削除は `status='deleted'` の論理削除、Explorerだけからの一時非表示は `is_archived=1` とする。アーカイブはステージ一覧に残して復元可能とし、schema 1.5.0で `entity_registry.is_archived` と索引を追加した。同じ `dev_phase_id`／`artifact_type_id` の③が複数ある場合は、現在表示中の1件を優先し、表示中が複数なら最新1件以外を自動アーカイブする。復元時は同一成果物の他文書をアーカイブしてExplorer表示を最大1件に保つ。
 - Workbench内文字検索は `Ctrl/Cmd+F` の共通検索UIで提供する。文書プレビューのパーツ種別・セクション・要素ID表示は共通 `DocumentPreviewMeta` で切替・ツール全体保存し、抽出形式固有の表示判定を各Editorへ埋め込まない。
 - Secondaryの閉じたアコーディオンは開いたセクションの下へ安定ソートする。Relationsは相手エンティティから `resource://`／`original://`／`extracted://`／`intermediate://`／`chunk://` の編集URIを解決し、クリックまたはEnter／Spaceで開く。

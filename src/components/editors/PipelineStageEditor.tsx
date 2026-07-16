@@ -10,7 +10,12 @@ import { useProjectStore } from '../../stores/project-store'
 import { useSelectionStore } from '../../stores/selection-store'
 import { reviewStateFromEntityStatus, ReviewStatusBadge } from '../common/review'
 import { resourceTypeLabel } from '../../types/resource'
-import type { SourceDocumentItem, ExtractedDocumentItem, IntermediateDocumentItem } from '../views/DocumentsTree'
+import {
+  OriginalActions,
+  type SourceDocumentItem,
+  type ExtractedDocumentItem,
+  type IntermediateDocumentItem
+} from '../views/DocumentsTree'
 import type { DesignElementRow } from '../views/DesignModelViews'
 import { ResizablePaneGroup } from '../workbench/ResizablePaneGroup'
 import { IntermediateImportDialog } from './IntermediateImportDialog'
@@ -249,7 +254,9 @@ export function PipelineStageEditor({ stage }: { stage: PipelineStage }): React.
         [
           'source.imported',
           'source.updated',
+          'artifact.updated',
           'extraction.completed',
+          'job.updated',
           'extracted.updated',
           'intermediate.updated',
           'design_model.updated'
@@ -640,17 +647,7 @@ export function PipelineStageEditor({ stage }: { stage: PipelineStage }): React.
                   <dd>{selectedSource.imported_at}</dd>
                 </dl>
                 <p>原本は読み取り専用です。内容表示と編集はOSにインストールされたアプリを使用します。</p>
-                <button
-                  className="d2d-btn primary"
-                  data-testid="source-open-external"
-                  onClick={() =>
-                    void invoke('document.openExternal', { uid: selectedSource.uid }).then((result) => {
-                      if (!result.ok) notify('error', '原本を開けませんでした', result.error.message)
-                    })
-                  }
-                >
-                  OSアプリで開く
-                </button>
+                <OriginalActions doc={selectedSource} />
               </div>
             )}
             {stage === 'extracted' && selectedUid && <DocumentPreview uid={selectedUid} kind="extracted" />}
