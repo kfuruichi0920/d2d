@@ -7,6 +7,7 @@ import { closeDatabase, createDatabase, getProjectRow } from '../store/database'
 import { createDesignElement, createTraceLink } from '../design/design-service'
 import { checkConsistency, exportSubgraph, getTraceMatrix, getTraceSubgraph } from './trace-service'
 
+import { getEditableTraceMatrix, listTraceMatrixScopes, updateTraceMatrixLinks } from './trace-matrix-service'
 describe('トレーサビリティ（P9）', () => {
   let dir: string
   let db: Database
@@ -99,6 +100,83 @@ describe('トレーサビリティ（P9）', () => {
     expect(matrix.cells[func1.uid]?.[req2.uid]).toBeUndefined()
   })
 
+  it('汎用マトリクス: 複数Resource集合と両方向の関係を返す（TRACE-026/029）', () => {
+    const scopes = listTraceMatrixScopes(db, projectUid)
+    expect(scopes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'design:FUNC', count: 1 }),
+        expect.objectContaining({ id: 'design:REQ', count: 2 })
+      ])
+    )
+
+    const forward = getEditableTraceMatrix(db, projectUid, ['design:FUNC'], ['design:REQ'], ['satisfies'])
+    expect(forward.rows.map((row) => row.code)).toEqual([func1.code])
+    expect(forward.cells[func1.uid]?.[req1.uid]?.[0]).toMatchObject({
+      relationType: 'satisfies',
+      direction: 'row_to_col'
+    })
+
+    const reverse = getEditableTraceMatrix(db, projectUid, ['design:REQ'], ['design:FUNC'], ['satisfies'])
+    expect(reverse.cells[req1.uid]?.[func1.uid]?.[0]).toMatchObject({
+      relationType: 'satisfies',
+      direction: 'col_to_row'
+    })
+  })
+
+  it('汎用マトリクス: 選択セルへ関係を一括追加・論理削除できる（TRACE-027）', () => {
+    const added = updateTraceMatrixLinks(db, projectUid, {
+      pairs: [{ rowUid: func1.uid, colUid: req2.uid }],
+      relationTypes: ['satisfies', 'relates_to'],
+      direction: 'row_to_col',
+      operation: 'add'
+    })
+    expect(added).toMatchObject({ added: 2, deleted: 0 })
+
+    const matrix = getEditableTraceMatrix(db, projectUid, ['design:FUNC'], ['design:REQ'], ['satisfies', 'relates_to'])
+    expect(matrix.cells[func1.uid]?.[req2.uid]?.map((link) => link.relationType).sort()).toEqual([
+      'relates_to',
+      'satisfies'
+    ])
+
+    const removed = updateTraceMatrixLinks(db, projectUid, {
+      pairs: [{ rowUid: func1.uid, colUid: req2.uid }],
+      relationTypes: ['satisfies', 'relates_to'],
+      direction: 'row_to_col',
+      operation: 'delete'
+    })
+    expect(removed.deleted).toBe(2)
+    expect(
+      getEditableTraceMatrix(db, projectUid, ['design:FUNC'], ['design:REQ']).cells[func1.uid]?.[req2.uid]
+    ).toBeUndefined()
+  })
+
+  it('汎用マトリクス: セルクリック相当のtoggleで関係を反転する（TRACE-027）', () => {
+    const input = {
+      pairs: [{ rowUid: func1.uid, colUid: req2.uid }],
+      relationTypes: ['satisfies'] as const,
+      direction: 'row_to_col' as const,
+      operation: 'toggle' as const
+    }
+    expect(updateTraceMatrixLinks(db, projectUid, input).added).toBe(1)
+    expect(updateTraceMatrixLinks(db, projectUid, input).deleted).toBe(1)
+  })
+
+  it('汎用マトリクス: 一括追加の途中で許容関係エラーなら全体をロールバックする', () => {
+    expect(() =>
+      updateTraceMatrixLinks(db, projectUid, {
+        pairs: [
+          { rowUid: func1.uid, colUid: req2.uid },
+          { rowUid: req1.uid, colUid: func1.uid }
+        ],
+        relationTypes: ['satisfies'],
+        direction: 'row_to_col',
+        operation: 'add'
+      })
+    ).toThrow(/許容されない関係/)
+    expect(
+      getEditableTraceMatrix(db, projectUid, ['design:FUNC'], ['design:REQ']).cells[func1.uid]?.[req2.uid]
+    ).toBeUndefined()
+  })
   it('整合性検査: 未接続・根拠不足・検証未対応・暫定リンク・循環を検出する（srs §2.3）', () => {
     // 未接続要素を追加
     const isolated = createDesignElement(db, projectUid, { category: 'MGMT', title: '未接続の判断' })

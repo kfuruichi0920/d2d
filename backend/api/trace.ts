@@ -14,6 +14,13 @@ import {
   type ExportFormat,
   type TraceDirection
 } from '../traceability/trace-service'
+import {
+  getEditableTraceMatrix,
+  listTraceMatrixScopes,
+  updateTraceMatrixLinks,
+  type MatrixUpdateInput
+} from '../traceability/trace-matrix-service'
+import { RELATION_TYPES, type RelationType } from '../design/design-service'
 
 function asRecord(params: unknown): Record<string, unknown> {
   if (typeof params !== 'object' || params === null) {
@@ -60,6 +67,58 @@ export function registerTraceApi(router: ApiRouter): void {
   router.register('trace.check', () => {
     const { db, info } = requireProject()
     return checkConsistency(db, info.projectUid)
+  })
+  /** 汎用マトリクスの行・列候補Resource集合（TRACE-026/029）。 */
+  router.register('trace.matrixScopes', () => {
+    const { db, info } = requireProject()
+    return listTraceMatrixScopes(db, info.projectUid)
+  })
+
+  /** 複数Resource集合と両方向リンクを返す編集用マトリクス（TRACE-026〜029）。 */
+  router.register('trace.editableMatrix', (params) => {
+    const p = asRecord(params)
+    const { db, info } = requireProject()
+    const strings = (key: string): string[] =>
+      Array.isArray(p[key]) ? (p[key] as unknown[]).map((value) => String(value)) : []
+    return getEditableTraceMatrix(
+      db,
+      info.projectUid,
+      strings('rowScopeIds'),
+      strings('colScopeIds'),
+      strings('relationTypes')
+    )
+  })
+
+  /** 選択セル群へ関係を同一トランザクションで追加／削除／トグルする（TRACE-027）。 */
+  router.register('trace.updateMatrix', (params) => {
+    const p = asRecord(params)
+    const { db, info } = requireProject()
+    const operation = String(p.operation)
+    const direction = String(p.direction)
+    const relationTypes = Array.isArray(p.relationTypes)
+      ? (p.relationTypes.map((value) => String(value)) as RelationType[])
+      : []
+    if (!['add', 'delete', 'toggle'].includes(operation)) {
+      throw new BackendError('validation', 'operation は add/delete/toggle のいずれかです', operation)
+    }
+    if (!['row_to_col', 'col_to_row'].includes(direction)) {
+      throw new BackendError('validation', 'direction は row_to_col/col_to_row のいずれかです', direction)
+    }
+    if (relationTypes.some((type) => !RELATION_TYPES.includes(type))) {
+      throw new BackendError('validation', 'relationTypesに未定義の関係種別があります', relationTypes.join(','))
+    }
+    const pairs = Array.isArray(p.pairs)
+      ? p.pairs.map((value) => {
+          const pair = asRecord(value)
+          return { rowUid: requireString(pair, 'rowUid'), colUid: requireString(pair, 'colUid') }
+        })
+      : []
+    return updateTraceMatrixLinks(db, info.projectUid, {
+      pairs,
+      relationTypes,
+      direction,
+      operation
+    } as MatrixUpdateInput)
   })
 
   /** クエリ結果の JSON/CSV/Markdown 出力（TRACE-024）。exports/trace/ へ保存する */

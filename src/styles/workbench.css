@@ -1,3 +1,225 @@
+/* 汎用トレースマトリクスEditor（P9-4、TRACE-026〜029、UI-014） */
+.trace-matrix-editor {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  height: 100%;
+  min-width: 0;
+  background: var(--d2d-bg);
+}
+.trace-matrix-toolbar {
+  position: relative;
+  z-index: 4;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--d2d-border);
+  background: var(--d2d-surface);
+}
+.trace-matrix-axis-config {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto minmax(220px, 1fr);
+  gap: 10px;
+  align-items: center;
+}
+.trace-matrix-axis-config label {
+  display: grid;
+  gap: 4px;
+}
+.trace-matrix-axis-config select {
+  width: 100%;
+  min-height: 64px;
+  color: var(--d2d-fg);
+  border: 1px solid var(--d2d-border);
+  background: var(--d2d-bg);
+}
+.trace-matrix-edit-config {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
+.trace-matrix-edit-config fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 5px 8px 7px;
+  border: 1px solid var(--d2d-border);
+}
+.trace-matrix-edit-config legend {
+  padding: 0 5px;
+  color: var(--d2d-fg-muted);
+  font-size: 11px;
+}
+.trace-relation-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+.trace-relation-options label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.trace-relation-options span {
+  display: inline-grid;
+  place-items: center;
+  min-width: 18px;
+  height: 16px;
+  padding: 0 2px;
+  color: #fff;
+  border-radius: 3px;
+  background: var(--relation-color);
+  font-size: 9px;
+  font-weight: 800;
+}
+.trace-matrix-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+}
+.trace-matrix-actions label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.trace-matrix-actions > span,
+.trace-matrix-edit-config > p {
+  color: var(--d2d-fg-muted);
+  font-size: 11px;
+}
+.trace-matrix-edit-config > p {
+  margin: 0;
+}
+.trace-matrix-zoom {
+  margin-left: auto;
+}
+.trace-matrix-viewport {
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--d2d-border) 18%, transparent) 1px, transparent 1px),
+    linear-gradient(color-mix(in srgb, var(--d2d-border) 18%, transparent) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+.trace-matrix-table {
+  border-spacing: 0;
+  border-collapse: separate;
+  min-width: max-content;
+  table-layout: fixed;
+}
+.trace-matrix-table th,
+.trace-matrix-table td {
+  box-sizing: border-box;
+  height: 38px;
+  border-right: 1px solid var(--d2d-border);
+  border-bottom: 1px solid var(--d2d-border);
+  background: var(--d2d-bg);
+}
+.trace-matrix-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  width: 86px;
+  min-width: 86px;
+  max-width: 86px;
+  padding: 4px;
+  background: var(--d2d-surface-raised);
+  cursor: pointer;
+}
+.trace-matrix-table tbody th {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  width: 210px;
+  min-width: 210px;
+  max-width: 210px;
+  padding: 4px 8px;
+  overflow: hidden;
+  text-align: left;
+  background: var(--d2d-surface-raised);
+  cursor: pointer;
+}
+.trace-matrix-table .trace-matrix-corner {
+  left: 0;
+  z-index: 5;
+  width: 210px;
+  min-width: 210px;
+  max-width: 210px;
+  text-align: left;
+}
+.trace-matrix-table th span,
+.trace-matrix-table th small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.trace-matrix-table th small {
+  color: var(--d2d-fg-muted);
+  font-weight: 400;
+}
+.trace-matrix-table th.connected {
+  color: var(--d2d-accent);
+  box-shadow: inset 3px 0 0 var(--d2d-accent);
+}
+.trace-matrix-table thead th.connected {
+  box-shadow: inset 0 3px 0 var(--d2d-accent);
+}
+.trace-matrix-table th.cross-active,
+.trace-matrix-table td.cross-active {
+  background: color-mix(in srgb, var(--d2d-accent) 8%, var(--d2d-bg));
+}
+.trace-matrix-table td {
+  width: 86px;
+  min-width: 86px;
+  max-width: 86px;
+  padding: 2px;
+  text-align: center;
+  cursor: cell;
+}
+.trace-matrix-table td:hover {
+  outline: 1px solid var(--d2d-accent);
+  outline-offset: -2px;
+}
+.trace-matrix-table td.has-relation {
+  background: color-mix(in srgb, var(--d2d-success) 8%, var(--d2d-bg));
+}
+.trace-matrix-table td.selected {
+  outline: 2px solid var(--d2d-accent);
+  outline-offset: -2px;
+  background: var(--d2d-selection-bg);
+}
+.trace-cell-relations {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 2px;
+}
+.trace-cell-relations i {
+  display: inline-grid;
+  place-items: center;
+  min-width: 19px;
+  height: 17px;
+  padding: 0 2px;
+  color: #fff;
+  border-radius: 3px;
+  background: var(--relation-color);
+  font-size: 8px;
+  font-style: normal;
+  font-weight: 800;
+}
+@media (max-width: 800px) {
+  .trace-matrix-axis-config {
+    grid-template-columns: 1fr;
+  }
+  .trace-matrix-axis-config > button {
+    justify-self: start;
+  }
+  .trace-matrix-zoom {
+    margin-left: 0;
+  }
+}
+
 /* Workbench レイアウト（P3-1、sdd_ui_design §3）。IDE 風・高密度（UI-008） */
 
 .wb-root {

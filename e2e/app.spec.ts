@@ -1200,11 +1200,87 @@ test('トレースクエリ→グラフ→マトリクス→整合性検査（P9
   await page.getByTestId('graph-node-FUNC-000001').click()
   await expect(page.getByTestId('design-element-viewer')).toBeVisible()
 
-  // トレースマトリクス（UI-014）: FUNC×REQ に ● が入る
+  // 汎用トレースマトリクス（UI-014 / TRACE-026〜029）
+  // 複数行・複数列選択を確実に検証できるよう、同分類Resourceを追加する。
+  await page.evaluate(async () => {
+    await window.api.invoke('design.createElement', { category: 'REQ', title: 'マトリクス追加要求' })
+    await window.api.invoke('design.createElement', { category: 'FUNC', title: 'マトリクス追加機能' })
+  })
   await page.getByTestId('open-matrix').click()
-  await expect(page.getByTestId('trace-matrix')).toBeVisible()
-  await expect(page.getByTestId('trace-matrix')).toContainText('FUNC-000001')
-  await expect(page.getByTestId('trace-matrix').locator('td', { hasText: '●' }).first()).toBeVisible()
+  const traceMatrix = page.getByTestId('trace-matrix')
+  await expect(traceMatrix).toBeVisible()
+  await expect(traceMatrix).toContainText('FUNC-000001')
+  await expect(page.getByTestId('trace-cell-FUNC-000001-REQ-000001')).toContainText('→S')
+
+  // 関係を持つ見出し・選択十字、Tooltip、sticky見出し、ズームを確認する。
+  await expect(page.getByTestId('trace-row-FUNC-000001')).toHaveClass(/connected/)
+  await expect(page.getByTestId('trace-col-REQ-000001')).toHaveClass(/connected/)
+  await expect(page.getByTestId('trace-row-FUNC-000001')).toHaveAttribute('title', /entity_type:/)
+  await expect(page.getByTestId('trace-col-REQ-000001')).toHaveAttribute('title', /状態:/)
+  await expect(page.getByTestId('trace-row-FUNC-000001')).toHaveCSS('position', 'sticky')
+  await expect(page.getByTestId('trace-col-REQ-000001')).toHaveCSS('position', 'sticky')
+  await page.getByTestId('trace-matrix-zoom').fill('130')
+  await expect(page.locator('.trace-matrix-table')).toHaveCSS('font-size', /%|px/)
+
+  // ②抽出文書Resource集合 × ③中間成果物Resource集合のbased_onを俯瞰表示する。
+  const rowScopes = page.getByTestId('trace-matrix-row-scopes')
+  const colScopes = page.getByTestId('trace-matrix-col-scopes')
+  const scopeValues = await rowScopes
+    .locator('option')
+    .evaluateAll((options) =>
+      options.map((option) => ({ value: (option as HTMLOptionElement).value, text: option.textContent ?? '' }))
+    )
+  const extractedScope = scopeValues.find((scope) => scope.value.startsWith('extracted:'))!.value
+  const intermediateScope = scopeValues.find((scope) => scope.value.startsWith('intermediate:'))!.value
+  expect(scopeValues.some((scope) => scope.value.startsWith('resource_type:'))).toBe(true)
+  await page.getByTestId('trace-relation-satisfies').uncheck()
+  await page.getByTestId('trace-relation-based_on').check()
+  await rowScopes.selectOption(intermediateScope)
+  await colScopes.selectOption(extractedScope)
+  await expect(traceMatrix.locator('td.has-relation').first()).toContainText('→B')
+
+  // 行列入替は表示軸だけを交換し、保存済み方向は逆向き表示になる。
+  await page.getByTestId('trace-matrix-transpose').click()
+  await expect(rowScopes).toHaveValue(extractedScope)
+  await expect(colScopes).toHaveValue(intermediateScope)
+  await expect(traceMatrix.locator('td.has-relation').first()).toContainText('←B')
+
+  // 設計Resource集合へ戻し、単一セルクリックで関係をトグルする。
+  await rowScopes.selectOption('design:FUNC')
+  await colScopes.selectOption('design:REQ')
+  await page.getByTestId('trace-relation-based_on').uncheck()
+  await page.getByTestId('trace-relation-relates_to').check()
+  await page.getByTestId('trace-relation-satisfies').check()
+  await expect(page.getByTestId('trace-relation-satisfies')).toBeChecked()
+  await expect(page.getByTestId('trace-relation-relates_to')).toBeChecked()
+  await page.getByTestId('trace-relation-satisfies').uncheck()
+  const firstMatrixCell = page.locator('.trace-matrix-table tbody td').first()
+  await firstMatrixCell.click()
+  await expect(firstMatrixCell).toContainText('→R')
+  await expect(page.getByTestId('trace-row-FUNC-000001')).toHaveClass(/cross-active/)
+  await expect(page.getByTestId('trace-col-REQ-000001')).toHaveClass(/cross-active/)
+  await firstMatrixCell.click()
+  await expect(firstMatrixCell).not.toContainText('→R')
+
+  // 行タイトル／列タイトルから複数セルを選び、一括追加・削除する。
+  await page.getByTestId('trace-row-FUNC-000001').click()
+  await expect(traceMatrix).toContainText('2 セル選択')
+  await page.getByTestId('trace-matrix-add').click()
+  await expect(page.locator('.trace-matrix-table tbody tr').first().locator('td', { hasText: '→R' })).toHaveCount(2)
+  await page.getByTestId('trace-matrix-delete').click()
+  await expect(page.locator('.trace-matrix-table tbody tr').first().locator('td', { hasText: '→R' })).toHaveCount(0)
+
+  await page.getByTestId('trace-col-REQ-000001').click()
+  await expect(traceMatrix).toContainText('2 セル選択')
+  await page.getByTestId('trace-col-REQ-000002').click({ modifiers: ['Control'] })
+  await expect(traceMatrix).toContainText('4 セル選択')
+
+  // 方向を列→行に変えた単一トグルでは逆向き記号を表示する。
+  await page.getByTestId('trace-matrix-direction').selectOption('col_to_row')
+  await firstMatrixCell.click()
+  await expect(firstMatrixCell).toContainText('←R')
+  await firstMatrixCell.click()
+  await expect(firstMatrixCell).not.toContainText('←R')
 
   // 根拠チェーン（UI-015）: ④要素 → ③中間文書
   await page.getByTestId('open-basis-chain').click()
