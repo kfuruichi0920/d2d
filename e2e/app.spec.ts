@@ -1355,6 +1355,34 @@ test('トレースクエリ→グラフ→マトリクス→整合性検査（P9
   await page.getByTestId('impact-saved-configurations').selectOption({ label: 'E2E構成' })
   await expect(impact.locator('.trace-impact-column')).toHaveCount(4)
 
+  // 見出しの間隔ハンドルを右へドラッグすると、その境界より外側の全リストが同じ差分だけ移動する。
+  const columnsBeforeSpacing = await Promise.all(
+    [0, 1, 2].map(async (index) => (await impact.locator('.trace-impact-column').nth(index).boundingBox())!)
+  )
+  const spacingHandle = page.getByTestId('impact-column-spacing-1')
+  const spacingBox = (await spacingHandle.boundingBox())!
+  await page.mouse.move(spacingBox.x + spacingBox.width / 2, spacingBox.y + spacingBox.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(spacingBox.x + spacingBox.width / 2 + 48, spacingBox.y + spacingBox.height / 2)
+  await page.mouse.up()
+  const columnsAfterSpacing = await Promise.all(
+    [0, 1, 2].map(async (index) => (await impact.locator('.trace-impact-column').nth(index).boundingBox())!)
+  )
+  expect(Math.abs(columnsAfterSpacing[0]!.x - columnsBeforeSpacing[0]!.x)).toBeLessThan(2)
+  const movedSecond = columnsAfterSpacing[1]!.x - columnsBeforeSpacing[1]!.x
+  const movedThird = columnsAfterSpacing[2]!.x - columnsBeforeSpacing[2]!.x
+  expect(movedSecond).toBeGreaterThan(40)
+  expect(Math.abs(movedThird - movedSecond)).toBeLessThan(2)
+
+  // 調整した列間隔も名前付き構成へ保存・復元する。
+  const adjustedGap = await spacingHandle.getAttribute('aria-valuenow')
+  await page.getByTestId('impact-configuration-name').fill('E2E間隔構成')
+  await page.getByTestId('impact-save-configuration').click()
+  await spacingHandle.press('ArrowLeft')
+  await expect(spacingHandle).not.toHaveAttribute('aria-valuenow', adjustedGap!)
+  await page.getByTestId('impact-saved-configurations').selectOption({ label: 'E2E間隔構成' })
+  await expect(page.getByTestId('impact-column-spacing-1')).toHaveAttribute('aria-valuenow', adjustedGap!)
+
   // リスト見出しのDnDで左右順を変更できる。
   const firstScopeBefore = await page.getByTestId('impact-scopes-0').inputValue()
   await page.getByTestId('impact-column-drag-0').dragTo(page.getByTestId('impact-column-drag-2'))

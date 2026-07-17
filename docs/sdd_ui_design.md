@@ -552,7 +552,7 @@ M3では、入力となる③中間データ、正規化結果、設計要素候
 
 #### 8.4.2 汎用インパクト分析ビュー
 
-`trace://list-link/<view-id>`は固定の②→③→④表示ではなく、任意のResource集合を複数列へ配置する参照専用のTrace Impact Editorとする。各列は設計分類、②抽出文書、③中間文書、Resource種別のスコープを複数選択して和集合を構成し、列の左右追加・削除・ドラッグ並替えを許可する。列数は最大8、1列1000項目、取得リンク5000件を上限とし、上限到達を画面へ明示する。
+`trace://list-link/<view-id>`は固定の②→③→④表示ではなく、任意のResource集合を複数列へ配置する参照専用のTrace Impact Editorとする。各列は設計分類、②抽出文書、③中間文書、Resource種別のスコープを複数選択して和集合を構成し、列の左右追加・削除・ドラッグ並替えを許可する。各見出しの間隔ハンドルは直前列との間隔を24〜320pxで変更し、その境界より右側の全列を同じ差分だけ連動移動する。列数は最大8、1列1000項目、取得リンク5000件を上限とし、上限到達を画面へ明示する。
 
 | 項目 | 仕様 |
 | --- | --- |
@@ -562,7 +562,7 @@ M3では、入力となる③中間データ、正規化結果、設計要素候
 | 階層 | ②・③の`structure_json.elements`の文書順、見出しlevel、list levelから親子と表示深さを導出する。折畳中の子を端点とするリンクは最寄りの表示中祖先へ集約し、集約件数を示す |
 | 選択連携 | 各列の項目は上下キーで移動し、Shift+上下キーでアンカーから連続範囲を選択する。最後に操作した項目をWorkbench共通Selectionへ通知してSecondary Side BarのProperties／Relations／Reviewを更新する |
 | スクロール・描画負荷 | 各列の項目領域へ独立した縦スクロールを設ける。各列scrollと横viewport scrollによる項目配置計測・リンク再描画はequestAnimationFrameで1フレームに集約する。表示領域と前後のoverscan内に端点を持つリンクだけをSVGへ描画し、画面外端点は列の表示領域端へクランプする |
-| 構成保存 | 列順、列ごとのスコープ、関係種別、リンク表示状態を名前付き構成としてプロジェクト別localStorageへ複数保存する。選択した構成は現在のタブへ復元し、正本DBは変更しない |
+| 構成保存 | 列順、列ごとのスコープ、列間隔、関係種別、リンク表示状態を名前付き構成としてプロジェクト別localStorageへ複数保存する。選択した構成は現在のタブへ復元し、正本DBは変更しない |
 | 複数タブ | Trace Side Barの「新しい分析ビュー」「新しいトレースマトリクス」は毎回固有の`view-id`を含むResource URIを開く。同種Editorを分割せず同一Group内の別タブとして複数保持できる |
 
 取得APIは列IDと各列のスコープ配列、関係種別配列を受け、列別Resource、階層メタデータ、表示中の全列組合せ間リンクを一括返却する。正本`trace_link`は変更せず、選択・折畳・強調・関連項目限定・名前付き表示構成はRendererの派生表示状態として扱う。
@@ -690,7 +690,7 @@ Status Bar の警告数やジョブ状態をクリックした場合は、対応
 | V-03 | 中間データビュー | UI-012 | `intermediate://` / Intermediate Document Editor | M2/M3 | 文書風表示、アウトライン編集、図表編集 |
 | V-04 | 設計モデルビュー | UI-013 | `design://` / Design Model Editor | M3 | 設計要素、関係、モデル表現編集 |
 | V-05 | トレースマトリクスビュー | UI-014 | `trace://matrix` / Trace Matrix Editor | M4 | 要素間関係のマトリクス表示、編集 |
-| V-06 | 汎用インパクト分析ビュー | UI-015、TRACE-030〜038 | `trace://list-link/<view-id>` / Trace Impact Editor | M4 | 任意のResource集合間の多段インパクト分析 |
+| V-06 | 汎用インパクト分析ビュー | UI-015、TRACE-030〜039 | `trace://list-link/<view-id>` / Trace Impact Editor | M4 | 任意のResource集合間の多段インパクト分析 |
 | V-07 | 関係グラフビュー | UI-016 | `trace://graph` / Trace Graph Editor | M4 | 設計要素・関係のグラフ可視化 |
 | V-08 | Diff ビュー | UI-017 | `diff://` / Diff Editor | M5 | DB to Text、Git、ZIP 差分確認 |
 | V-09 | LLM ログビュー | UI-018 | `log://llm` / Log Viewer | M3 | LLM 送受信ログ、入力チャンク、候補一覧 |

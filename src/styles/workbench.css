@@ -2107,7 +2107,7 @@ mark.d2d-term {
     flex-direction: column;
   }
 }
-/* 汎用インパクト分析Editor（P9-5、TRACE-030〜038、UI-015） */
+/* 汎用インパクト分析Editor（P9-5、TRACE-030〜039、UI-015） */
 .trace-impact-editor {
   display: flex;
   flex-direction: column;
@@ -2233,7 +2233,7 @@ mark.d2d-term {
   z-index: 3;
   display: flex;
   align-items: stretch;
-  gap: 78px;
+  gap: 0;
   height: 100%;
   min-height: 0;
 }
@@ -2262,9 +2262,34 @@ mark.d2d-term {
   background: var(--d2d-surface-raised);
 }
 
-.trace-impact-column-header > strong {
+.trace-impact-heading-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.trace-impact-heading-row > strong {
   cursor: grab;
   user-select: none;
+}
+
+.trace-impact-spacing-handle {
+  padding: 2px 5px;
+  color: var(--d2d-accent);
+  border: 1px solid var(--d2d-border);
+  border-radius: 3px;
+  background: var(--d2d-surface);
+  font-size: 10px;
+  white-space: nowrap;
+  cursor: ew-resize;
+  touch-action: none;
+  user-select: none;
+}
+
+.trace-impact-spacing-handle:focus-visible {
+  outline: 2px solid var(--d2d-accent);
+  outline-offset: 1px;
 }
 
 .trace-impact-column.dragging {

@@ -1,5 +1,5 @@
 /**
- * 汎用インパクト分析Editor（P9-5、TRACE-030〜038、UI-015）。
+ * 汎用インパクト分析Editor（P9-5、TRACE-030〜039、UI-015）。
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { invoke, onBackendEvent } from '../../services/backend'
@@ -67,6 +67,7 @@ interface SavedImpactConfiguration {
   id: string
   name: string
   configs: ColumnConfig[]
+  columnGaps?: Record<string, number>
   relationTypes: string[]
   linksVisible: boolean
 }
@@ -84,6 +85,9 @@ interface PositionedLink extends DisplayLink {
 }
 
 const MAX_COLUMNS = 8
+const DEFAULT_COLUMN_GAP = 78
+const MIN_COLUMN_GAP = 24
+const MAX_COLUMN_GAP = 320
 const RELATION_COLORS: Record<string, string> = {
   based_on: '#4aa3df',
   satisfies: '#50b36b',
@@ -165,6 +169,7 @@ export function TraceImpactEditor({ contextUri }: { contextUri: string }): React
   const [selectedConfigurationId, setSelectedConfigurationId] = useState('')
   const [configurationName, setConfigurationName] = useState('')
   const [draggedColumnId, setDraggedColumnId] = useState<string | null>(null)
+  const [columnGaps, setColumnGaps] = useState<Record<string, number>>({})
   const [positionedLinks, setPositionedLinks] = useState<PositionedLink[]>([])
   const [measureVersion, setMeasureVersion] = useState(0)
   const notify = useJobsStore((state) => state.notify)
@@ -175,6 +180,12 @@ export function TraceImpactEditor({ contextUri }: { contextUri: string }): React
   const canvasRef = useRef<HTMLDivElement | null>(null)
   const nodeRefs = useRef(new Map<string, HTMLButtonElement>())
   const listRefs = useRef(new Map<string, HTMLDivElement>())
+  const spacingDragRef = useRef<{
+    columnId: string
+    pointerId: number
+    startX: number
+    startGap: number
+  } | null>(null)
   const frameRef = useRef<number | null>(null)
   const columnSequence = useRef(4)
   const configurationStorageKey = `d2d.trace-impact.configurations.${persistKey}`
@@ -404,9 +415,9 @@ export function TraceImpactEditor({ contextUri }: { contextUri: string }): React
       })
     })
     setPositionedLinks(positioned)
-  }, [displayLinks, linksVisible, measureVersion, representative, visibleByColumn])
+  }, [columnGaps, displayLinks, linksVisible, measureVersion, representative, visibleByColumn])
 
-  useEffect(() => scheduleMeasure(), [configs, scheduleMeasure, view, visibleByColumn])
+  useEffect(() => scheduleMeasure(), [columnGaps, configs, scheduleMeasure, view, visibleByColumn])
 
   const updateScopes = (id: string, scopeIds: string[]): void => {
     setConfigs((current) => current.map((config) => (config.id === id ? { ...config, scopeIds } : config)))
@@ -517,6 +528,38 @@ export function TraceImpactEditor({ contextUri }: { contextUri: string }): React
     setDraggedColumnId(null)
   }
 
+  const gapBefore = (columnId: string): number => columnGaps[columnId] ?? DEFAULT_COLUMN_GAP
+
+  const updateColumnGap = (columnId: string, value: number): void => {
+    const next = Math.max(MIN_COLUMN_GAP, Math.min(MAX_COLUMN_GAP, Math.round(value)))
+    setColumnGaps((current) => ({ ...current, [columnId]: next }))
+  }
+
+  const beginSpacingDrag = (columnId: string, event: React.PointerEvent<HTMLSpanElement>): void => {
+    event.preventDefault()
+    event.stopPropagation()
+    event.currentTarget.setPointerCapture(event.pointerId)
+    spacingDragRef.current = {
+      columnId,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startGap: gapBefore(columnId)
+    }
+  }
+
+  const moveSpacingDrag = (event: React.PointerEvent<HTMLSpanElement>): void => {
+    const drag = spacingDragRef.current
+    if (!drag || drag.pointerId !== event.pointerId) return
+    updateColumnGap(drag.columnId, drag.startGap + event.clientX - drag.startX)
+  }
+
+  const endSpacingDrag = (event: React.PointerEvent<HTMLSpanElement>): void => {
+    if (spacingDragRef.current?.pointerId !== event.pointerId) return
+    if (event.currentTarget.hasPointerCapture(event.pointerId))
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    spacingDragRef.current = null
+  }
+
   const persistConfigurations = (next: SavedImpactConfiguration[]): void => {
     setSavedConfigurations(next)
     localStorage.setItem(configurationStorageKey, JSON.stringify(next))
@@ -527,6 +570,7 @@ export function TraceImpactEditor({ contextUri }: { contextUri: string }): React
       id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
       name: configurationName.trim() || `構成 ${savedConfigurations.length + 1}`,
       configs: configs.map((config) => ({ ...config, scopeIds: [...config.scopeIds] })),
+      columnGaps: { ...columnGaps },
       relationTypes: [...relationTypes],
       linksVisible
     }
@@ -541,6 +585,7 @@ export function TraceImpactEditor({ contextUri }: { contextUri: string }): React
     const configuration = savedConfigurations.find((candidate) => candidate.id === id)
     if (!configuration) return
     setConfigs(configuration.configs.map((config) => ({ ...config, scopeIds: [...config.scopeIds] })))
+    setColumnGaps({ ...(configuration.columnGaps ?? {}) })
     setRelationTypes([...configuration.relationTypes])
     setLinksVisible(configuration.linksVisible)
     setConfigurationName(configuration.name)
@@ -760,22 +805,50 @@ export function TraceImpactEditor({ contextUri }: { contextUri: string }): React
                   className={`trace-impact-column ${draggedColumnId === config.id ? 'dragging' : ''}`}
                   key={config.id}
                   data-testid={`impact-column-${index}`}
+                  style={{ marginInlineStart: index === 0 ? 0 : `${gapBefore(config.id)}px` }}
                   onDragOver={(event) => event.preventDefault()}
                   onDrop={() => reorderColumn(config.id)}
                 >
                   <div className="trace-impact-column-header">
-                    <strong
-                      draggable
-                      onDragStart={(event) => {
-                        event.dataTransfer.effectAllowed = 'move'
-                        setDraggedColumnId(config.id)
-                      }}
-                      onDragEnd={() => setDraggedColumnId(null)}
-                      title="ドラッグしてリストの左右位置を変更します"
-                      data-testid={`impact-column-drag-${index}`}
-                    >
-                      ⠿ リスト {index + 1}
-                    </strong>
+                    <div className="trace-impact-heading-row">
+                      <strong
+                        draggable
+                        onDragStart={(event) => {
+                          event.dataTransfer.effectAllowed = 'move'
+                          setDraggedColumnId(config.id)
+                        }}
+                        onDragEnd={() => setDraggedColumnId(null)}
+                        title="ドラッグしてリストの左右位置を変更します"
+                        data-testid={`impact-column-drag-${index}`}
+                      >
+                        ⠿ リスト {index + 1}
+                      </strong>
+                      {index > 0 && (
+                        <span
+                          className="trace-impact-spacing-handle"
+                          role="separator"
+                          tabIndex={0}
+                          aria-label={`リスト${index}とリスト${index + 1}の間隔`}
+                          aria-orientation="vertical"
+                          aria-valuemin={MIN_COLUMN_GAP}
+                          aria-valuemax={MAX_COLUMN_GAP}
+                          aria-valuenow={gapBefore(config.id)}
+                          title="左右へドラッグして直前リストとの間隔を変更します。右側のリストも連動して移動します"
+                          onPointerDown={(event) => beginSpacingDrag(config.id, event)}
+                          onPointerMove={moveSpacingDrag}
+                          onPointerUp={endSpacingDrag}
+                          onPointerCancel={endSpacingDrag}
+                          onKeyDown={(event) => {
+                            if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+                            event.preventDefault()
+                            updateColumnGap(config.id, gapBefore(config.id) + (event.key === 'ArrowRight' ? 10 : -10))
+                          }}
+                          data-testid={`impact-column-spacing-${index}`}
+                        >
+                          ↔ {gapBefore(config.id)}px
+                        </span>
+                      )}
+                    </div>
                     <div>
                       <button
                         type="button"
