@@ -180,7 +180,13 @@ describe('トレーサビリティ（P9）', () => {
     ).toBeUndefined()
   })
 
-  it('汎用インパクト分析: 複数列の隣接リンクと方向を返す（TRACE-030〜032）', () => {
+  it('汎用インパクト分析: 離れた列を含む全列組合せのリンクと方向を返す（TRACE-030〜035）', () => {
+    createTraceLink(db, projectUid, {
+      fromUid: func1.uid,
+      toUid: verif1.uid,
+      relationType: 'relates_to',
+      createdBy: 'human'
+    })
     const impact = getTraceImpactView(
       db,
       projectUid,
@@ -189,7 +195,7 @@ describe('トレーサビリティ（P9）', () => {
         { id: 'requirements', scopeIds: ['design:REQ'] },
         { id: 'verifications', scopeIds: ['design:VERIF'] }
       ],
-      ['satisfies', 'verifies']
+      ['satisfies', 'verifies', 'relates_to']
     )
     expect(impact.columns.map((column) => column.items.length)).toEqual([1, 2, 1])
     expect(impact.links).toEqual(
@@ -205,6 +211,12 @@ describe('トレーサビリティ（P9）', () => {
           rightColumnId: 'verifications',
           relationType: 'verifies',
           displayDirection: 'right_to_left'
+        }),
+        expect.objectContaining({
+          leftColumnId: 'functions',
+          rightColumnId: 'verifications',
+          relationType: 'relates_to',
+          displayDirection: 'left_to_right'
         })
       ])
     )

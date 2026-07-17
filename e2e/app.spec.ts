@@ -1207,6 +1207,8 @@ test('トレースクエリ→グラフ→マトリクス→整合性検査（P9
     await window.api.invoke('design.createElement', { category: 'FUNC', title: 'マトリクス追加機能' })
   })
   await page.getByTestId('open-matrix').click()
+  await page.getByTestId('open-matrix').click()
+  await expect(page.locator('.wb-tab-title', { hasText: 'トレースマトリクス' })).toHaveCount(2)
   const traceMatrix = page.getByTestId('trace-matrix')
   await expect(traceMatrix).toBeVisible()
   await expect(traceMatrix).toContainText('FUNC-000001')
@@ -1284,6 +1286,8 @@ test('トレースクエリ→グラフ→マトリクス→整合性検査（P9
 
   // 汎用インパクト分析（UI-015 / TRACE-030〜034）
   await page.getByTestId('open-impact-analysis').click()
+  await page.getByTestId('open-impact-analysis').click()
+  await expect(page.locator('.wb-tab-title', { hasText: 'インパクト分析' })).toHaveCount(2)
   const impact = page.getByTestId('trace-impact')
   await expect(impact).toBeVisible()
   await expect(impact).toContainText('汎用インパクト分析')
@@ -1294,6 +1298,12 @@ test('トレースクエリ→グラフ→マトリクス→整合性検査（P9
   await expect(firstImpactItem).toHaveAttribute('title', /entity_type:/)
   const firstImpactLink = impact.locator('.impact-link path').first()
   await expect(firstImpactLink).toBeVisible()
+  await expect(page.getByTestId('impact-list-0')).toHaveCSS('overflow-y', 'auto')
+  await expect(page.getByTestId('impact-list-1')).toHaveCSS('overflow-y', 'auto')
+  await page.getByTestId('impact-links-visible').uncheck()
+  await expect(impact.locator('.impact-link path')).toHaveCount(0)
+  await page.getByTestId('impact-links-visible').check()
+  await expect(impact.locator('.impact-link path').first()).toBeVisible()
   await expect(firstImpactLink.locator('title')).toContainText('関係: based_on')
   const markerStart = await firstImpactLink.getAttribute('marker-start')
   const markerEnd = await firstImpactLink.getAttribute('marker-end')
@@ -1322,12 +1332,33 @@ test('トレースクエリ→グラフ→マトリクス→整合性検査（P9
   await page.getByTestId('impact-add-right').click()
   await expect(impact.locator('.trace-impact-column')).toHaveCount(4)
 
-  // Ctrlで同一リスト内の複数項目を選択できる。
+  // CtrlとShift+上下キーで同一リスト内の複数項目を選択し、Secondaryへ同期する。
   await page.getByTestId('impact-clear-selection').click()
   const firstColumnItems = impact.locator('.trace-impact-column').first().locator('.trace-impact-item')
   await firstColumnItems.nth(0).click()
+  await expect(page.getByTestId('selected-item-properties')).toContainText(
+    await firstColumnItems.nth(0).locator('.trace-impact-code').innerText()
+  )
+  await firstColumnItems.nth(0).press('ArrowDown')
+  await page.locator('.trace-impact-item:focus').press('Shift+ArrowDown')
+  await expect(impact).toContainText('2項目選択')
+  await firstColumnItems.nth(0).click()
   await firstColumnItems.nth(1).click({ modifiers: ['Control'] })
   await expect(impact).toContainText('2項目選択')
+
+  // 列順・表示対象・関係種別・リンク表示状態を名前付きで保存し、別構成から復元する。
+  await page.getByTestId('impact-configuration-name').fill('E2E構成')
+  await page.getByTestId('impact-save-configuration').click()
+  await expect(page.getByTestId('impact-saved-configurations')).toContainText('E2E構成')
+  await page.getByTestId('impact-add-right').click()
+  await expect(impact.locator('.trace-impact-column')).toHaveCount(5)
+  await page.getByTestId('impact-saved-configurations').selectOption({ label: 'E2E構成' })
+  await expect(impact.locator('.trace-impact-column')).toHaveCount(4)
+
+  // リスト見出しのDnDで左右順を変更できる。
+  const firstScopeBefore = await page.getByTestId('impact-scopes-0').inputValue()
+  await page.getByTestId('impact-column-drag-0').dragTo(page.getByTestId('impact-column-drag-2'))
+  await expect.poll(async () => page.getByTestId('impact-scopes-0').inputValue()).not.toBe(firstScopeBefore)
   // 整合性検査（Problems Panel）: REQ-000001 は verifies 未対応として検出される
   // Status Bar クリックで Panel を確実に開く（Ctrl+@ はトグルのため）
   await page.getByTestId('status-jobs').click()

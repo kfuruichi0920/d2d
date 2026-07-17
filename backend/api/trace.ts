@@ -121,7 +121,7 @@ export function registerTraceApi(router: ApiRouter): void {
       operation
     } as MatrixUpdateInput)
   })
-  /** 複数のResource集合列と方向付きリンクを返すインパクト分析（TRACE-030〜034、UI-015）。 */
+  /** 複数のResource集合列と方向付きリンクを返すインパクト分析（TRACE-030〜038、UI-015）。 */
   router.register('trace.impactView', (params) => {
     const p = asRecord(params)
     const { db, info } = requireProject()

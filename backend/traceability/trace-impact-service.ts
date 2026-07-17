@@ -1,6 +1,6 @@
 /**
- * 汎用インパクト分析（P9-5、TRACE-030〜034、UI-015）。
- * 任意のResource集合を複数列へ配置し、隣接列間のtrace_linkと文書階層を返す。
+ * 汎用インパクト分析（P9-5、TRACE-030〜038、UI-015）。
+ * 任意のResource集合を複数列へ配置し、表示中の全列組合せ間のtrace_linkと文書階層を返す。
  */
 import type { Database } from 'better-sqlite3'
 import { BackendError } from '../api/errors'
@@ -234,7 +234,7 @@ function linksBetween(
   }
 }
 
-/** 複数列のResourceと隣接列リンクを一括取得する。正本データは変更しない。 */
+/** 複数列のResourceと表示中の全列組合せ間リンクを一括取得する。正本データは変更しない。 */
 export function getTraceImpactView(
   db: Database,
   projectUid: string,
@@ -255,14 +255,16 @@ export function getTraceImpactView(
   const columns = inputs.map((input) => resolveImpactColumn(db, projectUid, input))
   const links: TraceImpactLink[] = []
   let truncatedLinks = false
-  for (let index = 0; index < columns.length - 1; index += 1) {
-    const remaining = MAX_IMPACT_LINKS - links.length
-    const result = linksBetween(db, projectUid, columns[index]!, columns[index + 1]!, relationTypes, remaining)
-    links.push(...result.links)
-    truncatedLinks ||= result.truncated
-    if (links.length >= MAX_IMPACT_LINKS) {
-      truncatedLinks = true
-      break
+  outer: for (let leftIndex = 0; leftIndex < columns.length - 1; leftIndex += 1) {
+    for (let rightIndex = leftIndex + 1; rightIndex < columns.length; rightIndex += 1) {
+      const remaining = MAX_IMPACT_LINKS - links.length
+      const result = linksBetween(db, projectUid, columns[leftIndex]!, columns[rightIndex]!, relationTypes, remaining)
+      links.push(...result.links)
+      truncatedLinks ||= result.truncated
+      if (links.length >= MAX_IMPACT_LINKS) {
+        truncatedLinks = true
+        break outer
+      }
     }
   }
   return { columns, links, relationTypes: RELATION_TYPES, truncatedLinks }

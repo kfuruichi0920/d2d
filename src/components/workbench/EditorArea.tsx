@@ -53,7 +53,7 @@ function resolveEditor(uri: string): React.JSX.Element {
     const [row, col] = uri.slice('trace://matrix/'.length).split('/')
     return <TraceMatrixEditor initialRow={row ?? 'FUNC'} initialCol={col ?? 'REQ'} />
   }
-  if (uri === 'trace://list-link') return <TraceImpactEditor />
+  if (uri.startsWith('trace://list-link')) return <TraceImpactEditor contextUri={uri} />
   if (uri.startsWith('glossary://')) return <GlossaryEditor />
   if (uri === 'model://playground') return <ModelPlaygroundEditor />
   if (uri === 'diff://archive') return <ArchiveDiffEditor />

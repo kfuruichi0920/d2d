@@ -37,6 +37,10 @@ interface TraceSubgraph {
 
 // ---- Trace サイドバー（P9-2） ----
 
+function uniqueTraceUri(base: string): string {
+  return `${base}/${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+}
+
 export function TraceSideBar(): React.JSX.Element {
   const [elements, setElements] = useState<DesignElementRow[]>([])
   const [rootUid, setRootUid] = useState('')
@@ -136,19 +140,21 @@ export function TraceSideBar(): React.JSX.Element {
         type="button"
         className="d2d-btn"
         style={{ width: '100%', marginBottom: 4 }}
-        onClick={() => openResource('trace://matrix/FUNC/REQ', 'トレースマトリクス')}
+        onClick={() =>
+          openResource(uniqueTraceUri('trace://matrix/FUNC/REQ'), 'トレースマトリクス', { preview: false })
+        }
         data-testid="open-matrix"
       >
-        トレースマトリクス
+        新しいトレースマトリクス
       </button>
       <button
         type="button"
         className="d2d-btn"
         style={{ width: '100%' }}
-        onClick={() => openResource('trace://list-link', 'インパクト分析')}
+        onClick={() => openResource(uniqueTraceUri('trace://list-link'), 'インパクト分析', { preview: false })}
         data-testid="open-impact-analysis"
       >
-        汎用インパクト分析
+        新しい分析ビュー
       </button>
     </div>
   )

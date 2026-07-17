@@ -1,9 +1,11 @@
 /**
- * 汎用インパクト分析Editor（P9-5、TRACE-030〜034、UI-015）。
+ * 汎用インパクト分析Editor（P9-5、TRACE-030〜038、UI-015）。
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { invoke, onBackendEvent } from '../../services/backend'
 import { useJobsStore } from '../../stores/jobs-store'
+import { useEditorStore } from '../../stores/editor-store'
+import { useSelectionStore } from '../../stores/selection-store'
 
 interface ImpactScope {
   id: string
@@ -59,6 +61,14 @@ interface ImpactView {
 interface ColumnConfig {
   id: string
   scopeIds: string[]
+}
+
+interface SavedImpactConfiguration {
+  id: string
+  name: string
+  configs: ColumnConfig[]
+  relationTypes: string[]
+  linksVisible: boolean
 }
 
 interface DisplayLink extends ImpactLink {
@@ -139,7 +149,7 @@ function linkTooltip(link: DisplayLink): string {
     .join('\n')
 }
 
-export function TraceImpactEditor(): React.JSX.Element {
+export function TraceImpactEditor({ contextUri }: { contextUri: string }): React.JSX.Element {
   const [scopes, setScopes] = useState<ImpactScope[]>([])
   const [configs, setConfigs] = useState<ColumnConfig[]>([])
   const [relationTypes, setRelationTypes] = useState<string[]>(['based_on'])
@@ -150,14 +160,36 @@ export function TraceImpactEditor(): React.JSX.Element {
   const [anchors, setAnchors] = useState<Record<string, string>>({})
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [impactOnly, setImpactOnly] = useState(false)
+  const [linksVisible, setLinksVisible] = useState(true)
+  const [savedConfigurations, setSavedConfigurations] = useState<SavedImpactConfiguration[]>([])
+  const [selectedConfigurationId, setSelectedConfigurationId] = useState('')
+  const [configurationName, setConfigurationName] = useState('')
+  const [draggedColumnId, setDraggedColumnId] = useState<string | null>(null)
   const [positionedLinks, setPositionedLinks] = useState<PositionedLink[]>([])
   const [measureVersion, setMeasureVersion] = useState(0)
   const notify = useJobsStore((state) => state.notify)
+  const persistKey = useEditorStore((state) => state.persistKey)
+  const setSelectedItem = useSelectionStore((state) => state.setSelectedItem)
+  const clearSelectedItem = useSelectionStore((state) => state.clearSelectedItem)
   const viewportRef = useRef<HTMLDivElement | null>(null)
   const canvasRef = useRef<HTMLDivElement | null>(null)
   const nodeRefs = useRef(new Map<string, HTMLButtonElement>())
+  const listRefs = useRef(new Map<string, HTMLDivElement>())
   const frameRef = useRef<number | null>(null)
   const columnSequence = useRef(4)
+  const configurationStorageKey = `d2d.trace-impact.configurations.${persistKey}`
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(configurationStorageKey)
+      setSavedConfigurations(raw ? (JSON.parse(raw) as SavedImpactConfiguration[]) : [])
+    } catch {
+      setSavedConfigurations([])
+    }
+    setSelectedConfigurationId('')
+  }, [configurationStorageKey])
+
+  useEffect(() => () => clearSelectedItem(contextUri), [clearSelectedItem, contextUri])
 
   useEffect(() => {
     void invoke<ImpactScope[]>('trace.matrixScopes').then((result) => {
@@ -308,12 +340,12 @@ export function TraceImpactEditor(): React.JSX.Element {
   }, [reachable, representative])
 
   const scheduleMeasure = useCallback(() => {
-    if (frameRef.current !== null) return
+    if (!linksVisible || frameRef.current !== null) return
     frameRef.current = window.requestAnimationFrame(() => {
       frameRef.current = null
       setMeasureVersion((value) => value + 1)
     })
-  }, [])
+  }, [linksVisible])
 
   useEffect(() => {
     const viewport = viewportRef.current
@@ -322,24 +354,24 @@ export function TraceImpactEditor(): React.JSX.Element {
     const observer = new ResizeObserver(scheduleMeasure)
     observer.observe(viewport)
     if (canvasRef.current) observer.observe(canvasRef.current)
+    listRefs.current.forEach((list) => observer.observe(list))
     return () => {
       viewport.removeEventListener('scroll', scheduleMeasure)
       observer.disconnect()
       if (frameRef.current !== null) window.cancelAnimationFrame(frameRef.current)
       frameRef.current = null
     }
-  }, [scheduleMeasure])
+  }, [configs, scheduleMeasure, view])
 
   useLayoutEffect(() => {
     const viewport = viewportRef.current
     const canvas = canvasRef.current
-    if (!viewport || !canvas) return
+    if (!viewport || !canvas || !linksVisible) {
+      setPositionedLinks([])
+      return
+    }
     const canvasRect = canvas.getBoundingClientRect()
-    const viewportRect = viewport.getBoundingClientRect()
     const overscan = 160
-    const minY = viewportRect.top - overscan
-    const maxY = viewportRect.bottom + overscan
-    const clampY = (value: number): number => Math.max(viewportRect.top, Math.min(viewportRect.bottom, value))
     const positioned: PositionedLink[] = []
     displayLinks.forEach((link, index) => {
       const leftKey = representative(link.leftColumnId, link.leftUid)
@@ -349,14 +381,20 @@ export function TraceImpactEditor(): React.JSX.Element {
       if (!leftElement || !rightElement) return
       const leftRect = leftElement.getBoundingClientRect()
       const rightRect = rightElement.getBoundingClientRect()
+      const leftListRect = listRefs.current.get(link.leftColumnId)?.getBoundingClientRect()
+      const rightListRect = listRefs.current.get(link.rightColumnId)?.getBoundingClientRect()
+      if (!leftListRect || !rightListRect) return
       const leftY = leftRect.top + leftRect.height / 2
       const rightY = rightRect.top + rightRect.height / 2
-      if ((leftY < minY || leftY > maxY) && (rightY < minY || rightY > maxY)) return
+      const leftNear = leftY >= leftListRect.top - overscan && leftY <= leftListRect.bottom + overscan
+      const rightNear = rightY >= rightListRect.top - overscan && rightY <= rightListRect.bottom + overscan
+      if (!leftNear && !rightNear) return
+      const clampToList = (value: number, rect: DOMRect): number => Math.max(rect.top, Math.min(rect.bottom, value))
       const x1 = leftRect.right - canvasRect.left
       const x2 = rightRect.left - canvasRect.left
       const offset = ((index % 5) - 2) * 2
-      const y1 = clampY(leftY) - canvasRect.top + offset
-      const y2 = clampY(rightY) - canvasRect.top + offset
+      const y1 = clampToList(leftY, leftListRect) - canvasRect.top + offset
+      const y2 = clampToList(rightY, rightListRect) - canvasRect.top + offset
       const curve = Math.max(28, (x2 - x1) * 0.42)
       positioned.push({
         ...link,
@@ -366,7 +404,7 @@ export function TraceImpactEditor(): React.JSX.Element {
       })
     })
     setPositionedLinks(positioned)
-  }, [displayLinks, measureVersion, representative, visibleByColumn])
+  }, [displayLinks, linksVisible, measureVersion, representative, visibleByColumn])
 
   useEffect(() => scheduleMeasure(), [configs, scheduleMeasure, view, visibleByColumn])
 
@@ -380,7 +418,7 @@ export function TraceImpactEditor(): React.JSX.Element {
     if (configs.length >= MAX_COLUMNS || scopes.length === 0) return
     const used = new Set(configs.flatMap((config) => config.scopeIds))
     const scope = scopes.find((item) => !used.has(item.id)) ?? scopes[0]!
-    const config = { id: `impact-column-${columnSequence.current++}`, scopeIds: [scope.id] }
+    const config = { id: `impact-column-${columnSequence.current++}-${Date.now().toString(36)}`, scopeIds: [scope.id] }
     setConfigs((current) => [...current.slice(0, index), config, ...current.slice(index)])
   }
 
@@ -391,18 +429,41 @@ export function TraceImpactEditor(): React.JSX.Element {
     if (activeColumnId === id) setActiveColumnId(null)
   }
 
+  const syncCommonSelection = (item: ImpactItem): void => {
+    setSelectedItem({
+      contextUri,
+      uid: item.uid,
+      displayId: item.code,
+      entityType: item.entityType,
+      itemType: item.itemType ?? undefined,
+      title: item.title,
+      status: item.status,
+      properties: {
+        uid: item.uid,
+        code: item.code,
+        title: item.title,
+        entityType: item.entityType,
+        designCategory: item.designCategory,
+        itemType: item.itemType,
+        status: item.status,
+        depth: item.depth
+      }
+    })
+  }
+
   const selectItem = (columnId: string, uid: string, event: React.MouseEvent): void => {
     const key = nodeKey(columnId, uid)
     const items = visibleByColumn.get(columnId) ?? []
+    const item = items.find((candidate) => candidate.uid === uid)
     setActiveColumnId(columnId)
     setSelected((current) => {
       if (event.shiftKey && anchors[columnId]) {
-        const start = items.findIndex((item) => item.uid === anchors[columnId])
-        const end = items.findIndex((item) => item.uid === uid)
+        const start = items.findIndex((candidate) => candidate.uid === anchors[columnId])
+        const end = items.findIndex((candidate) => candidate.uid === uid)
         if (start >= 0 && end >= 0) {
           const range = items.slice(Math.min(start, end), Math.max(start, end) + 1)
           const next = event.ctrlKey || event.metaKey ? new Set(current) : new Set<string>()
-          range.forEach((item) => next.add(nodeKey(columnId, item.uid)))
+          range.forEach((candidate) => next.add(nodeKey(columnId, candidate.uid)))
           return next
         }
       }
@@ -414,7 +475,84 @@ export function TraceImpactEditor(): React.JSX.Element {
       }
       return new Set([key])
     })
-    setAnchors((current) => ({ ...current, [columnId]: uid }))
+    if (!event.shiftKey) setAnchors((current) => ({ ...current, [columnId]: uid }))
+    if (item) syncCommonSelection(item)
+  }
+
+  const handleItemKeyDown = (columnId: string, uid: string, event: React.KeyboardEvent): void => {
+    if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return
+    const items = visibleByColumn.get(columnId) ?? []
+    const currentIndex = items.findIndex((item) => item.uid === uid)
+    const nextIndex = Math.max(0, Math.min(items.length - 1, currentIndex + (event.key === 'ArrowDown' ? 1 : -1)))
+    const nextItem = items[nextIndex]
+    if (!nextItem) return
+    event.preventDefault()
+    const anchorUid = anchors[columnId] ?? uid
+    if (event.shiftKey) {
+      const anchorIndex = items.findIndex((item) => item.uid === anchorUid)
+      const range = items.slice(Math.min(anchorIndex, nextIndex), Math.max(anchorIndex, nextIndex) + 1)
+      setSelected(new Set(range.map((item) => nodeKey(columnId, item.uid))))
+    } else {
+      setSelected(new Set([nodeKey(columnId, nextItem.uid)]))
+      setAnchors((current) => ({ ...current, [columnId]: nextItem.uid }))
+    }
+    setActiveColumnId(columnId)
+    syncCommonSelection(nextItem)
+    const nextElement = nodeRefs.current.get(nodeKey(columnId, nextItem.uid))
+    nextElement?.focus()
+    nextElement?.scrollIntoView({ block: 'nearest' })
+  }
+
+  const reorderColumn = (targetId: string): void => {
+    if (!draggedColumnId || draggedColumnId === targetId) return
+    setConfigs((current) => {
+      const from = current.findIndex((config) => config.id === draggedColumnId)
+      const to = current.findIndex((config) => config.id === targetId)
+      if (from < 0 || to < 0) return current
+      const next = [...current]
+      const [moved] = next.splice(from, 1)
+      if (moved) next.splice(to, 0, moved)
+      return next
+    })
+    setDraggedColumnId(null)
+  }
+
+  const persistConfigurations = (next: SavedImpactConfiguration[]): void => {
+    setSavedConfigurations(next)
+    localStorage.setItem(configurationStorageKey, JSON.stringify(next))
+  }
+
+  const saveConfiguration = (): void => {
+    const configuration: SavedImpactConfiguration = {
+      id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+      name: configurationName.trim() || `構成 ${savedConfigurations.length + 1}`,
+      configs: configs.map((config) => ({ ...config, scopeIds: [...config.scopeIds] })),
+      relationTypes: [...relationTypes],
+      linksVisible
+    }
+    persistConfigurations([...savedConfigurations, configuration])
+    setSelectedConfigurationId(configuration.id)
+    setConfigurationName(configuration.name)
+    notify('info', `インパクト分析構成「${configuration.name}」を保存しました`)
+  }
+
+  const restoreConfiguration = (id: string): void => {
+    setSelectedConfigurationId(id)
+    const configuration = savedConfigurations.find((candidate) => candidate.id === id)
+    if (!configuration) return
+    setConfigs(configuration.configs.map((config) => ({ ...config, scopeIds: [...config.scopeIds] })))
+    setRelationTypes([...configuration.relationTypes])
+    setLinksVisible(configuration.linksVisible)
+    setConfigurationName(configuration.name)
+    setSelected(new Set())
+    setCollapsed(new Set())
+  }
+
+  const deleteConfiguration = (): void => {
+    if (!selectedConfigurationId) return
+    persistConfigurations(savedConfigurations.filter((candidate) => candidate.id !== selectedConfigurationId))
+    setSelectedConfigurationId('')
+    setConfigurationName('')
   }
 
   const selectLinkEndpoints = (link: DisplayLink, event: React.MouseEvent): void => {
@@ -428,6 +566,10 @@ export function TraceImpactEditor(): React.JSX.Element {
       return next
     })
     setActiveColumnId(link.leftColumnId)
+    const item = view?.columns
+      .find((column) => column.id === link.leftColumnId)
+      ?.items.find((candidate) => candidate.uid === link.leftUid)
+    if (item) syncCommonSelection(item)
   }
 
   const toggleCollapsed = (columnId: string, uid: string): void => {
@@ -447,6 +589,18 @@ export function TraceImpactEditor(): React.JSX.Element {
           <h1>汎用インパクト分析</h1>
           <span>任意のResource集合を列へ配置し、選択項目から左右へ連鎖する影響範囲を確認します</span>
         </div>
+        <label
+          className="trace-impact-mode"
+          title="リンク描画を停止すると大量データ表示時のスクロール負荷を抑えられます"
+        >
+          <input
+            type="checkbox"
+            checked={linksVisible}
+            onChange={(event) => setLinksVisible(event.target.checked)}
+            data-testid="impact-links-visible"
+          />
+          リンク表示
+        </label>
         <label className="trace-impact-mode">
           <input
             type="checkbox"
@@ -463,6 +617,7 @@ export function TraceImpactEditor(): React.JSX.Element {
           onClick={() => {
             setSelected(new Set())
             setImpactOnly(false)
+            clearSelectedItem(contextUri)
           }}
           disabled={selected.size === 0}
           title="項目選択とインパクト強調を解除します"
@@ -472,6 +627,52 @@ export function TraceImpactEditor(): React.JSX.Element {
         </button>
         <span>{selected.size}項目選択</span>
       </header>
+
+      <div className="trace-impact-configurations">
+        <label>
+          保存済み構成
+          <select
+            value={selectedConfigurationId}
+            onChange={(event) => restoreConfiguration(event.target.value)}
+            data-testid="impact-saved-configurations"
+            title="保存済みの列構成・関係種別・リンク表示状態を現在の分析タブへ復元します"
+          >
+            <option value="">構成を選択</option>
+            {savedConfigurations.map((configuration) => (
+              <option key={configuration.id} value={configuration.id}>
+                {configuration.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <input
+          value={configurationName}
+          onChange={(event) => setConfigurationName(event.target.value)}
+          placeholder="構成名"
+          aria-label="保存する構成名"
+          data-testid="impact-configuration-name"
+        />
+        <button
+          type="button"
+          className="d2d-btn"
+          onClick={saveConfiguration}
+          disabled={configs.length < 2}
+          title="現在の列順・表示対象・関係種別・リンク表示状態を新しい名前付き構成として保存します"
+          data-testid="impact-save-configuration"
+        >
+          構成を保存
+        </button>
+        <button
+          type="button"
+          className="d2d-btn"
+          onClick={deleteConfiguration}
+          disabled={!selectedConfigurationId}
+          title="選択中の保存構成だけを削除します。Resourceやtrace_linkは削除しません"
+          data-testid="impact-delete-configuration"
+        >
+          構成を削除
+        </button>
+      </div>
 
       <fieldset className="trace-impact-relations">
         <legend>表示する関係種別（複数選択可）</legend>
@@ -507,13 +708,13 @@ export function TraceImpactEditor(): React.JSX.Element {
                 <marker
                   key={type}
                   id={`impact-arrow-${type}`}
-                  markerWidth="8"
-                  markerHeight="8"
-                  refX="7"
-                  refY="4"
+                  markerWidth="5"
+                  markerHeight="5"
+                  refX="4.5"
+                  refY="2.5"
                   orient="auto-start-reverse"
                 >
-                  <path d="M0,0 L8,4 L0,8 Z" fill={RELATION_COLORS[type]} />
+                  <path d="M0,0 L5,2.5 L0,5 Z" fill={RELATION_COLORS[type]} />
                 </marker>
               ))}
             </defs>
@@ -555,9 +756,26 @@ export function TraceImpactEditor(): React.JSX.Element {
               const column = view?.columns.find((item) => item.id === config.id)
               const items = visibleByColumn.get(config.id) ?? []
               return (
-                <section className="trace-impact-column" key={config.id} data-testid={`impact-column-${index}`}>
+                <section
+                  className={`trace-impact-column ${draggedColumnId === config.id ? 'dragging' : ''}`}
+                  key={config.id}
+                  data-testid={`impact-column-${index}`}
+                  onDragOver={(event) => event.preventDefault()}
+                  onDrop={() => reorderColumn(config.id)}
+                >
                   <div className="trace-impact-column-header">
-                    <strong>リスト {index + 1}</strong>
+                    <strong
+                      draggable
+                      onDragStart={(event) => {
+                        event.dataTransfer.effectAllowed = 'move'
+                        setDraggedColumnId(config.id)
+                      }}
+                      onDragEnd={() => setDraggedColumnId(null)}
+                      title="ドラッグしてリストの左右位置を変更します"
+                      data-testid={`impact-column-drag-${index}`}
+                    >
+                      ⠿ リスト {index + 1}
+                    </strong>
                     <div>
                       <button
                         type="button"
@@ -604,7 +822,17 @@ export function TraceImpactEditor(): React.JSX.Element {
                     </select>
                     <small>{column ? `${items.length}/${column.items.length}項目` : '表示対象を選択'}</small>
                   </div>
-                  <div className="trace-impact-list" role="listbox" aria-multiselectable="true">
+                  <div
+                    className="trace-impact-list"
+                    role="listbox"
+                    aria-multiselectable="true"
+                    ref={(element) => {
+                      if (element) listRefs.current.set(config.id, element)
+                      else listRefs.current.delete(config.id)
+                    }}
+                    onScroll={scheduleMeasure}
+                    data-testid={`impact-list-${index}`}
+                  >
                     {items.map((item) => {
                       const key = nodeKey(config.id, item.uid)
                       const isSelected = selected.has(key)
@@ -623,6 +851,7 @@ export function TraceImpactEditor(): React.JSX.Element {
                           style={{ paddingInlineStart: `${8 + item.depth * 14}px` }}
                           title={itemTooltip(item, scopes)}
                           onClick={(event) => selectItem(config.id, item.uid, event)}
+                          onKeyDown={(event) => handleItemKeyDown(config.id, item.uid, event)}
                           ref={(element) => {
                             if (element) nodeRefs.current.set(key, element)
                             else nodeRefs.current.delete(key)
