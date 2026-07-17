@@ -16,8 +16,9 @@ import { LlmRunViewer } from '../views/LlmViews'
 import { IntermediateDocumentEditor } from '../editors/IntermediateDocumentEditor'
 import { CandidateSetReviewEditor } from '../editors/CandidateSetReviewEditor'
 import { DesignElementViewer } from '../views/DesignModelViews'
-import { BasisChainEditor, TraceGraphEditor } from '../views/TraceViews'
+import { TraceGraphEditor } from '../views/TraceViews'
 import { TraceMatrixEditor } from '../editors/TraceMatrixEditor'
+import { TraceImpactEditor } from '../editors/TraceImpactEditor'
 import { GlossaryEditor } from '../editors/GlossaryEditor'
 import { ModelPlaygroundEditor } from '../editors/ModelPlaygroundEditor'
 import { ArchiveDiffEditor, GitCommitViewer, StoreBrowserEditor } from '../views/HistoryViews'
@@ -52,7 +53,7 @@ function resolveEditor(uri: string): React.JSX.Element {
     const [row, col] = uri.slice('trace://matrix/'.length).split('/')
     return <TraceMatrixEditor initialRow={row ?? 'FUNC'} initialCol={col ?? 'REQ'} />
   }
-  if (uri === 'trace://list-link') return <BasisChainEditor />
+  if (uri === 'trace://list-link') return <TraceImpactEditor />
   if (uri.startsWith('glossary://')) return <GlossaryEditor />
   if (uri === 'model://playground') return <ModelPlaygroundEditor />
   if (uri === 'diff://archive') return <ArchiveDiffEditor />

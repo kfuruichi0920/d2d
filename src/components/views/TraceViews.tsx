@@ -1,9 +1,9 @@
 /**
- * トレーサビリティ UI（P9-2〜P9-6、UI-014/015/016、TRACE-021〜025）。
+ * トレーサビリティ UI（P9-2〜P9-6、UI-014/016、TRACE-021〜025）。
  * - TraceSideBar: クエリ条件（起点・深さ・方向）と各ビューへの導線
  * - TraceGraphEditor: SVG 自前実装の関係グラフ（hop 階層レイアウト + ホップ強調）
  * - TraceMatrixEditor: 分類×分類のトレースマトリクス
- * - BasisChainEditor: ④→③→②→① の根拠チェーン（階層リスト間リンク）
+ * - Trace Impact Editorはeditors/TraceImpactEditor.tsxへ分離
  * - ProblemsView: 整合性検査結果（Problems Panel）
  */
 import { useCallback, useEffect, useState } from 'react'
@@ -145,10 +145,10 @@ export function TraceSideBar(): React.JSX.Element {
         type="button"
         className="d2d-btn"
         style={{ width: '100%' }}
-        onClick={() => openResource('trace://list-link', '根拠チェーン')}
-        data-testid="open-basis-chain"
+        onClick={() => openResource('trace://list-link', 'インパクト分析')}
+        data-testid="open-impact-analysis"
       >
-        階層リスト間リンク（根拠チェーン）
+        汎用インパクト分析
       </button>
     </div>
   )

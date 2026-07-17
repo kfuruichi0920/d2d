@@ -21,6 +21,7 @@ import {
   type MatrixUpdateInput
 } from '../traceability/trace-matrix-service'
 import { RELATION_TYPES, type RelationType } from '../design/design-service'
+import { getTraceImpactView, type TraceImpactColumnInput } from '../traceability/trace-impact-service'
 
 function asRecord(params: unknown): Record<string, unknown> {
   if (typeof params !== 'object' || params === null) {
@@ -119,6 +120,25 @@ export function registerTraceApi(router: ApiRouter): void {
       direction,
       operation
     } as MatrixUpdateInput)
+  })
+  /** 複数のResource集合列と方向付きリンクを返すインパクト分析（TRACE-030〜034、UI-015）。 */
+  router.register('trace.impactView', (params) => {
+    const p = asRecord(params)
+    const { db, info } = requireProject()
+    const columns = Array.isArray(p.columns)
+      ? p.columns.map((value): TraceImpactColumnInput => {
+          const column = asRecord(value)
+          return {
+            id: requireString(column, 'id'),
+            scopeIds: Array.isArray(column.scopeIds) ? column.scopeIds.map((scopeId) => String(scopeId)) : []
+          }
+        })
+      : []
+    const relationTypes = Array.isArray(p.relationTypes) ? p.relationTypes.map((value) => String(value)) : []
+    if (relationTypes.some((type) => !RELATION_TYPES.includes(type as RelationType))) {
+      throw new BackendError('validation', 'relationTypesに未定義の関係種別があります', relationTypes.join(','))
+    }
+    return getTraceImpactView(db, info.projectUid, columns, relationTypes)
   })
 
   /** クエリ結果の JSON/CSV/Markdown 出力（TRACE-024）。exports/trace/ へ保存する */

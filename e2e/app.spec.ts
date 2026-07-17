@@ -1282,11 +1282,52 @@ test('トレースクエリ→グラフ→マトリクス→整合性検査（P9
   await firstMatrixCell.click()
   await expect(firstMatrixCell).not.toContainText('←R')
 
-  // 根拠チェーン（UI-015）: ④要素 → ③中間文書
-  await page.getByTestId('open-basis-chain').click()
-  await expect(page.getByTestId('basis-chain')).toBeVisible()
-  await expect(page.getByTestId('basis-chain')).toContainText('IMDOC-000001')
+  // 汎用インパクト分析（UI-015 / TRACE-030〜034）
+  await page.getByTestId('open-impact-analysis').click()
+  const impact = page.getByTestId('trace-impact')
+  await expect(impact).toBeVisible()
+  await expect(impact).toContainText('汎用インパクト分析')
+  await expect(impact.locator('.trace-impact-column')).toHaveCount(3)
 
+  // ②・③の階層、項目Tooltip、方向・関係種別付きリンクを表示する。
+  const firstImpactItem = impact.locator('.trace-impact-item').first()
+  await expect(firstImpactItem).toHaveAttribute('title', /entity_type:/)
+  const firstImpactLink = impact.locator('.impact-link path').first()
+  await expect(firstImpactLink).toBeVisible()
+  await expect(firstImpactLink.locator('title')).toContainText('関係: based_on')
+  const markerStart = await firstImpactLink.getAttribute('marker-start')
+  const markerEnd = await firstImpactLink.getAttribute('marker-end')
+  expect(Boolean(markerStart || markerEnd)).toBe(true)
+
+  const hierarchyToggle = impact.locator('[data-testid^="impact-toggle-"]').first()
+  if (await hierarchyToggle.isVisible().catch(() => false)) {
+    const beforeCollapse = await impact.locator('.trace-impact-item').count()
+    await hierarchyToggle.click()
+    await expect.poll(async () => impact.locator('.trace-impact-item').count()).toBeLessThan(beforeCollapse)
+    await hierarchyToggle.click()
+  }
+
+  // リンク選択で両端を複数選択し、その先の列までインパクト強調する。
+  await firstImpactLink.dispatchEvent('click')
+  await expect(impact).toContainText('2項目選択')
+  await expect(impact.locator('.trace-impact-item.impacted')).not.toHaveCount(0)
+  await page.getByTestId('impact-related-only').check()
+  await expect(page.getByTestId('impact-related-only')).toBeChecked()
+  await expect(impact.locator('.trace-impact-column').first().locator('.trace-impact-item')).not.toHaveCount(0)
+
+  // 関係種別の複数選択と、左右への任意列追加を行える。
+  await page.getByTestId('impact-relation-satisfies').check()
+  await expect(page.getByTestId('impact-relation-based_on')).toBeChecked()
+  await expect(page.getByTestId('impact-relation-satisfies')).toBeChecked()
+  await page.getByTestId('impact-add-right').click()
+  await expect(impact.locator('.trace-impact-column')).toHaveCount(4)
+
+  // Ctrlで同一リスト内の複数項目を選択できる。
+  await page.getByTestId('impact-clear-selection').click()
+  const firstColumnItems = impact.locator('.trace-impact-column').first().locator('.trace-impact-item')
+  await firstColumnItems.nth(0).click()
+  await firstColumnItems.nth(1).click({ modifiers: ['Control'] })
+  await expect(impact).toContainText('2項目選択')
   // 整合性検査（Problems Panel）: REQ-000001 は verifies 未対応として検出される
   // Status Bar クリックで Panel を確実に開く（Ctrl+@ はトグルのため）
   await page.getByTestId('status-jobs').click()

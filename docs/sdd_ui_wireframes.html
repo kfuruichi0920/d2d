@@ -55,7 +55,7 @@
   <tr><td>V-03</td><td>中間データビュー</td><td><a href="#v03">本ファイル</a></td></tr>
   <tr><td>V-04</td><td>設計モデルビュー</td><td><a href="#v04">本ファイル</a></td></tr>
   <tr><td>V-05</td><td>トレースマトリクスビュー</td><td><a href="#m4">第1部 M4</a></td></tr>
-  <tr><td>V-06</td><td>階層リスト間リンクビュー</td><td><a href="#v06">本ファイル</a></td></tr>
+  <tr><td>V-06</td><td>汎用インパクト分析ビュー</td><td><a href="#v06">本ファイル</a></td></tr>
   <tr><td>V-07</td><td>関係グラフビュー</td><td><a href="#v07">本ファイル</a></td></tr>
   <tr><td>V-08</td><td>Diff ビュー</td><td><a href="#m5">第1部 M5</a></td></tr>
   <tr><td>V-09</td><td>LLM ログビュー</td><td><a href="#v09">本ファイル</a></td></tr>
@@ -484,13 +484,13 @@
 </div>
 <p class="note"><b>要点:</b> ④正本の登録・編集画面。関係一覧には確定と候補が状態列で混在表示され、候補行は判断パネル(採用/棄却)を出せる。モデル記法テキストと要素ID対応表は分離管理し、プレビューを並置する。</p>
 
-<h2 id="v06">図WF-V06: V-06 階層リスト間リンクビュー(Trace List Editor)</h2>
-<p class="meta">Resource: <code>trace://list-link</code> / SRS: UI-015, TRACE-001〜003 / 主なモード: M4</p>
+<h2 id="v06">図WF-V06: V-06 汎用インパクト分析ビュー(Trace Impact Editor)</h2>
+<p class="meta">Resource: <code>trace://list-link</code> / SRS: UI-015, TRACE-030〜034 / 主なモード: M4</p>
 <div class="wf">
-  <div class="bar">Tab: 階層リンク(②→③→④) | Toolbar: 起点階層 <span class="btn">② ▾</span> 成果物 <span class="btn">BD-01 ▾</span> <span class="btn">未接続のみ</span> <span class="btn">CSV出力</span></div>
+  <div class="bar">Tab: インパクト分析 | Toolbar: <span class="btn">関連項目のみ</span> 関係 <span class="btn">based_on, satisfies ▾</span> 各列: <span class="btn">＋左</span><span class="btn">右＋</span><span class="btn">削除</span></div>
   <div class="cols">
     <div class="pane">
-      <div class="hd">②抽出データ</div>
+      <div class="hd">リスト1: ②抽出データ（複数集合可）</div>
       <ul class="plain">
         <li>TEXT-000050 段落</li>
         <li><span class="sel">TEXT-000051 段落 ◀</span></li>
@@ -500,7 +500,7 @@
     </div>
     <div class="pane" style="flex:none;width:36px;display:flex;align-items:center;justify-content:center;color:#999">⇄</div>
     <div class="pane">
-      <div class="hd">③中間データ</div>
+      <div class="hd">リスト2: ③中間データ（階層折畳可）</div>
       <ul class="plain">
         <li>3.1 初期化(IMITEM-000110)</li>
         <li><span class="sel">3.2 通信(IMITEM-000114)◀</span></li>
@@ -510,7 +510,7 @@
     </div>
     <div class="pane" style="flex:none;width:36px;display:flex;align-items:center;justify-content:center;color:#999">⇄</div>
     <div class="pane">
-      <div class="hd">④設計モデル</div>
+      <div class="hd">リスト3: ④設計モデル（左右へ列追加可）</div>
       <ul class="plain">
         <li><span class="sel">REQ-000031 再送要求 ◀</span></li>
         <li><span class="sel">FUNC-000012 再送制御 ◀</span></li>
@@ -518,9 +518,9 @@
       </ul>
     </div>
   </div>
-  <div class="statusbar">選択連動: TEXT-000051 を選択 → 対応する③④要素をハイライト(based_on を辿る)| 未接続 11件</div>
+  <div class="statusbar">複数選択 → 左右の全列へ到達する項目・方向付きリンクを強調 | 折畳子リンクは親へ集約 | 表示領域周辺だけを描画</div>
 </div>
-<p class="note"><b>要点:</b> どれか1列の要素を選ぶと、trace_link を上下流双方向に辿って他列の対応要素をハイライトする。対応がない要素は「未割当 / 下流なし」のタグで示し、クリックで該当レビュー(V-15 / V-18)へ遷移できる。</p>
+<p class="note"><b>要点:</b> 各列へ任意の複数Resource集合を配置し、列を左右へ追加できる。項目の複数選択からtrace_linkを全列へ辿り、方向・関係種別別リンクと到達項目を強調する。関連項目限定表示、階層折畳、親へのリンク集約、項目・リンクTooltipを提供する。</p>
 
 <h2 id="v07">図WF-V07: V-07 関係グラフビュー(Trace Graph Editor)</h2>
 <p class="meta">Resource: <code>trace://graph</code> / SRS: UI-016, TRACE-001〜003, TRACE-022〜023 / 主なモード: M4</p>

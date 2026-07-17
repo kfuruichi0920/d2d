@@ -152,7 +152,11 @@ export function listTraceMatrixScopes(db: Database, projectUid: string): TraceMa
   return scopes
 }
 
-function resolveMatrixResources(db: Database, projectUid: string, scopeIds: readonly string[]): TraceMatrixResource[] {
+export function resolveMatrixResources(
+  db: Database,
+  projectUid: string,
+  scopeIds: readonly string[]
+): TraceMatrixResource[] {
   const resources = new Map<string, TraceMatrixResource>()
   const add = (rows: Omit<TraceMatrixResource, 'scopes'>[], scopeId: string): void => {
     for (const row of rows) {
