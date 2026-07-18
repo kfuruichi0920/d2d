@@ -9,7 +9,24 @@ import { useJobsStore } from '../stores/jobs-store'
 import { invoke } from './backend'
 import { COLOR_THEMES, DISPLAY_MODES } from '../theme/theme'
 import { performRedo, performUndo } from './undo-service'
+import { navigateBack, navigateForward } from './navigation-history'
 import { OPEN_SCREEN_TEXT_SEARCH } from '../components/workbench/ScreenTextSearch'
+import { DEFAULT_ACTIVITY_ORDER, type Activity } from '../stores/workbench-store'
+
+/** サイドバー等の遅延マウントを待ってフォーカスする（W10） */
+function focusWhenVisible(selector: string): void {
+  let attempts = 0
+  const tryFocus = (): void => {
+    const element = document.querySelector<HTMLElement>(selector)
+    if (element) {
+      element.focus()
+      if (element instanceof HTMLInputElement) element.select()
+      return
+    }
+    if (attempts++ < 20) requestAnimationFrame(tryFocus)
+  }
+  requestAnimationFrame(tryFocus)
+}
 
 export function getCommandContext(): CommandContext {
   const wb = useWorkbenchStore.getState()
@@ -75,6 +92,72 @@ export function registerBuiltinCommands(): void {
       } catch (error) {
         notify('error', 'やり直しに失敗しました', error instanceof Error ? error.message : String(error))
       }
+    }
+  })
+
+  // リンク移動の戻る／進む（W9）
+  registerCommand({
+    id: 'nav.back',
+    title: '戻る（直前の表示Resourceへ）',
+    category: '移動',
+    keybinding: 'Alt+ArrowLeft',
+    run: () => {
+      navigateBack()
+    }
+  })
+  registerCommand({
+    id: 'nav.forward',
+    title: '進む（戻る前の表示Resourceへ）',
+    category: '移動',
+    keybinding: 'Alt+ArrowRight',
+    run: () => {
+      navigateForward()
+    }
+  })
+
+  // Activity Bar の各アクティビティを開く（W10、ショートカット割り当て可能）
+  const ACTIVITY_LABELS: Record<Activity, string> = {
+    explorer: 'Explorer',
+    search: 'Search',
+    trace: 'Trace',
+    reports: 'Reports',
+    history: 'History',
+    settings: 'Settings'
+  }
+  for (const activity of DEFAULT_ACTIVITY_ORDER) {
+    registerCommand({
+      id: `activity.${activity}`,
+      title: `Activityを開く: ${ACTIVITY_LABELS[activity]}`,
+      category: '表示',
+      keybinding: activity === 'settings' ? 'Ctrl+.' : undefined,
+      run: () => {
+        const state = wb()
+        // Command からは常に「開く」（同一Activity再実行でも閉じない）
+        if (state.activity !== activity || !state.sideBarVisible) state.setActivity(activity)
+      }
+    })
+  }
+
+  registerCommand({
+    id: 'search.focusSidebar',
+    title: 'Searchの検索入力へ移動',
+    category: '検索',
+    keybinding: 'Ctrl+Shift+F',
+    run: () => {
+      const state = wb()
+      if (state.activity !== 'search' || !state.sideBarVisible) state.setActivity('search')
+      focusWhenVisible('[data-testid="search-input"]')
+    }
+  })
+
+  registerCommand({
+    id: 'dictionary.focusQuery',
+    title: 'Dictionaryの用語入力へ移動（Secondary）',
+    category: '検索',
+    keybinding: 'Ctrl+Shift+D',
+    run: () => {
+      wb().setSecondaryTab('dictionary')
+      focusWhenVisible('#secondary-dictionary-query')
     }
   })
 

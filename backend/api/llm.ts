@@ -84,14 +84,18 @@ export function registerLlmApi(router: ApiRouter, jobs: JobManager, settings: Se
     const { db, info } = requireProject()
     const run = db
       .prepare(
-        `SELECT e.uid, e.code, r.*, pb.relative_path AS prompt_path, rb.relative_path AS result_path
+        `SELECT e.uid, e.code, r.*, pb.relative_path AS prompt_path, rb.relative_path AS result_path,
+                rqb.relative_path AS raw_request_path, rsb.relative_path AS raw_response_path
            FROM llm_run_ref r
            JOIN entity_registry e ON e.uid = r.uid
            LEFT JOIN blob_resource pb ON pb.uid = r.prompt_blob_uid
            LEFT JOIN blob_resource rb ON rb.uid = r.result_blob_uid
+           LEFT JOIN blob_resource rqb ON rqb.uid = r.raw_request_blob_uid
+           LEFT JOIN blob_resource rsb ON rsb.uid = r.raw_response_blob_uid
           WHERE r.uid = ?`
       )
-      .get(uid) as { prompt_path?: string; result_path?: string } | undefined
+      .get(uid) as
+      { prompt_path?: string; result_path?: string; raw_request_path?: string; raw_response_path?: string } | undefined
     if (!run) {
       throw new BackendError('not_found', `LLM 実行が見つかりません: ${uid}`, '')
     }
@@ -100,7 +104,37 @@ export function registerLlmApi(router: ApiRouter, jobs: JobManager, settings: Se
       const path = join(info.rootPath, rel)
       return existsSync(path) ? readFileSync(path, 'utf-8') : null
     }
-    return { ...run, prompt_text: readBlob(run.prompt_path), result_text: readBlob(run.result_path) }
+    return {
+      ...run,
+      prompt_text: readBlob(run.prompt_path),
+      result_text: readBlob(run.result_path),
+      raw_request_text: readBlob(run.raw_request_path),
+      raw_response_text: readBlob(run.raw_response_path)
+    }
+  })
+
+  /**
+   * LLM ログからの候補再作成（W12）。
+   * 入力参照（チャンク／中間要素）を保持する実行だけ、同じ入力で候補生成ジョブを再登録する。
+   */
+  router.register('llm.retryRun', (params) => {
+    const p = asRecord(params)
+    const uid = String(p.uid ?? '')
+    const { db } = requireProject()
+    const run = db.prepare(`SELECT process_name, input_ref_uid FROM llm_run_ref WHERE uid = ?`).get(uid) as
+      { process_name: string; input_ref_uid: string | null } | undefined
+    if (!run) throw new BackendError('not_found', `LLM 実行が見つかりません: ${uid}`, '')
+    if (!run.input_ref_uid) {
+      throw new BackendError('validation', 'この実行は入力参照を持たないため再作成できません', run.process_name)
+    }
+    if (run.process_name === 'design-candidates') {
+      return jobs.enqueue('design.generateCandidates', { chunkUid: run.input_ref_uid })
+    }
+    throw new BackendError(
+      'validation',
+      `この処理種別の再作成には未対応です: ${run.process_name}`,
+      '対応種別: design-candidates（④候補生成）'
+    )
   })
 
   // ---- プロンプトテンプレート（P6-3） ----

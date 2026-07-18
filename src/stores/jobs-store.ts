@@ -1,6 +1,11 @@
 import { create } from 'zustand'
 import type { ApiError } from '../types/ipc'
 import { invoke } from '../services/backend'
+import { useLogsStore } from './logs-store'
+
+/** トーストの自動消去時間。エラーは通常の3倍表示する（W11） */
+const TOAST_DISMISS_MS = 5000
+const ERROR_TOAST_DISMISS_MS = TOAST_DISMISS_MS * 3
 
 export type JobStatus = 'waiting' | 'running' | 'success' | 'failed' | 'partial' | 'aborted'
 
@@ -73,10 +78,16 @@ export const useJobsStore = create<JobsState>((set, get) => ({
   notify: (kind, message, detail) => {
     const id = notificationSeq++
     set({ notifications: [...get().notifications, { id, kind, message, detail }] })
-    // 情報通知は自動で消す
-    if (kind === 'info') {
-      setTimeout(() => get().dismissNotification(id), 5000)
-    }
+    // すべて自動で消す。エラーは通常の3倍の時間表示する（W11）
+    setTimeout(() => get().dismissNotification(id), kind === 'error' ? ERROR_TOAST_DISMISS_MS : TOAST_DISMISS_MS)
+    // 動作ログへ記録し、デバッグログファイルにも残す（失敗は無視）
+    useLogsStore.getState().append(kind, message, detail)
+    void invoke('log.append', {
+      source: 'frontend',
+      level: kind === 'warning' ? 'warn' : kind,
+      message,
+      detail
+    }).catch(() => undefined)
   },
 
   dismissNotification: (id) => {

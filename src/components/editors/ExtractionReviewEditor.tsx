@@ -14,6 +14,7 @@ import { DocumentPreviewMetaControls, useDocumentPreviewMeta } from '../common/D
 import { reviewStateFromEntityStatus, ReviewStatusBadge } from '../common/review'
 import { ResizablePaneGroup } from '../workbench/ResizablePaneGroup'
 import { pushUndo } from '../../services/undo-service'
+import { useEscapeToClose } from '../common/useEscapeToClose'
 
 interface TableCell {
   text: string
@@ -132,6 +133,8 @@ export function ExtractionReviewEditor({ uid }: { uid: string }): React.JSX.Elem
   const [renameTitle, setRenameTitle] = useState('')
   const previewRefs = useRef(new Map<string, HTMLElement>())
   const notify = useJobsStore((state) => state.notify)
+  // 名称変更モーダルは Escape で閉じる（W10）
+  useEscapeToClose(renameOpen, () => setRenameOpen(false))
   const setExtractedItems = useSelectionStore((state) => state.setExtractedItems)
   const clearExtractedItems = useSelectionStore((state) => state.clearExtractedItems)
   const setSelectedItem = useSelectionStore((state) => state.setSelectedItem)

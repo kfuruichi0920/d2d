@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 import { invoke } from '../../services/backend'
 import { useJobsStore } from '../../stores/jobs-store'
 import { reviewStateFromEntityStatus, ReviewStatusBadge } from '../common/review'
+import { useEscapeToClose } from '../common/useEscapeToClose'
 import type { ExtractedDocumentItem, IntermediateDocumentItem } from '../views/DocumentsTree'
 
 interface ArtifactSetting {
@@ -36,6 +37,7 @@ export function IntermediateImportDialog({
   const [selectedSources, setSelectedSources] = useState<Set<string>>(new Set())
   const [saving, setSaving] = useState(false)
   const notify = useJobsStore((state) => state.notify)
+  useEscapeToClose(true, onClose)
 
   useEffect(() => {
     void Promise.all([

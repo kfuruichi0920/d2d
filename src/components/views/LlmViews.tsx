@@ -268,17 +268,32 @@ export function LlmLogsPanel(): React.JSX.Element {
   )
 }
 
-/** LLM 実行詳細ビューア（log://llm/<uid>、V-09） */
+/** LLM 実行詳細ビューア（log://llm/<uid>、V-09。W12: 生送受信ログ・候補再作成） */
 export function LlmRunViewer({ uid }: { uid: string }): React.JSX.Element {
   const [run, setRun] = useState<
-    (LlmRunRow & { prompt_text: string | null; result_text: string | null; error_detail: string | null }) | null
+    | (LlmRunRow & {
+        prompt_text: string | null
+        result_text: string | null
+        raw_request_text: string | null
+        raw_response_text: string | null
+        error_detail: string | null
+        input_ref_uid: string | null
+      })
+    | null
   >(null)
+  const notify = useJobsStore((s) => s.notify)
 
   useEffect(() => {
     void invoke<typeof run>('llm.getRun', { uid }).then((res) => {
       if (res.ok) setRun(res.result)
     })
   }, [uid])
+
+  const retry = async (): Promise<void> => {
+    const result = await invoke('llm.retryRun', { uid })
+    if (result.ok) notify('info', '候補再作成ジョブを登録しました', 'Jobs Panel で進捗を確認できます')
+    else notify('error', '候補を再作成できませんでした', result.error.message)
+  }
 
   if (!run) return <div className="d2d-empty">読込中…</div>
 
@@ -312,11 +327,30 @@ export function LlmRunViewer({ uid }: { uid: string }): React.JSX.Element {
         <dd>{run.status}</dd>
       </dl>
       {run.error_detail && <div style={{ color: 'var(--d2d-error)' }}>{run.error_detail}</div>}
+      {run.process_name === 'design-candidates' && run.input_ref_uid && (
+        <button
+          type="button"
+          className="d2d-btn primary small"
+          onClick={() => void retry()}
+          title="この実行と同じ入力チャンクで④候補生成ジョブを再実行します"
+          data-testid="llm-retry-run"
+        >
+          このログから候補を再作成
+        </button>
+      )}
       <h2 style={{ fontSize: 13 }}>送信内容（マスキング後）</h2>
       <pre style={preStyle}>{run.prompt_text ?? '（なし）'}</pre>
       <h2 style={{ fontSize: 13 }}>応答</h2>
       <pre style={preStyle} data-testid="llm-result-text">
         {run.result_text ?? '（なし）'}
+      </pre>
+      <h2 style={{ fontSize: 13 }}>生リクエスト（Provider送信ボディ・APIキーなし）</h2>
+      <pre style={preStyle} data-testid="llm-raw-request">
+        {run.raw_request_text ?? '（記録なし: 1.8.0 以前の実行）'}
+      </pre>
+      <h2 style={{ fontSize: 13 }}>生レスポンス（Provider応答）</h2>
+      <pre style={preStyle} data-testid="llm-raw-response">
+        {run.raw_response_text ?? '（記録なし: 1.8.0 以前の実行）'}
       </pre>
     </div>
   )

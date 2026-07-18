@@ -8,46 +8,47 @@
 - 完了: P0〜P13（クリティカルパス完走、MS6 相当まで）
 - 残り: **P14**（性能・オフライン確認・残 TBD-06〜08・パッケージング・商用版）、
   **P5 の他形式抽出**（Excel / PowerPoint / PDF / Visio / テキスト系、EXT-014/015）
-- テスト規模: ユニット 189 件 / pytest 10 件 / E2E 18 件（すべて成功の状態で引き渡し）
+- テスト規模: ユニット 207 件 / pytest 10 件 / E2E 25 件（すべて成功の状態で引き渡し）
 
 ## フェーズ履歴（要点のみ）
 
-| フェーズ      | 内容                                                                                                                                      | コミット        |
-| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | --------------- |
-| P0〜P3        | 骨格 / DB スキーマ 35 表 + 台帳 / ジョブ・設定・イベント / Workbench UI                                                                   | 〜P3 各コミット |
-| P4/P5         | 原本取込 → Word 抽出 → ②候補 → 共通複数選択レビュー/構造プレビュー → 正本化                                                               | —               |
-| P6            | LLM 基盤（4 Provider、マスキング、外部送信ブロック、preview→run 2段階）                                                                   | —               |
-| P7            | プロジェクト成果物/フェーズ設定、フェーズ→成果物取込、②/③/プレビュー3ペイン統合編集                                                       | —               |
-| P8            | ③→④候補生成 → 候補セットレビュー → 採用（同一 Txn・全 ROLLBACK）                                                                          | —               |
-| P9            | 再帰 CTE トレース・SVG グラフ・マトリクス・整合性検査 → Problems                                                                          | —               |
-| P10           | 状態遷移 / 用語集 / 表編集 / 検証編集 / PlantUML。schema 1.1.0 初適用                                                                     | 81d96d1         |
-| P11           | 検索（FTS5 + MeCab トグル）※別セッションで実装・マージ                                                                                    | 921a55d 等      |
-| P12           | DB to Text / SQLite dump / ZIP + manifest / 差分インポート / Git 参照 / ストア閲覧                                                        | d2bc9c6         |
-| P13           | レポート出力（②③④→文書風、フィルタ、Markdown/HTML、report:// プレビュー）                                                                 | 1123e29         |
-| P7 追加       | 任意複数③マージ、2ペインResource Editor、所有判定による上書き／置換／保護派生                                                             | aa9e815         |
-| P3 追加       | 文字サイズ一括変更、可変パネル、Secondaryアコーディオン、再帰分割・タブ移動                                                               | f59cadc         |
-| P3 追加       | パネル表示切替、未確定Badge、Activity並べ替え・Settings下端固定・選択表示                                                                 | 9af6c6d         |
-| P4/P5追加     | 複数原本Job取込、抽出名称管理、Explorer Tooltip・強調折りたたみ                                                                           | 7495617         |
-| P3 追加       | ②/③/チャンク/Resource編集の内部ペイン可変化、チャンク表スタイル統一                                                                       | a5ec368         |
-| P7 追加       | ③取込編集の統合元選択・多対多based_on・個別解除・操作バー再編・全項目正本確定                                                             | 1861358         |
-| P3〜P8追加    | ①〜④ステージ一覧・ソート・OS原本表示・①②アーカイブ／論理削除・文書状態集約                                                                | 585e959         |
-| P3 追加       | ステージ選択表示・一覧キーボード操作・①〜③可変境界・Workbench外周状態共通化                                                               | 6983f25         |
-| P3/P7 追加    | Explorer閲覧専用化・ステージ操作集約・③重複整理・中間3モード切替                                                                          | de2566f         |
-| P3 追加       | SecondaryをProperties／Relations／Reviewへ整理、共通Selection・コメントtrace化                                                            | 6514664         |
-| P3/P8/P12追加 | 全画面検索・プレビュー表示切替・Relations遷移・Store全件閲覧・関係候補ルール検証                                                          | 本コミット      |
-| P4/P5追加     | 原本選択経路の操作統一・抽出データ存在時の抽出実行無効化（ユニット168件／E2E 18件）                                                       | 09ab962         |
-| P7追加        | 設定成果物の空③作成・未確認②取込・統合元状態修正・取込元／対応削除・階層識別                                                              | 本コミット      |
-| P9追加        | 汎用トレースマトリクス、複数Resource集合・関係種別・方向・セルの一括編集、転置／拡縮                                                      | 本コミット      |
-| P9追加        | 汎用インパクト分析、任意複数列・階層折畳・方向付きリンク・多段強調・関連項目限定表示                                                      | 本コミット      |
-| P9追加        | インパクト分析の列別scroll・全列リンク・Selection連携・DnD・構成保存・複数タブ化（Unit 179／E2E 18）                                      | 本コミット      |
-| P9追加        | 見出しドラッグによる列間隔調整・外側列の連動移動・構成保存（Unit 179／E2E 18）                                                            | 本コミット      |
-| P3/P7追加     | 中間成果物のShift+上下範囲選択、ウェルカム設計思想・3種Help、検索導線・全ボタンTooltip                                                    | 本コミット      |
-| P10追加       | セマンティック入力支援、構造化参照・正規化履歴・候補検索・辞書登録・関係検証（Unit 185／E2E 18）                                          | 本コミット      |
-| P10追加       | テキスト欄の色付き通常プレビュー・Enter/F2編集ダイアログ・Secondary固定順（Unit 187／E2E 18）                                             | 本コミット      |
-| P2追加        | プロジェクト作成時の標準5フェーズ・18成果物登録、設定可能なGit初期化（Unit 189／E2E 18）                                                  | 本コミット      |
-| P3追加(W1〜6) | ショートカット上書き設定画面、Alt+Mメニュー、右クリックメニュー、Undo/Redo基盤、入力Tooltip保証、Welcome装飾のIDE調整（Unit 199／E2E 21） | 2f76e0b         |
-| P3追加(W7)    | Undo接続拡大: intermediate.restore API、③削除／アーカイブ、③レビュー状態、マトリクスセル操作（Unit 199／E2E 22）                          | cea12d5         |
-| P3追加(W8)    | window.confirm 全廃、共通アプリ内確認ダイアログ confirmDialog（E2E制御可能・テーマ対応）（Unit 199／E2E 22）                              | 本コミット      |
+| フェーズ      | 内容                                                                                                                                                                                | コミット        |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------- |
+| P0〜P3        | 骨格 / DB スキーマ 35 表 + 台帳 / ジョブ・設定・イベント / Workbench UI                                                                                                             | 〜P3 各コミット |
+| P4/P5         | 原本取込 → Word 抽出 → ②候補 → 共通複数選択レビュー/構造プレビュー → 正本化                                                                                                         | —               |
+| P6            | LLM 基盤（4 Provider、マスキング、外部送信ブロック、preview→run 2段階）                                                                                                             | —               |
+| P7            | プロジェクト成果物/フェーズ設定、フェーズ→成果物取込、②/③/プレビュー3ペイン統合編集                                                                                                 | —               |
+| P8            | ③→④候補生成 → 候補セットレビュー → 採用（同一 Txn・全 ROLLBACK）                                                                                                                    | —               |
+| P9            | 再帰 CTE トレース・SVG グラフ・マトリクス・整合性検査 → Problems                                                                                                                    | —               |
+| P10           | 状態遷移 / 用語集 / 表編集 / 検証編集 / PlantUML。schema 1.1.0 初適用                                                                                                               | 81d96d1         |
+| P11           | 検索（FTS5 + MeCab トグル）※別セッションで実装・マージ                                                                                                                              | 921a55d 等      |
+| P12           | DB to Text / SQLite dump / ZIP + manifest / 差分インポート / Git 参照 / ストア閲覧                                                                                                  | d2bc9c6         |
+| P13           | レポート出力（②③④→文書風、フィルタ、Markdown/HTML、report:// プレビュー）                                                                                                           | 1123e29         |
+| P7 追加       | 任意複数③マージ、2ペインResource Editor、所有判定による上書き／置換／保護派生                                                                                                       | aa9e815         |
+| P3 追加       | 文字サイズ一括変更、可変パネル、Secondaryアコーディオン、再帰分割・タブ移動                                                                                                         | f59cadc         |
+| P3 追加       | パネル表示切替、未確定Badge、Activity並べ替え・Settings下端固定・選択表示                                                                                                           | 9af6c6d         |
+| P4/P5追加     | 複数原本Job取込、抽出名称管理、Explorer Tooltip・強調折りたたみ                                                                                                                     | 7495617         |
+| P3 追加       | ②/③/チャンク/Resource編集の内部ペイン可変化、チャンク表スタイル統一                                                                                                                 | a5ec368         |
+| P7 追加       | ③取込編集の統合元選択・多対多based_on・個別解除・操作バー再編・全項目正本確定                                                                                                       | 1861358         |
+| P3〜P8追加    | ①〜④ステージ一覧・ソート・OS原本表示・①②アーカイブ／論理削除・文書状態集約                                                                                                          | 585e959         |
+| P3 追加       | ステージ選択表示・一覧キーボード操作・①〜③可変境界・Workbench外周状態共通化                                                                                                         | 6983f25         |
+| P3/P7 追加    | Explorer閲覧専用化・ステージ操作集約・③重複整理・中間3モード切替                                                                                                                    | de2566f         |
+| P3 追加       | SecondaryをProperties／Relations／Reviewへ整理、共通Selection・コメントtrace化                                                                                                      | 6514664         |
+| P3/P8/P12追加 | 全画面検索・プレビュー表示切替・Relations遷移・Store全件閲覧・関係候補ルール検証                                                                                                    | 本コミット      |
+| P4/P5追加     | 原本選択経路の操作統一・抽出データ存在時の抽出実行無効化（ユニット168件／E2E 18件）                                                                                                 | 09ab962         |
+| P7追加        | 設定成果物の空③作成・未確認②取込・統合元状態修正・取込元／対応削除・階層識別                                                                                                        | 本コミット      |
+| P9追加        | 汎用トレースマトリクス、複数Resource集合・関係種別・方向・セルの一括編集、転置／拡縮                                                                                                | 本コミット      |
+| P9追加        | 汎用インパクト分析、任意複数列・階層折畳・方向付きリンク・多段強調・関連項目限定表示                                                                                                | 本コミット      |
+| P9追加        | インパクト分析の列別scroll・全列リンク・Selection連携・DnD・構成保存・複数タブ化（Unit 179／E2E 18）                                                                                | 本コミット      |
+| P9追加        | 見出しドラッグによる列間隔調整・外側列の連動移動・構成保存（Unit 179／E2E 18）                                                                                                      | 本コミット      |
+| P3/P7追加     | 中間成果物のShift+上下範囲選択、ウェルカム設計思想・3種Help、検索導線・全ボタンTooltip                                                                                              | 本コミット      |
+| P10追加       | セマンティック入力支援、構造化参照・正規化履歴・候補検索・辞書登録・関係検証（Unit 185／E2E 18）                                                                                    | 本コミット      |
+| P10追加       | テキスト欄の色付き通常プレビュー・Enter/F2編集ダイアログ・Secondary固定順（Unit 187／E2E 18）                                                                                       | 本コミット      |
+| P2追加        | プロジェクト作成時の標準5フェーズ・18成果物登録、設定可能なGit初期化（Unit 189／E2E 18）                                                                                            | 本コミット      |
+| P3追加(W1〜6) | ショートカット上書き設定画面、Alt+Mメニュー、右クリックメニュー、Undo/Redo基盤、入力Tooltip保証、Welcome装飾のIDE調整（Unit 199／E2E 21）                                           | 2f76e0b         |
+| P3追加(W7)    | Undo接続拡大: intermediate.restore API、③削除／アーカイブ、③レビュー状態、マトリクスセル操作（Unit 199／E2E 22）                                                                    | cea12d5         |
+| P3追加(W8)    | window.confirm 全廃、共通アプリ内確認ダイアログ confirmDialog（E2E制御可能・テーマ対応）（Unit 199／E2E 22）                                                                        | f79542e         |
+| W9〜W12       | 戻る/進む（Alt+←→）、フォーカス系ショートカット、モーダルESC統一、動作/デバッグログPanel・日付毎ファイル・レベル設定、LLM生送受信ログ・候補再作成（schema 1.8.0、Unit 207／E2E 25） | 本コミット      |
 
 ## 恒久制約（違反するとビルド/実行が壊れる、または設計方針違反）
 
@@ -62,7 +63,7 @@
 - **Main は Gateway/Shell のみ**。業務ロジックは backend/（utilityProcess）に置く。
   safeStorage は Main 専用 → backend からは main-bridge（逆方向 RPC）経由。
 - **API キー等の秘密情報は平文で保存・ログ出力しない**（settings-service が強制）。
-- スキーマ変更は `backend/db/migrations.ts` に追記（バックアップ → DDL → 版数更新）。現在 1.7.0。
+- スキーマ変更は `backend/db/migrations.ts` に追記（バックアップ → DDL → 版数更新）。現在 1.8.0（llm_run_ref へ raw_request_blob_uid / raw_response_blob_uid を追加）。
 - ②抽出レビューの選択・状態更新・構造プレビュー・Properties は `ReviewElement` 共通契約で実装し、
   Word 固有にしない。今後の Excel / PowerPoint / PDF / Visio / テキスト系も同じ操作体系へ接続する。
 - Python ワーカーは stdin/stdout とも UTF-8 ラップ必須（CP932 化け）。pytest はシステム Python
@@ -89,6 +90,11 @@
 - ユーザ操作の取り消しは `undo-service`（`pushUndo({label, undo, redo})`、Ctrl+Z/Ctrl+Y、最大100件）。DB正本の変更は Backend の逆操作API（`document.restore`／`extracted.restore`／`intermediate.restore`）を undo に指定して登録する。`intermediate.restore` は復元時に同一成果物の他文書をアーカイブし Explorer 表示≤1件の排他規則を維持する。プロジェクト切替・クローズで履歴は破棄する。undo 実行失敗時はエントリを破棄する（二重取消防止）。
 - マトリクス編集の Undo は「正確に逆転できる操作」だけ登録する: toggle は自己逆操作として常に、add/delete は `unchanged === 0` のときのみ（既存関係を巻き込むと逆操作が正本を壊すため）。
 - ボタンに加えて input／select／textarea も `GlobalButtonTooltips` が Tooltip を保証する。明示 `title`（説明＋例）を最優先し、未設定時は label／aria-label／placeholder から補完する。
+- Editor の表示Resource遷移は `navigation-history` が記録し、`nav.back`／`nav.forward`（Alt+←／Alt+→）で行き来する。閉じたタブは同一URI・タイトルで開き直す。履歴はメモリのみで、プロジェクト切替時に破棄する。
+- モーダルダイアログの Escape クローズは共通フック `useEscapeToClose(active, onClose)` を使う（document capture + スタックで最前面だけを閉じる）。ダイアログ要素個別の onKeyDown で Escape を実装しない。
+- トースト通知はすべて自動消去（info/warning 5秒、error はその3倍の15秒）。通知は `logs-store`（動作ログ、最大500件）へ記録され、Panel Output タブの「動作ログ」で参照する。あわせて `log.append` でデバッグログファイルにも残す。
+- デバッグログはプロジェクトの `logs/debug/<frontend|backend>-YYYY-MM-DD.log`（日付毎・ローカル日付）。レベルはプロジェクト設定 `logging.debugLevel`（error<warn<info<debug、既定 info）。Backend API の失敗は `router.onDispatchError` 経由で backend ログへ自動記録する（log.* 自身は除外）。プロジェクト未オープン時はファイル出力しない。
+- LLM 実行は生送受信ログ（マスキング後・APIキーなし。Gemini はURLキーもマスク）を blobs/llm/ へ保存し、`llm_run_ref.raw_request_blob_uid`／`raw_response_blob_uid` から参照する。`llm.retryRun` は `process_name='design-candidates'` かつ input_ref_uid のある実行だけ同一チャンクで候補生成ジョブを再登録する。
 - prettier は docs/ と tasks/ を対象外（.prettierignore）。
 - LLM 外部送信はプロジェクト設定 `llm.externalSendAllowed`（既定 false）でブロックされる。
 - 新規プロジェクトは標準5フェーズ・18成果物を登録する。同名成果物（レビュー記録／障害台帳）はフェーズ単位で独立して保持する。ツール全体設定 `project.initializeGitOnCreate` は既定trueで、作成時にbest-effortで `git init` を実行し、失敗してもプロジェクト作成は継続する。schema 1.7.0では成果物名の一意性を `(project_uid, dev_phase_id, artifact_name)` とし、移行時も成果物関係を保持する。
@@ -154,6 +160,10 @@
   取込元の更新（updateSources）、セマンティック参照の承認・取消、設定変更。
 - コンテキストメニューはEditorタブ・Explorer行・Jobs一覧のみ。ステージ一覧行・マトリクスセル等は未接続（共通 `showContextMenu` へ追加するだけ）。
 - ツールチップの「説明＋例」の明示 `title` はSettings／Glossary等の代表画面のみ。他画面は自動補完文（label由来）が表示される。
+- LLMログからの候補再作成は design-candidates（④候補生成）のみ。intermediate.textCandidate 等の他処理種別・
+  プロンプト編集付き再実行は未対応。エラートーストの自動消去時間（15秒）はE2E未検証（時間都合、実装は notify の setTimeout）。
+- 動作ログはRendererメモリのみで再起動後は消える（永続側はデバッグログファイルが担う）。デバッグログの
+  ローテーション（古い日付ファイルの自動削除）は未実装。
 - resource_table_cell の entity_registry CHECK 制約追加（テーブル再構築が必要 → 将来 2.0.0）
 - アーカイブ差分の左右テキストは Backend プロセス内保持（再起動後は差分インポート再実行）
 - Word 抽出の LLM 補助（EXT の一部）、GC 系 Golden Case の拡充

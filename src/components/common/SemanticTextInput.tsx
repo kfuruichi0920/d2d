@@ -10,6 +10,7 @@ import type {
   SemanticRelationType
 } from '../../types/semantic'
 import { SEMANTIC_RELATIONS } from '../../types/semantic'
+import { useEscapeToClose } from './useEscapeToClose'
 interface CandidateGroups {
   query: string
   tooBroad: boolean
@@ -112,6 +113,8 @@ export function SemanticTextInput({
     setGroups(null)
     setEditing(false)
   }
+  // モーダル最前面だけを閉じる共通 Escape（W10）。フォーカスが外れていても効く。
+  useEscapeToClose(editing, closeEditor)
   useEffect(() => {
     if (editing && mode === 'edit') inputRef.current?.focus()
   }, [editing, mode])

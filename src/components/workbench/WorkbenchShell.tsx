@@ -7,6 +7,7 @@ import { installKeybindings } from '../../services/command-registry'
 import { getCommandContext, registerBuiltinCommands } from '../../services/builtin-commands'
 import { loadKeybindingOverrides } from '../../services/keybindings'
 import { clearUndoHistory } from '../../services/undo-service'
+import { clearNavigationHistory, initNavigationHistory } from '../../services/navigation-history'
 import { invoke, onBackendEvent } from '../../services/backend'
 import { useEditorStore } from '../../stores/editor-store'
 import { useJobsStore, type JobRecord } from '../../stores/jobs-store'
@@ -73,6 +74,7 @@ export function WorkbenchShell(): React.JSX.Element {
     })
 
     const uninstallKeys = installKeybindings(getCommandContext)
+    const uninstallNav = initNavigationHistory()
     const unwatchTheme = watchSystemTheme(() => useWorkbenchStore.getState().theme)
     const offEvents = onBackendEvent((event, payload) => {
       if (event === 'job.updated') {
@@ -84,11 +86,13 @@ export function WorkbenchShell(): React.JSX.Element {
         useEditorStore.getState().loadPersisted(info.projectUid)
         // プロジェクトをまたぐ取り消しは二重適用の危険があるため履歴を破棄する。
         clearUndoHistory()
+        clearNavigationHistory()
       } else if (event === 'project.closed') {
         useProjectStore.getState().setProject(null)
         useWorkbenchStore.getState().loadPersisted('global')
         useEditorStore.getState().loadPersisted('global')
         clearUndoHistory()
+        clearNavigationHistory()
       } else if (
         [
           'source.imported',
@@ -108,6 +112,7 @@ export function WorkbenchShell(): React.JSX.Element {
 
     return () => {
       uninstallKeys()
+      uninstallNav()
       unwatchTheme()
       offEvents()
     }

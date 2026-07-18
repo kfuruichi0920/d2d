@@ -5,6 +5,7 @@
  * 表示は Workbench 直下の ConfirmDialogHost が一元管理する。
  */
 import { useEffect, useRef, useState } from 'react'
+import { useEscapeToClose } from './useEscapeToClose'
 
 export interface ConfirmDialogOptions {
   /** 確認本文。改行は \n で指定する */
@@ -51,6 +52,12 @@ export function ConfirmDialogHost(): React.JSX.Element | null {
     if (request) setTimeout(() => okRef.current?.focus(), 0)
   }, [request])
 
+  // モーダル共通の Escape クローズ（W10）。入れ子モーダルでは最前面だけ閉じる。
+  useEscapeToClose(request !== null, () => {
+    request?.resolve(false)
+    setRequest(null)
+  })
+
   if (!request) return null
 
   const close = (accepted: boolean): void => {
@@ -59,14 +66,7 @@ export function ConfirmDialogHost(): React.JSX.Element | null {
   }
 
   return (
-    <div
-      className="wb-confirm-overlay"
-      data-testid="confirm-dialog"
-      onClick={() => close(false)}
-      onKeyDown={(e) => {
-        if (e.key === 'Escape') close(false)
-      }}
-    >
+    <div className="wb-confirm-overlay" data-testid="confirm-dialog" onClick={() => close(false)}>
       <div
         className="wb-confirm"
         role="alertdialog"
@@ -88,9 +88,6 @@ export function ConfirmDialogHost(): React.JSX.Element | null {
             className={`d2d-btn ${request.options.danger ? 'danger' : 'primary'}`}
             data-testid="confirm-ok"
             onClick={() => close(true)}
-            onKeyDown={(e) => {
-              if (e.key === 'Escape') close(false)
-            }}
           >
             {request.options.okLabel ?? 'OK'}
           </button>

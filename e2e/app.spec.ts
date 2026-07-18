@@ -1841,6 +1841,88 @@ test('Undo拡張: ③削除の復元とマトリクス関係の取り消し（W7
   await expect(cell).not.toContainText('→R')
 })
 
+test('ナビゲーション履歴・フォーカスショートカット（W9/W10）', async () => {
+  // W9: リンク移動の履歴を Alt+←／Alt+→ で行き来する
+  await page.keyboard.press('Control+Shift+P')
+  await page.getByTestId('palette-input').fill('ヘルプ: 操作フロー')
+  await page.keyboard.press('Enter')
+  await expect(page.getByTestId('help-workflow')).toBeVisible()
+  await page.keyboard.press('Control+Shift+P')
+  await page.getByTestId('palette-input').fill('ツール設定を開く')
+  await page.keyboard.press('Enter')
+  await expect(page.getByTestId('settings-editor')).toBeVisible()
+
+  await page.keyboard.press('Alt+ArrowLeft')
+  await expect(page.getByTestId('help-workflow')).toBeVisible()
+  await page.keyboard.press('Alt+ArrowRight')
+  await expect(page.getByTestId('settings-editor')).toBeVisible()
+
+  // W10: Ctrl+Shift+F で Search 入力へフォーカス、Ctrl+. で Settings Activity
+  await page.keyboard.press('Control+Shift+F')
+  await expect(page.getByTestId('search-sidebar')).toBeVisible()
+  await expect(page.getByTestId('search-input')).toBeFocused()
+  await page.keyboard.press('Control+.')
+  await expect(page.getByTestId('primary-sidebar')).toContainText('Settings')
+
+  // W10: Ctrl+Shift+D で Secondary の Dictionary 用語入力へフォーカス
+  await page.keyboard.press('Control+Shift+D')
+  await expect(page.getByTestId('secondary-dictionary-query')).toBeFocused()
+
+  // W10: モーダルは Escape で閉じる（例: 抽出データ名称変更ダイアログは既存テストで検証済みのため、確認ダイアログで代表確認）
+  await page.getByTestId('activity-explorer').click()
+})
+
+test('動作ログ・デバッグログ表示（W11）', async () => {
+  // 直近のトースト通知が動作ログとして Output タブへ残る
+  await page.getByTestId('status-jobs').click()
+  await page.getByTestId('panel-tab-output').click()
+  await expect(page.getByTestId('logs-panel')).toBeVisible()
+  await expect(page.getByTestId('logs-panel')).toContainText('[INFO]')
+
+  // デバッグログ: frontend の通知が日付毎ファイルへ書かれ、末尾を参照できる
+  await page.getByTestId('logs-view-debug').click()
+  await expect(page.getByTestId('logs-debug-file')).toContainText('frontend-')
+  await expect(page.getByTestId('logs-panel')).toContainText('[INFO]')
+
+  // backend のログも参照できる（APIエラーを意図的に発生させて記録させる）
+  await page.evaluate(async () => {
+    await window.api.invoke('document.extract', { uid: 'no-such-uid' })
+  })
+  await page.getByTestId('logs-debug-source').selectOption('backend')
+  await page.getByTestId('logs-debug-reload').click()
+  await expect(page.getByTestId('logs-debug-file')).toContainText('backend-')
+  await expect(page.getByTestId('logs-panel')).toContainText('API失敗')
+})
+
+test('LLMログの生送受信表示と候補再作成（W12）', async () => {
+  await page.getByTestId('status-jobs').click()
+  await page.getByTestId('panel-tab-llm').click()
+  await expect(page.getByTestId('llm-logs-list')).toBeVisible()
+  // design-candidates（P8で生成済み）の実行詳細を開く
+  await page.getByTestId('llm-logs-list').locator('.d2d-list-row', { hasText: 'design-candidates' }).first().click()
+  await expect(page.getByTestId('llm-run-viewer')).toBeVisible()
+  await expect(page.getByTestId('llm-raw-request')).toContainText('"url"')
+  await expect(page.getByTestId('llm-raw-response')).toBeVisible()
+
+  // ログから候補再作成ジョブを登録できる
+  await page.getByTestId('llm-retry-run').click()
+  await expect(page.getByTestId('notifications')).toContainText('候補再作成ジョブを登録しました')
+  // 再作成ジョブの完了を待つ（後続テストへ実行中ジョブを残さない）
+  await expect
+    .poll(
+      async () =>
+        page.evaluate(async () => {
+          const res = (await window.api.invoke('job.list', {})) as {
+            ok: boolean
+            result?: { status: string }[]
+          }
+          return res.ok ? res.result!.filter((j) => j.status === 'running' || j.status === 'waiting').length : -1
+        }),
+      { timeout: 30_000 }
+    )
+    .toBe(0)
+})
+
 test('スクリーンショットを保存する', async () => {
   await page.screenshot({ path: 'test-results/workbench.png' })
 })

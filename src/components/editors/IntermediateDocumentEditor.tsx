@@ -18,6 +18,7 @@ import { reviewStateFromEntityStatus, ReviewStatusBadge } from '../common/review
 import { ResizablePaneGroup } from '../workbench/ResizablePaneGroup'
 import { ChunkEditor } from './ChunkEditor'
 import { pushUndo } from '../../services/undo-service'
+import { useEscapeToClose } from '../common/useEscapeToClose'
 
 interface IntermediateElement {
   id: string
@@ -123,6 +124,9 @@ export function IntermediateDocumentEditor({
   const [resourceEditing, setResourceEditing] = useState<IntermediateElement | null>(null)
   const [terms, setTerms] = useState<string[]>([])
   const notify = useJobsStore((s) => s.notify)
+  // モーダルは Escape で閉じる（W10）。Resource編集→種別変更確認のような入れ子は最前面から閉じる。
+  useEscapeToClose(elementEditor !== null, () => setElementEditor(null))
+  useEscapeToClose(resourceEditing !== null, () => setResourceEditing(null))
   const setWorkbenchItems = useSelectionStore((s) => s.setWorkbenchItems)
   const setSelectedItem = useSelectionStore((s) => s.setSelectedItem)
   const clearSelectedItem = useSelectionStore((s) => s.clearSelectedItem)

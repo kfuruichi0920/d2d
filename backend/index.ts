@@ -35,6 +35,8 @@ import { parseLlmMergeCandidate, RESOURCE_TYPE_DEFINITIONS } from './resource/re
 import { createArchive } from './export/archive-service'
 import { registerReportApi, toReportOptions } from './api/report'
 import { registerSemanticApi } from './api/semantic'
+import { registerLogsApi } from './api/logs'
+import { appendDebugLog } from './logging/debug-log'
 import { buildReportMarkdown, generateReport } from './report/report-service'
 import { getChunkText } from './intermediate/intermediate-service'
 import { validateCandidateOutput } from './llm/candidate-validation'
@@ -444,6 +446,12 @@ function main(): void {
   registerSearchApi(router, settings)
   registerResourceApi(router, jobs)
   registerSemanticApi(router, settings)
+  registerLogsApi(router)
+  // Backend API の失敗をデバッグログへ記録する（W11）。log.* 自身は除外
+  router.onDispatchError = (method, error) => {
+    if (method.startsWith('log.')) return
+    appendDebugLog('backend', 'error', `API失敗: ${method}`, error instanceof Error ? error.message : String(error))
+  }
   registerDbToTextHook()
 
   // Backend 内イベントを Renderer へ転送する（CORE-030〜032）

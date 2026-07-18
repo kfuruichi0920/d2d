@@ -7,6 +7,7 @@ import { invoke } from '../../services/backend'
 import { useJobsStore } from '../../stores/jobs-store'
 import { useSelectionStore } from '../../stores/selection-store'
 import { ResizablePaneGroup } from '../workbench/ResizablePaneGroup'
+import { useEscapeToClose } from '../common/useEscapeToClose'
 import { SemanticTextInput } from '../common/SemanticTextInput'
 import type { SemanticDocument } from '../../types/semantic'
 
@@ -171,6 +172,8 @@ export function ResourceEditor({
   const [saving, setSaving] = useState(false)
   const [merging, setMerging] = useState(false)
   const notify = useJobsStore((state) => state.notify)
+  // 種別変更の確認モーダルは Escape でキャンセルする（W10）
+  useEscapeToClose(confirming, () => setConfirming(false))
   const setSelectedItem = useSelectionStore((state) => state.setSelectedItem)
   const clearSelectedItem = useSelectionStore((state) => state.clearSelectedItem)
   const loadSemanticDocuments = useCallback(

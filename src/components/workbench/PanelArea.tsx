@@ -6,6 +6,7 @@ import { JobsListView } from '../views/JobsListView'
 import { LlmLogsPanel } from '../views/LlmViews'
 import { ProblemsView } from '../views/TraceViews'
 import { SearchResultsPanel } from '../views/SearchViews'
+import { LogsPanel } from '../views/LogsPanel'
 
 const TABS: { id: PanelTab; label: string }[] = [
   { id: 'problems', label: 'Problems' },
@@ -49,6 +50,8 @@ export function PanelArea(): React.JSX.Element {
           <ProblemsView />
         ) : tab === 'search' ? (
           <SearchResultsPanel />
+        ) : tab === 'output' ? (
+          <LogsPanel />
         ) : (
           <div className="d2d-empty">
             {TABS.find((t) => t.id === tab)?.label} は対応機能の実装時に接続します（Validation: P8 拡張、Search: P11）

@@ -11,6 +11,9 @@ export type ApiHandler = (params: unknown) => Promise<unknown> | unknown
 export class ApiRouter {
   private readonly handlers = new Map<string, ApiHandler>()
 
+  /** dispatch 失敗時のフック（デバッグログ用、W11）。例外を投げないこと */
+  onDispatchError?: (method: string, error: unknown) => void
+
   register(method: string, handler: ApiHandler): void {
     if (this.handlers.has(method)) {
       throw new Error(`API method already registered: ${method}`)
@@ -35,6 +38,11 @@ export class ApiRouter {
       const result = await handler(params)
       return { id, ok: true, result }
     } catch (err) {
+      try {
+        this.onDispatchError?.(method, err)
+      } catch {
+        // ログフックの失敗は応答へ影響させない。
+      }
       return { id, ok: false, error: toApiError(err) }
     }
   }

@@ -26,7 +26,8 @@ export function ProjectSettingsEditor(): React.JSX.Element {
     [artifactPhase, setArtifactPhase] = useState('')
   const [phaseId, setPhaseId] = useState(''),
     [phaseName, setPhaseName] = useState(''),
-    [externalAllowed, setExternalAllowed] = useState(false)
+    [externalAllowed, setExternalAllowed] = useState(false),
+    [debugLogLevel, setDebugLogLevel] = useState('info')
   const notify = useJobsStore((s) => s.notify)
   const load = useCallback(async () => {
     const [a, p, s] = await Promise.all([
@@ -39,7 +40,11 @@ export function ProjectSettingsEditor(): React.JSX.Element {
       setPhases(p.result)
       setArtifactPhase((v) => v || p.result.find((x) => x.is_active === 1)?.dev_phase_id || '')
     }
-    if (s.ok) setExternalAllowed(s.result['llm.externalSendAllowed'] === true)
+    if (s.ok) {
+      setExternalAllowed(s.result['llm.externalSendAllowed'] === true)
+      const level = s.result['logging.debugLevel']
+      setDebugLogLevel(typeof level === 'string' ? level : 'info')
+    }
   }, [])
   useEffect(() => {
     void load()
@@ -233,6 +238,33 @@ export function ProjectSettingsEditor(): React.JSX.Element {
           />{' '}
           このプロジェクトから外部 LLM への送信を許可する（既定: 不可）
         </label>
+      </section>
+      <section style={section}>
+        <h2 style={{ fontSize: 14 }}>デバッグログ（W11 / NFR-010）</h2>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ color: 'var(--d2d-fg-muted)' }}>出力レベル</span>
+          <select
+            value={debugLogLevel}
+            onChange={async (e) => {
+              const value = e.target.value
+              const r = await invoke('settings.setProjectSetting', { key: 'logging.debugLevel', value })
+              if (r.ok) setDebugLogLevel(value)
+              else notify('error', 'デバッグログレベルを保存できませんでした', r.ok ? undefined : r.error.message)
+            }}
+            title="logs/debug/ 配下の日付毎デバッグログへ出力するレベルを選択します（例: debug=すべて、error=エラーのみ。既定: info）"
+            data-testid="setting-debug-log-level"
+          >
+            {['error', 'warn', 'info', 'debug'].map((level) => (
+              <option key={level} value={level}>
+                {level}
+              </option>
+            ))}
+          </select>
+        </label>
+        <p style={{ color: 'var(--d2d-fg-muted)', fontSize: 11.5, marginBottom: 0 }}>
+          フロント／バックエンドのデバッグログを logs/debug/&lt;source&gt;-日付.log へ出力します。下段Panel の Output →
+          デバッグログから参照できます。
+        </p>
       </section>
     </div>
   )

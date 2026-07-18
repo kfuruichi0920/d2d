@@ -232,6 +232,18 @@ export const MIGRATIONS: Migration[] = [
         CREATE INDEX idx_project_artifact_relation_child ON project_artifact_relation(project_uid, child_artifact_uid);
       `)
     }
+  },
+  {
+    // W12 / LLM-011 拡張: Provider との生の送受信ログ（マスキング後）を blob 参照で保持する。
+    version: '1.8.0',
+    description: 'LLM 実行への生送受信ログ参照の追加（W12）',
+    apply(db) {
+      const columns = db.prepare('PRAGMA table_info(llm_run_ref)').all() as { name: string }[]
+      if (!columns.some((column) => column.name === 'raw_request_blob_uid'))
+        db.exec('ALTER TABLE llm_run_ref ADD COLUMN raw_request_blob_uid TEXT;')
+      if (!columns.some((column) => column.name === 'raw_response_blob_uid'))
+        db.exec('ALTER TABLE llm_run_ref ADD COLUMN raw_response_blob_uid TEXT;')
+    }
   }
 ]
 

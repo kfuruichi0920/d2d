@@ -133,6 +133,33 @@ describe('LLM 実行サービス（P6-2/P6-4）', () => {
     expect(promptText).toContain('«masked»')
   })
 
+  it('生の送受信ログを blob として保存する（W12）', async () => {
+    settings.set('llm.provider', 'ollama')
+    settings.set('llm.ollama.endpoint', baseUrl)
+
+    const result = await runLlm(
+      db,
+      settings,
+      { projectUid, rootPath: root },
+      { processName: 'raw-test', messages: [{ role: 'user', content: 'hello raw' }] }
+    )
+
+    const row = db
+      .prepare(
+        `SELECT rq.relative_path AS request_path, rs.relative_path AS response_path
+           FROM llm_run_ref r
+           JOIN blob_resource rq ON rq.uid = r.raw_request_blob_uid
+           JOIN blob_resource rs ON rs.uid = r.raw_response_blob_uid
+          WHERE r.uid = ?`
+      )
+      .get(result.llmRunUid) as { request_path: string; response_path: string }
+    const requestText = readFileSync(join(root, row.request_path), 'utf-8')
+    expect(requestText).toContain('"url"')
+    expect(requestText).toContain('hello raw')
+    const responseText = readFileSync(join(root, row.response_path), 'utf-8')
+    expect(responseText).toContain('mock-response')
+  })
+
   it('preferLocal は外部 Provider 設定を Ollama へ切り替える（LLM-043）', () => {
     settings.set('llm.provider', 'openai')
     settings.set('llm.preferLocal', true)

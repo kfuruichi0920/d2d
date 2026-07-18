@@ -17,7 +17,8 @@ import {
   PROVIDER_NAMES,
   type ChatMessage,
   type ProviderConfig,
-  type ProviderName
+  type ProviderName,
+  type RawExchange
 } from './providers'
 
 export interface LlmSettingsResolved {
@@ -155,6 +156,9 @@ export async function runLlm(
   let errorDetail: string | null = null
   let status: 'success' | 'failed' = 'success'
 
+  // Provider との生送受信を保持する（W12。マスキング後の内容のみ・APIキーは含まれない）
+  let rawExchange: RawExchange | null = null
+
   try {
     const response = await chat(
       config,
@@ -164,7 +168,10 @@ export async function runLlm(
         temperature: input.temperature,
         jsonMode: input.jsonMode
       },
-      input.signal
+      input.signal,
+      (exchange) => {
+        rawExchange = exchange
+      }
     )
     content = response.content
     inputTokens = response.inputTokens
@@ -200,6 +207,28 @@ export async function runLlm(
       fileNameHint: 'result.jsonl',
       createdBy: 'rule'
     })
+    // 生送受信ログ（W12）。送信ボディはマスキング後、URL の APIキーは Provider 側でマスク済み
+    const exchange = rawExchange as RawExchange | null
+    const rawRequestBlob = exchange
+      ? saveBlobFromData(db, {
+          projectUid: project.projectUid,
+          projectRoot: project.rootPath,
+          category: 'llm',
+          data: JSON.stringify({ url: exchange.url, body: exchange.requestBody }, null, 2) + '\n',
+          fileNameHint: 'raw-request.json',
+          createdBy: 'rule'
+        })
+      : null
+    const rawResponseBlob = exchange
+      ? saveBlobFromData(db, {
+          projectUid: project.projectUid,
+          projectRoot: project.rootPath,
+          category: 'llm',
+          data: JSON.stringify(exchange.responseBody ?? null, null, 2) + '\n',
+          fileNameHint: 'raw-response.json',
+          createdBy: 'rule'
+        })
+      : null
 
     // 概算コスト（LLM-013）: 設定があれば 1k トークン単価で計算
     const inRate = Number(settings.get('llm.costPer1kInput') ?? 0)
@@ -216,8 +245,9 @@ export async function runLlm(
     db.prepare(
       `INSERT INTO llm_run_ref
          (uid, tool_name, process_name, model_name, prompt_template_uid, input_ref_type, input_ref_uid,
-          input_tokens, output_tokens, estimated_cost, duration_ms, error_detail, prompt_blob_uid, result_blob_uid, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          input_tokens, output_tokens, estimated_cost, duration_ms, error_detail, prompt_blob_uid, result_blob_uid,
+          raw_request_blob_uid, raw_response_blob_uid, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       run.uid,
       resolved.provider,
@@ -233,6 +263,8 @@ export async function runLlm(
       errorDetail,
       promptBlob.uid,
       resultBlob.uid,
+      rawRequestBlob?.uid ?? null,
+      rawResponseBlob?.uid ?? null,
       status
     )
     return { llmRunUid: run.uid, code: run.code, content, inputTokens, outputTokens, durationMs }

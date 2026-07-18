@@ -26,7 +26,17 @@ const MENU_GROUPS: { label: string; items: string[] }[] = [
       'theme.fontSize.reset'
     ]
   },
-  { label: '移動・検索', items: ['commandPalette.open', 'search.screenText', 'job.openPanel'] },
+  {
+    label: '移動・検索',
+    items: [
+      'nav.back',
+      'nav.forward',
+      'commandPalette.open',
+      'search.screenText',
+      'search.focusSidebar',
+      'job.openPanel'
+    ]
+  },
   { label: '設定', items: ['settings.open', 'projectSettings.open'] },
   { label: 'ヘルプ', items: ['help.workflow', 'help.schema', 'help.designModel'] }
 ]
