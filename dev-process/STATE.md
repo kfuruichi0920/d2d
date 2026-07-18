@@ -8,7 +8,7 @@
 - 完了: P0〜P13（クリティカルパス完走、MS6 相当まで）
 - 残り: **P14**（性能・オフライン確認・残 TBD-06〜08・パッケージング・商用版）、
   **P5 の他形式抽出**（Excel / PowerPoint / PDF / Visio / テキスト系、EXT-014/015）
-- テスト規模: ユニット 187 件 / pytest 10 件 / E2E 18 件（すべて成功の状態で引き渡し）
+- テスト規模: ユニット 189 件 / pytest 10 件 / E2E 18 件（すべて成功の状態で引き渡し）
 
 ## フェーズ履歴（要点のみ）
 
@@ -44,6 +44,7 @@
 | P3/P7追加     | 中間成果物のShift+上下範囲選択、ウェルカム設計思想・3種Help、検索導線・全ボタンTooltip               | 本コミット      |
 | P10追加       | セマンティック入力支援、構造化参照・正規化履歴・候補検索・辞書登録・関係検証（Unit 185／E2E 18）     | 本コミット      |
 | P10追加       | テキスト欄の色付き通常プレビュー・Enter/F2編集ダイアログ・Secondary固定順（Unit 187／E2E 18）        | 本コミット      |
+| P2追加        | プロジェクト作成時の標準5フェーズ・18成果物登録、設定可能なGit初期化（Unit 189／E2E 18）             | 本コミット      |
 
 ## 恒久制約（違反するとビルド/実行が壊れる、または設計方針違反）
 
@@ -58,7 +59,7 @@
 - **Main は Gateway/Shell のみ**。業務ロジックは backend/（utilityProcess）に置く。
   safeStorage は Main 専用 → backend からは main-bridge（逆方向 RPC）経由。
 - **API キー等の秘密情報は平文で保存・ログ出力しない**（settings-service が強制）。
-- スキーマ変更は `backend/db/migrations.ts` に追記（バックアップ → DDL → 版数更新）。現在 1.6.0。
+- スキーマ変更は `backend/db/migrations.ts` に追記（バックアップ → DDL → 版数更新）。現在 1.7.0。
 - ②抽出レビューの選択・状態更新・構造プレビュー・Properties は `ReviewElement` 共通契約で実装し、
   Word 固有にしない。今後の Excel / PowerPoint / PDF / Visio / テキスト系も同じ操作体系へ接続する。
 - Python ワーカーは stdin/stdout とも UTF-8 ラップ必須（CP932 化け）。pytest はシステム Python
@@ -82,6 +83,7 @@
 - 関係性候補の選択肢は `relation_rule_master.allowed=1` と始点／終点カテゴリから導出する。LLMが許容外の関係性を返した場合は元値を保持して警告表示し、許容関係へ修正するまで採用不可とする。
 - prettier は docs/ と tasks/ を対象外（.prettierignore）。
 - LLM 外部送信はプロジェクト設定 `llm.externalSendAllowed`（既定 false）でブロックされる。
+- 新規プロジェクトは標準5フェーズ・18成果物を登録する。同名成果物（レビュー記録／障害台帳）はフェーズ単位で独立して保持する。ツール全体設定 `project.initializeGitOnCreate` は既定trueで、作成時にbest-effortで `git init` を実行し、失敗してもプロジェクト作成は継続する。schema 1.7.0では成果物名の一意性を `(project_uid, dev_phase_id, artifact_name)` とし、移行時も成果物関係を保持する。
 - Settings はツール全体設定（`settings://tool`）とプロジェクト設定（`project-settings://current`）を分離する。
   成果物・開発フェーズ・LLM外部送信可否は後者で管理する。
 - ③中間データの統合元正本は文書間 `based_on`。`structure_json.sources` は表示順、
@@ -119,6 +121,7 @@
 ## E2E（Playwright）の注意
 
 - E2E開始時はElectron userDataに前回実行のレイアウトが残り得るため、`d2d.workbench.*`／`d2d.editors.*` のlocalStorageだけを削除してRendererを再読込する。設定Backendやプロジェクト正本は削除しない。
+- プロジェクト作成の既定Git初期化を検証する前に、永続化された project.initializeGitOnCreate を削除してテスト開始条件を固定する。
 - `e2e/app.spec.ts` は**逐次実行・状態共有**（beforeAll で 1 プロジェクト作成、afterAll で
   app.close 後に削除。開いている project.db を rmSync すると EBUSY）。
 - Electron Rendererの `window.prompt()` は入力ダイアログとして利用できない。名称変更等はテーマ対応のアプリ内ダイアログを使う。

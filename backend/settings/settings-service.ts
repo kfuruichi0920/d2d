@@ -1,5 +1,5 @@
 /**
- * 設定管理（P2-2、CORE-040〜046、NFR-020）。
+ * 設定管理（P2-2、CORE-040〜047、NFR-020）。
  *
  * - アプリ全体設定:      <userData>/settings.json（平文。機密を含めない）
  * - 機密情報（APIキー等）: <userData>/secrets.json（safeStorage で暗号化した base64 のみ保存）

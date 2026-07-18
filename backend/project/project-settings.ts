@@ -1,5 +1,5 @@
 /**
- * プロジェクト設定 CRUD（P2-1、CORE-012）。
+ * プロジェクト設定 CRUD（P2-1、CORE-012/013）。
  * 成果物定義（project_artifact_setting）、文書体系（project_artifact_relation）、
  * 開発フェーズ（project_dev_phase_setting）を管理する。
  * これらは project 設定情報であり entity_registry には登録しない（sdd_data_structure §4.2〜4.4）。
@@ -10,6 +10,78 @@ import { newUid } from '../store/uid'
 
 function nowIso(): string {
   return new Date().toISOString()
+}
+
+/** CORE-013: 新規プロジェクトへ登録する標準の開発フェーズ・成果物。 */
+export const DEFAULT_PROJECT_PHASES = [
+  {
+    devPhaseId: 'SYSTEM_DESIGN',
+    devPhaseName: 'システム設計',
+    artifacts: [
+      { artifactName: 'システム仕様書', artifactTypeId: 'system_specification' },
+      { artifactName: 'システム試験仕様書', artifactTypeId: 'system_test_specification' },
+      { artifactName: 'レビュー記録', artifactTypeId: 'review_record' }
+    ]
+  },
+  {
+    devPhaseId: 'SW_REQUIREMENTS',
+    devPhaseName: 'SW要求分析',
+    artifacts: [
+      { artifactName: 'SW要求仕様書', artifactTypeId: 'sw_requirements_specification' },
+      { artifactName: 'SW総合試験仕様書', artifactTypeId: 'sw_comprehensive_test_specification' },
+      { artifactName: 'レビュー記録', artifactTypeId: 'review_record' },
+      { artifactName: '障害台帳', artifactTypeId: 'defect_ledger' }
+    ]
+  },
+  {
+    devPhaseId: 'EXTERNAL_DESIGN',
+    devPhaseName: '外部設計',
+    artifacts: [
+      { artifactName: 'SW方式設計書', artifactTypeId: 'sw_architecture_design' },
+      { artifactName: 'SW結合仕様書', artifactTypeId: 'sw_integration_specification' },
+      { artifactName: 'レビュー記録', artifactTypeId: 'review_record' },
+      { artifactName: '障害台帳', artifactTypeId: 'defect_ledger' }
+    ]
+  },
+  {
+    devPhaseId: 'INTERNAL_DESIGN',
+    devPhaseName: '内部設計',
+    artifacts: [
+      { artifactName: 'SW詳細設計書', artifactTypeId: 'sw_detailed_design' },
+      { artifactName: 'SW単体仕様書', artifactTypeId: 'sw_unit_test_specification' },
+      { artifactName: 'レビュー記録', artifactTypeId: 'review_record' },
+      { artifactName: '障害台帳', artifactTypeId: 'defect_ledger' }
+    ]
+  },
+  {
+    devPhaseId: 'GENERAL',
+    devPhaseName: '全般',
+    artifacts: [
+      { artifactName: '変更管理票', artifactTypeId: 'change_request' },
+      { artifactName: 'タスク管理表', artifactTypeId: 'task_management' },
+      { artifactName: '議事録', artifactTypeId: 'meeting_minutes' }
+    ]
+  }
+] as const
+
+/** 新規プロジェクトの標準設定を1トランザクションで登録する（CORE-013）。 */
+export function seedDefaultProjectSettings(db: Database, projectUid: string): void {
+  db.transaction(() => {
+    for (const [phaseIndex, phase] of DEFAULT_PROJECT_PHASES.entries()) {
+      saveDevPhase(db, projectUid, {
+        devPhaseId: phase.devPhaseId,
+        devPhaseName: phase.devPhaseName,
+        sortOrder: phaseIndex
+      })
+      for (const [artifactIndex, artifact] of phase.artifacts.entries()) {
+        saveArtifactSetting(db, projectUid, {
+          ...artifact,
+          devPhaseId: phase.devPhaseId,
+          sortOrder: artifactIndex
+        })
+      }
+    }
+  })()
 }
 
 // ---- 成果物定義 ----
@@ -90,7 +162,11 @@ export function saveArtifactSetting(
     )
   } catch (err) {
     if (err instanceof Error && /UNIQUE/.test(err.message)) {
-      throw new BackendError('conflict', `同名の成果物が既に存在します: ${input.artifactName}`, err.message)
+      throw new BackendError(
+        'conflict',
+        `同じ開発フェーズに同名の成果物が既に存在します: ${input.artifactName}`,
+        err.message
+      )
     }
     throw err
   }

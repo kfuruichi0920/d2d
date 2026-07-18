@@ -22,11 +22,12 @@ CREATE TABLE project_artifact_setting (
     project_uid TEXT NOT NULL,
     artifact_name TEXT NOT NULL,
     artifact_type_id TEXT NOT NULL,
+    dev_phase_id TEXT,
     sort_order INTEGER NOT NULL DEFAULT 0 CHECK (sort_order >= 0),
     is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE (project_uid, artifact_name),
+    UNIQUE (project_uid, dev_phase_id, artifact_name),
     UNIQUE (uid, project_uid),
     FOREIGN KEY (project_uid) REFERENCES project(uid) ON DELETE CASCADE
 );
