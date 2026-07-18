@@ -24,6 +24,30 @@ export const WORKBENCH_COLOR_DEFINITIONS = [
 
 export type WorkbenchColorKey = (typeof WORKBENCH_COLOR_DEFINITIONS)[number]['key']
 export type WorkbenchColors = Partial<Record<WorkbenchColorKey, string>>
+const MODE_DEFAULT_COLORS = {
+  dark: {
+    workbenchBackground: '#1b1d21',
+    surfaceBackground: '#232529',
+    foreground: '#d6d8dc',
+    mutedForeground: '#8b8f98',
+    border: '#3a3d45',
+    selectionBackground: '#315a83',
+    buttonBackground: '#2a2d33',
+    buttonForeground: '#d6d8dc',
+    buttonBorder: '#3a3d45'
+  },
+  light: {
+    workbenchBackground: '#f5f6f8',
+    surfaceBackground: '#ffffff',
+    foreground: '#24272c',
+    mutedForeground: '#6b7078',
+    border: '#d3d7dd',
+    selectionBackground: '#d6e8fa',
+    buttonBackground: '#eef0f3',
+    buttonForeground: '#24272c',
+    buttonBorder: '#d3d7dd'
+  }
+} as const
 
 /** 設定済みのWorkbench色だけをCSSカスタムプロパティへ変換する。 */
 export function getWorkbenchColorVariables(colors: WorkbenchColors): Record<string, string> {
@@ -51,11 +75,21 @@ export const DEFAULT_THEME: ThemeState = {
   customColors: {}
 }
 
-function resolveMode(mode: DisplayMode): 'light' | 'dark' {
+export function resolveMode(mode: DisplayMode): 'light' | 'dark' {
   if (mode !== 'system') return mode
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
 }
 
+/** 色入力へ表示するテーマ既定値。accentはSerendieの選択中テーマから解決した値を渡す。 */
+export function getThemeDefaultWorkbenchColors(
+  theme: ThemeState,
+  accent = '#0a6dd1'
+): Record<WorkbenchColorKey, string> {
+  return {
+    ...MODE_DEFAULT_COLORS[resolveMode(theme.displayMode)],
+    accent
+  }
+}
 /** DOM へテーマ属性を適用する。Serendie は konjo のみダーク変種を持つ（konjo-dark） */
 export function applyTheme(theme: ThemeState): void {
   const mode = resolveMode(theme.displayMode)

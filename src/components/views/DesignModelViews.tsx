@@ -53,7 +53,7 @@ export function DesignModelTree(): React.JSX.Element {
 
   return (
     <details open className="d2d-explorer-section" data-testid="design-tree">
-      <summary className="d2d-explorer-section-header">
+      <summary className="d2d-explorer-section-header" role="treeitem" tabIndex={-1} data-explorer-treeitem>
         <SerendieSymbolFolderFilled width={16} height={16} className="d2d-explorer-folder-icon" />
         <span className="d2d-explorer-section-title">④設計モデル</span>
         <span className="d2d-explorer-section-count">{elements.length}</span>
@@ -62,6 +62,9 @@ export function DesignModelTree(): React.JSX.Element {
         <div
           key={element.uid}
           className="d2d-list-row"
+          role="treeitem"
+          tabIndex={-1}
+          data-explorer-treeitem
           data-testid={`design-el-${element.code}`}
           title={`名称: ${element.title ?? element.code}\nID: ${element.code}\n分類: ${element.design_category}\n種別: ${element.entity_type}\n状態: ${element.status}${element.description ? `\n説明: ${element.description}` : ''}`}
           onClick={() => openResource(`design://${element.uid}`, element.code, { preview: true })}

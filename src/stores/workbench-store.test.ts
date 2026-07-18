@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { DEFAULT_THEME, getWorkbenchColorVariables } from '../theme/theme'
+import { DEFAULT_THEME, getThemeDefaultWorkbenchColors, getWorkbenchColorVariables } from '../theme/theme'
 import { isSemanticEditShortcut } from '../components/common/SemanticTextInput'
 import { composePromptMessages } from '../components/common/LlmRequestDialog'
 import { DEFAULT_ACTIVITY_ORDER, SECONDARY_SECTION_ORDER, useWorkbenchStore } from './workbench-store'
@@ -38,6 +38,14 @@ describe('workbench-store（P3-1、UI-038/040）', () => {
     })
   })
 
+  it('Workbench共通カラーの既定値は表示テーマへ追従する（UI-052）', () => {
+    const dark = getThemeDefaultWorkbenchColors({ ...DEFAULT_THEME, displayMode: 'dark' }, '#123456')
+    const light = getThemeDefaultWorkbenchColors({ ...DEFAULT_THEME, displayMode: 'light' }, '#654321')
+    expect(dark.workbenchBackground).toBe('#1b1d21')
+    expect(light.workbenchBackground).toBe('#f5f6f8')
+    expect(dark.foreground).not.toBe(light.foreground)
+    expect(light.accent).toBe('#654321')
+  })
   it('外周パネル寸法を許容範囲へ制限する', () => {
     useWorkbenchStore.getState().setPrimarySize(900)
     useWorkbenchStore.getState().setSecondarySize(20)

@@ -211,6 +211,12 @@ export function TraceImpactEditor({ contextUri }: { contextUri: string }): React
       setScopes(result.result)
       setConfigs((current) => {
         if (current.length > 0) return current
+        if (contextUri === 'trace://list-link/pipeline') {
+          return (['extracted', 'intermediate', 'design'] as const).map((kind, index) => ({
+            id: `impact-column-${index + 1}`,
+            scopeIds: result.result.filter((scope) => scope.kind === kind).map((scope) => scope.id)
+          }))
+        }
         const preferred = [
           result.result.find((scope) => scope.kind === 'extracted'),
           result.result.find((scope) => scope.kind === 'intermediate'),
@@ -221,7 +227,7 @@ export function TraceImpactEditor({ contextUri }: { contextUri: string }): React
         return initial.map((scope, index) => ({ id: `impact-column-${index + 1}`, scopeIds: [scope.id] }))
       })
     })
-  }, [notify])
+  }, [contextUri, notify])
 
   const load = useCallback(async (): Promise<void> => {
     if (configs.length < 2 || configs.some((config) => config.scopeIds.length === 0)) {

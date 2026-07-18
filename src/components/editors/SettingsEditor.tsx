@@ -7,7 +7,14 @@ import { useEffect, useState } from 'react'
 import { invoke } from '../../services/backend'
 import { useJobsStore } from '../../stores/jobs-store'
 import { useWorkbenchStore } from '../../stores/workbench-store'
-import { COLOR_THEMES, DISPLAY_MODES, WORKBENCH_COLOR_DEFINITIONS, type WorkbenchColors } from '../../theme/theme'
+import {
+  COLOR_THEMES,
+  DISPLAY_MODES,
+  WORKBENCH_COLOR_DEFINITIONS,
+  getThemeDefaultWorkbenchColors,
+  type WorkbenchColors,
+  type WorkbenchColorKey
+} from '../../theme/theme'
 import { LlmSettingsSection } from '../views/LlmViews'
 import { useProjectStore } from '../../stores/project-store'
 import { SearchEngineSettingsSection } from '../views/SearchSettingsView'
@@ -15,22 +22,20 @@ import { PlantUmlSettingsSection } from '../views/PlantUmlSettingsView'
 import { AppSettingsStorageNotice } from '../views/AppSettingsStorageNotice'
 import { KeybindingSettingsSection } from '../views/KeybindingSettingsView'
 
-const DEFAULT_WORKBENCH_COLORS: Record<(typeof WORKBENCH_COLOR_DEFINITIONS)[number]['key'], string> = {
-  workbenchBackground: '#1b1d21',
-  surfaceBackground: '#232529',
-  foreground: '#d6d8dc',
-  mutedForeground: '#8b8f98',
-  border: '#3a3d45',
-  accent: '#0a6dd1',
-  selectionBackground: '#315a83',
-  buttonBackground: '#2a2d33',
-  buttonForeground: '#d6d8dc',
-  buttonBorder: '#3a3d45'
+function toColorInputValue(value: string, fallback: string): string {
+  const trimmed = value.trim()
+  if (/^#[0-9a-f]{6}$/i.test(trimmed)) return trimmed
+  const match = /^rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(trimmed)
+  if (!match) return fallback
+  return `#${[match[1], match[2], match[3]].map((part) => Number(part).toString(16).padStart(2, '0')).join('')}`
 }
 export function SettingsEditor(): React.JSX.Element {
   const theme = useWorkbenchStore((s) => s.theme)
   const setTheme = useWorkbenchStore((s) => s.setTheme)
   const notify = useJobsStore((s) => s.notify)
+  const [defaultColors, setDefaultColors] = useState<Record<WorkbenchColorKey, string>>(() =>
+    getThemeDefaultWorkbenchColors(theme)
+  )
 
   const hasProject = useProjectStore((s) => s.project !== null)
   const [secretKeys, setSecretKeys] = useState<string[]>([])
@@ -44,6 +49,15 @@ export function SettingsEditor(): React.JSX.Element {
     if (res.ok) setSecretKeys(res.result)
   }
 
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      const computed = getComputedStyle(document.documentElement)
+      const fallback = getThemeDefaultWorkbenchColors(theme).accent
+      const accent = toColorInputValue(computed.getPropertyValue('--sd-system-color-impression-primary'), fallback)
+      setDefaultColors(getThemeDefaultWorkbenchColors(theme, accent))
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [theme])
   useEffect(() => {
     void loadSecrets()
     void invoke<unknown>('settings.get', { key: 'project.initializeGitOnCreate' }).then((result) => {
@@ -156,7 +170,7 @@ export function SettingsEditor(): React.JSX.Element {
               <span style={{ flex: 1 }}>{definition.label}</span>
               <input
                 type="color"
-                value={configured ?? DEFAULT_WORKBENCH_COLORS[definition.key]}
+                value={configured ?? defaultColors[definition.key]}
                 onChange={(event) =>
                   setTheme({
                     customColors: { ...theme.customColors, [definition.key]: event.target.value } as WorkbenchColors

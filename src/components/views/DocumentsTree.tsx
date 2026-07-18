@@ -18,6 +18,7 @@ import { reviewStateFromEntityStatus, ReviewStatusBadge } from '../common/review
 import { showContextMenu } from '../common/ContextMenu'
 import { IntermediateImportDialog } from '../editors/IntermediateImportDialog'
 import { DesignModelTree } from './DesignModelViews'
+import { useExplorerTreeKeyboard } from './useExplorerTreeKeyboard'
 
 export interface SourceDocumentItem {
   uid: string
@@ -104,6 +105,7 @@ export function DocumentsTree({ projectName }: { projectName: string }): React.J
   const [artifacts, setArtifacts] = useState<ArtifactSetting[]>([])
   const [phases, setPhases] = useState<DevPhaseSetting[]>([])
   const [importArtifactUid, setImportArtifactUid] = useState<string | null | undefined>(undefined)
+  const { treeRef, expandAll, collapseAll } = useExplorerTreeKeyboard()
   const openResource = useEditorStore((state) => state.openResource)
   const notify = useJobsStore((state) => state.notify)
   const extractedUnconfirmed = extracted.reduce((total, document) => total + document.unconfirmed_count, 0)
@@ -158,13 +160,14 @@ export function DocumentsTree({ projectName }: { projectName: string }): React.J
   }, [refresh])
 
   return (
-    <div data-testid="documents-tree">
+    <div ref={treeRef} role="tree" tabIndex={0} aria-label="プロジェクトExplorer" data-testid="documents-tree">
       <details open className="d2d-explorer-root" data-testid="explorer-project-tree">
-        <summary className="d2d-explorer-root-header">
+        <summary className="d2d-explorer-root-header" role="treeitem" tabIndex={-1} data-explorer-treeitem>
           <ExplorerFolderIcon />
           <button
             type="button"
             className="d2d-explorer-project-name"
+            data-tree-action
             data-testid="explorer-project-row"
             title="プロジェクトのダッシュボードを開く"
             onClick={(event) => {
@@ -175,11 +178,42 @@ export function DocumentsTree({ projectName }: { projectName: string }): React.J
           >
             {projectName}
           </button>
+          <span className="d2d-explorer-tree-actions">
+            <button
+              type="button"
+              data-testid="explorer-expand-all"
+              aria-label="Treeをすべて展開"
+              title="Explorer Treeをすべて展開します"
+              onClick={(event) => {
+                event.preventDefault()
+                event.stopPropagation()
+                expandAll()
+              }}
+            >
+              ⊞
+            </button>
+            <button
+              type="button"
+              data-testid="explorer-collapse-all"
+              aria-label="Treeをすべて折りたたむ"
+              title="Explorer Treeをルート以外すべて折りたたみます"
+              onClick={(event) => {
+                event.preventDefault()
+                event.stopPropagation()
+                collapseAll()
+              }}
+            >
+              ⊟
+            </button>
+          </span>
         </summary>
-        <div className="d2d-explorer-root-children">
+        <div className="d2d-explorer-root-children" role="group">
           <details open className="d2d-explorer-section" data-testid="explorer-section-original">
             <summary
               className="d2d-explorer-section-header"
+              role="treeitem"
+              tabIndex={-1}
+              data-explorer-treeitem
               onContextMenu={(event) =>
                 showContextMenu(event, [
                   {
@@ -198,6 +232,9 @@ export function DocumentsTree({ projectName }: { projectName: string }): React.J
               <div
                 key={doc.uid}
                 className="d2d-list-row"
+                role="treeitem"
+                tabIndex={-1}
+                data-explorer-treeitem
                 data-testid={`source-doc-${doc.code}`}
                 title={`名称: ${doc.file_name}\nID: ${doc.code}\n形式: ${doc.file_type}\n状態: ${doc.status}\nSHA-256: ${doc.file_hash}\n取込日時: ${doc.imported_at}`}
                 onClick={() => openResource(`original://${doc.uid}`, doc.file_name, { preview: true })}
@@ -229,7 +266,7 @@ export function DocumentsTree({ projectName }: { projectName: string }): React.J
           </details>
 
           <details open className="d2d-explorer-section" data-testid="explorer-section-extracted">
-            <summary className="d2d-explorer-section-header">
+            <summary className="d2d-explorer-section-header" role="treeitem" tabIndex={-1} data-explorer-treeitem>
               <ExplorerFolderIcon />
               <span className="d2d-explorer-section-title">②抽出データ</span>
               <span className="d2d-explorer-section-count">{extracted.length}</span>
@@ -246,6 +283,9 @@ export function DocumentsTree({ projectName }: { projectName: string }): React.J
               <div
                 key={doc.uid}
                 className="d2d-list-row"
+                role="treeitem"
+                tabIndex={-1}
+                data-explorer-treeitem
                 data-testid={`extracted-doc-${doc.code}`}
                 title={`名称: ${doc.title ?? doc.code}\nID: ${doc.code}\n状態: ${doc.status} / ${doc.extraction_status}\n抽出器: ${doc.extractor_name} ${doc.extractor_version}\n要素数: ${doc.item_count}\n未確定: ${doc.unconfirmed_count}\n抽出日時: ${doc.extracted_at}`}
                 onClick={() =>
@@ -280,6 +320,9 @@ export function DocumentsTree({ projectName }: { projectName: string }): React.J
           <details open className="d2d-explorer-section" data-testid="explorer-section-intermediate">
             <summary
               className="d2d-explorer-section-header"
+              role="treeitem"
+              tabIndex={-1}
+              data-explorer-treeitem
               onContextMenu={(event) =>
                 showContextMenu(event, [
                   {
@@ -312,7 +355,7 @@ export function DocumentsTree({ projectName }: { projectName: string }): React.J
                   className="d2d-explorer-phase"
                   data-testid={`phase-${phase.dev_phase_id}`}
                 >
-                  <summary className="d2d-explorer-phase-label">
+                  <summary className="d2d-explorer-phase-label" role="treeitem" tabIndex={-1} data-explorer-treeitem>
                     <ExplorerFolderIcon />
                     <span>{phase.dev_phase_name}</span>
                     <span className="d2d-explorer-tag muted">フェーズ</span>
@@ -329,17 +372,21 @@ export function DocumentsTree({ projectName }: { projectName: string }): React.J
                       const tooltip = doc
                         ? `名称: ${artifact.artifact_name}\nID: ${doc.code}\n状態: ${doc.status} / ${doc.intermediate_status}\n開発フェーズ: ${phase.dev_phase_name}\n成果物: ${artifact.artifact_name}\n要素数: ${doc.item_count}\n未確定: ${doc.unconfirmed_count}\n統合元: ${sourceIds.length}件\n生成日時: ${doc.generated_at}`
                         : `名称: ${artifact.artifact_name}\n開発フェーズ: ${phase.dev_phase_name}\n成果物種別: ${artifact.artifact_type_id}\n状態: 未作成`
+                      const artifactTestId = doc
+                        ? `intermediate-doc-${doc.code}`
+                        : `artifact-slot-${phase.dev_phase_id}-${artifact.artifact_type_id}`
                       return (
-                        <div key={artifact.uid} style={{ paddingLeft: 14, marginBottom: 3 }}>
-                          <div
+                        <details
+                          open
+                          key={artifact.uid}
+                          className={`d2d-explorer-artifact-node ${sourceIds.length === 0 ? 'has-no-sources' : ''}`}
+                        >
+                          <summary
                             className="d2d-list-row d2d-explorer-artifact-row"
-                            data-testid={
-                              doc
-                                ? `intermediate-doc-${doc.code}`
-                                : `artifact-slot-${phase.dev_phase_id}-${artifact.artifact_type_id}`
-                            }
+                            role="treeitem"
+                            tabIndex={-1}
+                            data-explorer-treeitem
                             title={tooltip}
-                            onClick={() => void openArtifact(artifact)}
                             onContextMenu={(event) =>
                               showContextMenu(event, [
                                 {
@@ -350,23 +397,42 @@ export function DocumentsTree({ projectName }: { projectName: string }): React.J
                               ])
                             }
                           >
-                            <ExplorerResourceIcon kind="intermediate" />
-                            <span className="d2d-explorer-resource-name">{artifact.artifact_name}</span>
-                            <span className="d2d-explorer-tags">
-                              <ReviewStatusBadge status={reviewStateFromEntityStatus(doc?.status ?? 'draft')} />
-                              <span
-                                className={`d2d-unconfirmed-badge ${!doc || doc.unconfirmed_count === 0 ? 'is-zero' : ''}`}
-                                data-testid={doc ? `intermediate-unconfirmed-${doc.code}` : undefined}
-                              >
-                                未確定 {doc?.unconfirmed_count ?? 0}
+                            <button
+                              type="button"
+                              className="d2d-explorer-item-action"
+                              data-tree-action
+                              data-testid={artifactTestId}
+                              title={tooltip}
+                              onClick={(event) => {
+                                event.preventDefault()
+                                event.stopPropagation()
+                                void openArtifact(artifact)
+                              }}
+                            >
+                              <ExplorerResourceIcon kind="intermediate" />
+                              <span className="d2d-explorer-resource-name">{artifact.artifact_name}</span>
+                              <span className="d2d-explorer-tags">
+                                <ReviewStatusBadge status={reviewStateFromEntityStatus(doc?.status ?? 'draft')} />
+                                <span
+                                  className={`d2d-unconfirmed-badge ${!doc || doc.unconfirmed_count === 0 ? 'is-zero' : ''}`}
+                                  data-testid={doc ? `intermediate-unconfirmed-${doc.code}` : undefined}
+                                >
+                                  未確定 {doc?.unconfirmed_count ?? 0}
+                                </span>
+                                <span className="d2d-explorer-tag muted">{doc?.item_count ?? 0}要素</span>
                               </span>
-                              <span className="d2d-explorer-tag muted">{doc?.item_count ?? 0}要素</span>
-                            </span>
-                          </div>
+                            </button>
+                          </summary>
                           {sourceIds.length > 0 && (
-                            <div className="d2d-explorer-sources">
+                            <div className="d2d-explorer-sources" role="group">
                               {sourceIds.map((id) => (
-                                <span key={id} className="d2d-explorer-source-row">
+                                <span
+                                  key={id}
+                                  className="d2d-explorer-source-row"
+                                  role="treeitem"
+                                  tabIndex={-1}
+                                  data-explorer-treeitem
+                                >
                                   <ExplorerResourceIcon kind="source" />
                                   <span className="d2d-explorer-resource-name">
                                     {extracted.find((item) => item.uid === id)?.title ?? id}
@@ -376,7 +442,7 @@ export function DocumentsTree({ projectName }: { projectName: string }): React.J
                               ))}
                             </div>
                           )}
-                        </div>
+                        </details>
                       )
                     })}
                 </details>

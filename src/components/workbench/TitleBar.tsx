@@ -34,15 +34,6 @@ export function TitleBar(): React.JSX.Element {
       >
         コマンドパレット（Ctrl+Shift+P）
       </button>
-      <button
-        type="button"
-        className="wb-screen-search"
-        data-testid="open-screen-search"
-        title="現在の画面に表示されている文字列を検索します（Ctrl+F）"
-        onClick={() => window.dispatchEvent(new Event(OPEN_SCREEN_TEXT_SEARCH))}
-      >
-        🔍 検索
-      </button>
       <div className="wb-layout-controls" aria-label="パネル表示切替">
         <button
           type="button"
@@ -78,6 +69,16 @@ export function TitleBar(): React.JSX.Element {
           ▤ Panel
         </button>
       </div>
+      <button
+        type="button"
+        className="wb-screen-search"
+        data-testid="open-screen-search"
+        aria-label="画面内検索"
+        title="現在の画面に表示されている文字列を検索します（Ctrl+F）"
+        onClick={() => window.dispatchEvent(new Event(OPEN_SCREEN_TEXT_SEARCH))}
+      >
+        ⌕
+      </button>{' '}
       <AppMenu />
     </header>
   )
