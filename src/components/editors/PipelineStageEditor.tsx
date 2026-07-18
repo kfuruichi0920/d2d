@@ -19,6 +19,7 @@ import {
 import type { DesignElementRow } from '../views/DesignModelViews'
 import { ResizablePaneGroup } from '../workbench/ResizablePaneGroup'
 import { IntermediateImportDialog } from './IntermediateImportDialog'
+import { pushUndo } from '../../services/undo-service'
 import {
   DocumentPreviewMetaControls,
   useDocumentPreviewMeta,
@@ -268,7 +269,13 @@ export function PipelineStageEditor({ stage }: { stage: PipelineStage }): React.
 
   const changeSort = (key: string): void =>
     setSort((current) => ({ key, direction: current.key === key && current.direction === 'asc' ? 'desc' : 'asc' }))
-  const mutate = async (method: string, params: Record<string, unknown>, message: string): Promise<void> => {
+  const mutate = async (
+    method: string,
+    params: Record<string, unknown>,
+    message: string,
+    // W4（NFR-012）: 逆操作を指定した変更は Ctrl+Z で取り消せる。
+    undoSpec?: { label: string; undoMethod: string; undoParams: Record<string, unknown> }
+  ): Promise<void> => {
     const result = await invoke(method, params)
     if (!result.ok) {
       notify('error', message, result.error.message)
@@ -278,15 +285,44 @@ export function PipelineStageEditor({ stage }: { stage: PipelineStage }): React.
     setSelectedUid(null)
     await refresh()
     await refreshStats()
+    if (undoSpec) {
+      pushUndo({
+        label: undoSpec.label,
+        undo: async () => {
+          const undone = await invoke(undoSpec.undoMethod, undoSpec.undoParams)
+          if (!undone.ok) throw new Error(undone.error.message)
+          await refreshStats()
+        },
+        redo: async () => {
+          const redone = await invoke(method, params)
+          if (!redone.ok) throw new Error(redone.error.message)
+          await refreshStats()
+        }
+      })
+    }
   }
-  const confirmDelete = (kind: 'document' | 'extracted' | 'intermediate', uid: string, name: string): void => {
+  const confirmDelete = (
+    kind: 'document' | 'extracted' | 'intermediate',
+    uid: string,
+    name: string,
+    previousStatus?: string
+  ): void => {
     if (
       !window.confirm(
         `${name}を削除しますか？\n通常削除のためデータは論理削除され、一覧とExplorerから非表示になります。`
       )
     )
       return
-    void mutate(`${kind}.delete`, { uid }, `${name}を削除しました`)
+    // ③は復元APIが無いため Undo 対象外（アーカイブ運用を案内）。
+    const undoSpec =
+      kind === 'intermediate'
+        ? undefined
+        : {
+            label: `${name} の削除`,
+            undoMethod: `${kind}.restore`,
+            undoParams: { uid, status: previousStatus ?? 'draft' }
+          }
+    void mutate(`${kind}.delete`, { uid }, `${name}を削除しました`, undoSpec)
   }
 
   const importDocuments = async (): Promise<void> => {
@@ -514,7 +550,12 @@ export function PipelineStageEditor({ stage }: { stage: PipelineStage }): React.
                           void mutate(
                             'document.setArchived',
                             { uid: row.uid, archived: !row.is_archived },
-                            row.is_archived ? 'アーカイブを解除しました' : 'アーカイブしました'
+                            row.is_archived ? 'アーカイブを解除しました' : 'アーカイブしました',
+                            {
+                              label: `${row.file_name} の${row.is_archived ? 'アーカイブ解除' : 'アーカイブ'}`,
+                              undoMethod: 'document.setArchived',
+                              undoParams: { uid: row.uid, archived: Boolean(row.is_archived) }
+                            }
                           )
                         }}
                       >
@@ -524,7 +565,7 @@ export function PipelineStageEditor({ stage }: { stage: PipelineStage }): React.
                         className="d2d-btn small danger"
                         onClick={(event) => {
                           event.stopPropagation()
-                          confirmDelete('document', row.uid, row.file_name)
+                          confirmDelete('document', row.uid, row.file_name, row.status)
                         }}
                       >
                         削除
@@ -580,7 +621,12 @@ export function PipelineStageEditor({ stage }: { stage: PipelineStage }): React.
                           void mutate(
                             'extracted.setArchived',
                             { uid: row.uid, archived: !row.is_archived },
-                            row.is_archived ? 'アーカイブを解除しました' : 'アーカイブしました'
+                            row.is_archived ? 'アーカイブを解除しました' : 'アーカイブしました',
+                            {
+                              label: `${row.title ?? row.code} の${row.is_archived ? 'アーカイブ解除' : 'アーカイブ'}`,
+                              undoMethod: 'extracted.setArchived',
+                              undoParams: { uid: row.uid, archived: Boolean(row.is_archived) }
+                            }
                           )
                         }}
                       >

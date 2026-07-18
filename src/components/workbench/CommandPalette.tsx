@@ -3,7 +3,12 @@
  * 全 Command を検索・実行できる。Context により無効な Command は淡色表示する。
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { executeCommand, listCommands, type CommandDefinition } from '../../services/command-registry'
+import {
+  executeCommand,
+  listCommands,
+  resolveKeybinding,
+  type CommandDefinition
+} from '../../services/command-registry'
 import { getCommandContext } from '../../services/builtin-commands'
 import { useWorkbenchStore } from '../../stores/workbench-store'
 
@@ -86,7 +91,7 @@ export function CommandPalette(): React.JSX.Element | null {
                 {c.category && <span className="category">{c.category}: </span>}
                 {c.title}
               </span>
-              {c.keybinding && <span className="kbd">{c.keybinding}</span>}
+              {resolveKeybinding(c) && <span className="kbd">{resolveKeybinding(c)}</span>}
             </div>
           ))}
         </div>

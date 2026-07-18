@@ -79,6 +79,7 @@ interface WorkbenchState extends ModeLayout {
   theme: ThemeState
   activityOrder: Activity[]
   paletteOpen: boolean
+  menuOpen: boolean
   persistKey: string
   switchMode(mode: WorkMode): void
   resetLayout(): void
@@ -96,6 +97,7 @@ interface WorkbenchState extends ModeLayout {
   setPanelSize(size: number): void
   setTheme(theme: Partial<ThemeState>): void
   setPaletteOpen(open: boolean): void
+  setMenuOpen(open: boolean): void
   loadPersisted(persistKey: string): void
 }
 
@@ -145,6 +147,7 @@ export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
   theme: DEFAULT_THEME,
   activityOrder: [...DEFAULT_ACTIVITY_ORDER],
   paletteOpen: false,
+  menuOpen: false,
   persistKey: 'global',
   ...MODE_DEFAULT_LAYOUTS.M0,
 
@@ -248,6 +251,8 @@ export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
   },
 
   setPaletteOpen: (open) => set({ paletteOpen: open }),
+
+  setMenuOpen: (open) => set({ menuOpen: open }),
 
   loadPersisted: (persistKey) => {
     let data: PersistedLayout | null = null

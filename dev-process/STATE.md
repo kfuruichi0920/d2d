@@ -45,6 +45,7 @@
 | P10追加       | セマンティック入力支援、構造化参照・正規化履歴・候補検索・辞書登録・関係検証（Unit 185／E2E 18）     | 本コミット      |
 | P10追加       | テキスト欄の色付き通常プレビュー・Enter/F2編集ダイアログ・Secondary固定順（Unit 187／E2E 18）        | 本コミット      |
 | P2追加        | プロジェクト作成時の標準5フェーズ・18成果物登録、設定可能なGit初期化（Unit 189／E2E 18）             | 本コミット      |
+| P3追加(W1〜6) | ショートカット上書き設定画面、Alt+Mメニュー、右クリックメニュー、Undo/Redo基盤、入力Tooltip保証、Welcome装飾のIDE調整（Unit 199／E2E 21） | 本コミット      |
 
 ## 恒久制約（違反するとビルド/実行が壊れる、または設計方針違反）
 
@@ -81,6 +82,10 @@
 - SecondaryのProperties／Relations／Review／Dictionaryは開閉状態にかかわらずこの定義順を維持し、閉じても並べ替えない。Relationsは相手エンティティから `resource://`／`original://`／`extracted://`／`intermediate://`／`chunk://` の編集URIを解決し、クリックまたはEnter／Spaceで開く。
 - ストア閲覧はCOUNTによる総件数と500件単位の追加読込で全件到達可能にし、固定件数で打ち切らない。表は行番号・縦横スクロール・薄青選択・上下キー移動を備え、選択行を共通Selectionへ通知する。
 - 関係性候補の選択肢は `relation_rule_master.allowed=1` と始点／終点カテゴリから導出する。LLMが許容外の関係性を返した場合は元値を保持して警告表示し、許容関係へ修正するまで採用不可とする。
+- ショートカットは Command 定義の既定値を `d2d.keybindings.overrides`（localStorage、ツール全体）で上書きする。照合・表示は必ず `resolveKeybinding()` を通し、`def.keybinding` を直接参照しない。カスタマイズUIはツール設定内（`KeybindingSettingsSection`）。入力欄フォーカス中は Ctrl/Alt 修飾付きのみ有効で、`skipInEditable: true` の Command（edit.undo/redo）は入力欄内で無効。
+- アプリケーションメニューは Title Bar 右端のハンバーガー（Alt+M、`menu.toggle`）から開く。項目は Command 定義から解決し（`AppMenu.tsx` の MENU_GROUPS）、新 Command 追加時は必要に応じてグループへ登録する。右クリックメニューは共通 `showContextMenu(event, items)`＋`ContextMenuHost`（WorkbenchShell 直下）を使い、画面独自のメニューDOMを実装しない。
+- ユーザ操作の取り消しは `undo-service`（`pushUndo({label, undo, redo})`、Ctrl+Z/Ctrl+Y、最大100件）。DB正本の変更は Backend の逆操作API（`document.restore`／`extracted.restore` 等）を undo に指定して登録する。プロジェクト切替・クローズで履歴は破棄する。undo 実行失敗時はエントリを破棄する（二重取消防止）。
+- ボタンに加えて input／select／textarea も `GlobalButtonTooltips` が Tooltip を保証する。明示 `title`（説明＋例）を最優先し、未設定時は label／aria-label／placeholder から補完する。
 - prettier は docs/ と tasks/ を対象外（.prettierignore）。
 - LLM 外部送信はプロジェクト設定 `llm.externalSendAllowed`（既定 false）でブロックされる。
 - 新規プロジェクトは標準5フェーズ・18成果物を登録する。同名成果物（レビュー記録／障害台帳）はフェーズ単位で独立して保持する。ツール全体設定 `project.initializeGitOnCreate` は既定trueで、作成時にbest-effortで `git init` を実行し、失敗してもプロジェクト作成は継続する。schema 1.7.0では成果物名の一意性を `(project_uid, dev_phase_id, artifact_name)` とし、移行時も成果物関係を保持する。
@@ -120,7 +125,7 @@
 
 ## E2E（Playwright）の注意
 
-- E2E開始時はElectron userDataに前回実行のレイアウトが残り得るため、`d2d.workbench.*`／`d2d.editors.*` のlocalStorageだけを削除してRendererを再読込する。設定Backendやプロジェクト正本は削除しない。
+- E2E開始時はElectron userDataに前回実行のレイアウトが残り得るため、`d2d.workbench.*`／`d2d.editors.*`／`d2d.keybindings.*` のlocalStorageだけを削除してRendererを再読込する。設定Backendやプロジェクト正本は削除しない。
 - プロジェクト作成の既定Git初期化を検証する前に、永続化された project.initializeGitOnCreate を削除してテスト開始条件を固定する。
 - `e2e/app.spec.ts` は**逐次実行・状態共有**（beforeAll で 1 プロジェクト作成、afterAll で
   app.close 後に削除。開いている project.db を rmSync すると EBUSY）。
@@ -139,7 +144,11 @@
   Java/Graphviz/PlantUML/MeCab 同梱パッケージング P14-5、pymupdf 商用版 P14-6）
 - P5 他形式抽出: Excel / PowerPoint / PDF / Visio / テキスト系（P5-7〜14）、
   Word 拡張（脚注・コメント・変更履歴・テキストボックス・数式）
-- プロジェクト横断 Undo/Redo（NFR-012）はエディタ内のみ。操作履歴ベース未実装
+- Undo/Redo（NFR-012）は基盤＋代表操作のみ接続済み（②レビュー状態変更・②名称変更・①②アーカイブ・①②論理削除・用語状態変更）。
+  ③中間データの削除（復元API未実装）、③要素編集・マージ・分割、マトリクス編集、チャンク操作、設定変更等は未接続。
+  逆操作APIを持つ操作から順次 `pushUndo` を追加する方針。
+- コンテキストメニューはEditorタブ・Explorer行・Jobs一覧のみ。ステージ一覧行・マトリクスセル等は未接続（共通 `showContextMenu` へ追加するだけ）。
+- ツールチップの「説明＋例」の明示 `title` はSettings／Glossary等の代表画面のみ。他画面は自動補完文（label由来）が表示される。
 - resource_table_cell の entity_registry CHECK 制約追加（テーブル再構築が必要 → 将来 2.0.0）
 - アーカイブ差分の左右テキストは Backend プロセス内保持（再起動後は差分インポート再実行）
 - Word 抽出の LLM 補助（EXT の一部）、GC 系 Golden Case の拡充

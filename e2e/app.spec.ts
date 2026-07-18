@@ -19,7 +19,8 @@ test.beforeAll(async () => {
   await expect(page.getByTestId('workbench')).toBeVisible({ timeout: 15_000 })
   await page.evaluate(() => {
     for (const key of Object.keys(localStorage)) {
-      if (key.startsWith('d2d.workbench.') || key.startsWith('d2d.editors.')) localStorage.removeItem(key)
+      if (key.startsWith('d2d.workbench.') || key.startsWith('d2d.editors.') || key.startsWith('d2d.keybindings.'))
+        localStorage.removeItem(key)
     }
   })
   await page.reload()
@@ -1704,6 +1705,93 @@ test('レポート生成→Markdown/HTMLプレビュー（P13）', async () => {
   })
   await page.getByTestId('reports-list').locator('.d2d-list-row', { hasText: '.html' }).first().click()
   await expect(page.getByTestId('report-html-preview')).toBeVisible()
+})
+
+test('アプリメニュー（Alt+M）と右クリックコンテキストメニュー（W2/W3）', async () => {
+  // Alt+M でハンバーガーメニューが開閉する
+  await page.keyboard.press('Alt+M')
+  await expect(page.getByTestId('app-menu-dropdown')).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('app-menu-dropdown')).toBeHidden()
+
+  // ハンバーガーボタンから開き、メニュー項目でツール設定を開く
+  await page.getByTestId('app-menu-button').click()
+  await expect(page.getByTestId('app-menu-dropdown')).toBeVisible()
+  await page.getByTestId('app-menu-item-settings.open').click()
+  await expect(page.getByTestId('settings-editor')).toBeVisible()
+  await expect(page.getByTestId('app-menu-dropdown')).toBeHidden()
+
+  // Editorタブの右クリックでコンテキストメニューが開く
+  await page.getByRole('tab', { name: /ツール設定/ }).click({ button: 'right' })
+  await expect(page.getByTestId('context-menu')).toBeVisible()
+  await expect(page.getByTestId('tab-menu-close')).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('context-menu')).toBeHidden()
+
+  // 入力欄・選択欄にも操作説明Tooltipが付与される（W5）
+  await expect
+    .poll(() =>
+      page
+        .locator('input:visible, select:visible, textarea:visible')
+        .evaluateAll((fields) => fields.filter((field) => !(field as HTMLElement).title.trim()).length)
+    )
+    .toBe(0)
+})
+
+test('ショートカットキーのカスタマイズ（W1 / UI-023）', async () => {
+  await expect(page.getByTestId('settings-editor')).toBeVisible()
+  await expect(page.getByTestId('keybinding-settings')).toBeVisible()
+  await page.getByTestId('keybinding-filter').fill('Secondary')
+  const row = page.getByTestId('keybinding-row-workbench.toggleSecondarySideBar')
+  await expect(row).toBeVisible()
+
+  // 変更 → キー入力キャプチャで Ctrl+Alt+9 を割り当てる
+  await page.getByTestId('keybinding-change-workbench.toggleSecondarySideBar').click()
+  await page.getByTestId('keybinding-capture-workbench.toggleSecondarySideBar').press('Control+Alt+9')
+  await expect(page.getByTestId('keybinding-value-workbench.toggleSecondarySideBar')).toContainText('Ctrl+Alt+9')
+  await expect(row).toContainText('変更済み')
+
+  // 新しいショートカットで Secondary Side Bar が切り替わる
+  const secondaryToggle = page.getByTestId('toggle-secondary-sidebar')
+  const before = await secondaryToggle.getAttribute('aria-pressed')
+  await page.keyboard.press('Control+Alt+9')
+  await expect(secondaryToggle).toHaveAttribute('aria-pressed', before === 'true' ? 'false' : 'true')
+  await page.keyboard.press('Control+Alt+9')
+  await expect(secondaryToggle).toHaveAttribute('aria-pressed', before === 'true' ? 'true' : 'false')
+
+  // 既定へ戻す
+  await page.getByTestId('keybinding-reset-workbench.toggleSecondarySideBar').click()
+  await expect(row).not.toContainText('変更済み')
+  await page.getByTestId('keybinding-filter').fill('')
+})
+
+test('ユーザ操作のUndo/Redo（W4 / NFR-012）', async () => {
+  // ①ステージ一覧でアーカイブ → Ctrl+Z で取り消し → Ctrl+Y でやり直し
+  await page.getByTestId('stage-source').click()
+  const row = page.getByTestId('stage-source-row-DOC-000002')
+  await expect(row).toBeVisible()
+  await row.getByRole('button', { name: 'アーカイブ' }).click()
+  await expect(row.getByRole('button', { name: '解除' })).toBeVisible()
+
+  await page.keyboard.press('Control+Z')
+  await expect(page.getByTestId('notifications')).toContainText('元に戻しました')
+  await expect(row.getByRole('button', { name: 'アーカイブ' })).toBeVisible()
+
+  await page.keyboard.press('Control+Y')
+  await expect(page.getByTestId('notifications')).toContainText('やり直しました')
+  await expect(row.getByRole('button', { name: '解除' })).toBeVisible()
+
+  // 後続テストへ影響しないよう元の表示状態へ戻す
+  await page.keyboard.press('Control+Z')
+  await expect(row.getByRole('button', { name: 'アーカイブ' })).toBeVisible()
+
+  // 論理削除も Undo で復元できる（document.restore、W4）
+  page.once('dialog', (dialog) => void dialog.accept())
+  await row.getByRole('button', { name: '削除' }).click()
+  await expect(page.getByTestId('stage-source-row-DOC-000002')).toBeHidden()
+  await page.keyboard.press('Control+Z')
+  await expect(page.getByTestId('notifications')).toContainText('元に戻しました')
+  await expect(page.getByTestId('stage-source-row-DOC-000002')).toBeVisible()
 })
 
 test('スクリーンショットを保存する', async () => {

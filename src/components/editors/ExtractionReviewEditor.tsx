@@ -13,6 +13,7 @@ import { StructuredJsonView } from '../common/StructuredJsonView'
 import { DocumentPreviewMetaControls, useDocumentPreviewMeta } from '../common/DocumentPreviewMeta'
 import { reviewStateFromEntityStatus, ReviewStatusBadge } from '../common/review'
 import { ResizablePaneGroup } from '../workbench/ResizablePaneGroup'
+import { pushUndo } from '../../services/undo-service'
 
 interface TableCell {
   text: string
@@ -281,16 +282,43 @@ export function ExtractionReviewEditor({ uid }: { uid: string }): React.JSX.Elem
     })
   }
 
+  const applyStatuses = async (groups: { resourceUids: string[]; status: ReviewStatus }[]): Promise<void> => {
+    for (const group of groups) {
+      if (group.resourceUids.length === 0) continue
+      const result = await invoke<{ updatedCount: number }>('extracted.updateItemStatuses', {
+        extractedDocumentUid: uid,
+        resourceUids: group.resourceUids,
+        status: group.status
+      })
+      if (!result.ok) throw new Error(result.error.message)
+    }
+    await load()
+  }
+
   const updateStatus = async (elements: ReviewElement[], status: ReviewStatus): Promise<void> => {
-    const resourceUids = elements.flatMap((element) => (element.resource_uid ? [element.resource_uid] : []))
+    const targets = elements.filter((element) => element.resource_uid)
+    const resourceUids = targets.map((element) => element.resource_uid!)
     if (resourceUids.length === 0) return
+    // Undo 用に変更前状態をグループ化して控える（W4、NFR-012）。
+    const previousGroups = new Map<ReviewStatus, string[]>()
+    for (const element of targets) {
+      const previous = (element.review?.status ?? 'draft') as ReviewStatus
+      previousGroups.set(previous, [...(previousGroups.get(previous) ?? []), element.resource_uid!])
+    }
     const result = await invoke<{ updatedCount: number }>('extracted.updateItemStatuses', {
       extractedDocumentUid: uid,
       resourceUids,
       status
     })
-    if (result.ok) await load()
-    else notify('error', 'レビュー状態を更新できませんでした', result.error.message)
+    if (result.ok) {
+      await load()
+      pushUndo({
+        label: `②レビュー状態の変更（${resourceUids.length}件 → ${status}）`,
+        undo: () =>
+          applyStatuses([...previousGroups.entries()].map(([prev, uids]) => ({ resourceUids: uids, status: prev }))),
+        redo: () => applyStatuses([{ resourceUids, status }])
+      })
+    } else notify('error', 'レビュー状態を更新できませんでした', result.error.message)
   }
 
   const cycleStatus = (element: ReviewElement): void => {
@@ -311,6 +339,7 @@ export function ExtractionReviewEditor({ uid }: { uid: string }): React.JSX.Elem
   const renameDocument = async (): Promise<void> => {
     const title = renameTitle.trim()
     if (!title) return
+    const previousTitle = doc?.title ?? null
     const result = await invoke<{ title: string }>('extracted.rename', { uid, title })
     if (!result.ok) {
       notify('error', '抽出データの名称を変更できませんでした', result.error.message)
@@ -319,6 +348,21 @@ export function ExtractionReviewEditor({ uid }: { uid: string }): React.JSX.Elem
     setDoc((current) => (current ? { ...current, title } : current))
     setRenameOpen(false)
     notify('info', '抽出データの名称を変更しました')
+    if (previousTitle && previousTitle !== title) {
+      pushUndo({
+        label: `②名称変更: ${previousTitle} → ${title}`,
+        undo: async () => {
+          const undone = await invoke('extracted.rename', { uid, title: previousTitle })
+          if (!undone.ok) throw new Error(undone.error.message)
+          setDoc((current) => (current ? { ...current, title: previousTitle } : current))
+        },
+        redo: async () => {
+          const redone = await invoke('extracted.rename', { uid, title })
+          if (!redone.ok) throw new Error(redone.error.message)
+          setDoc((current) => (current ? { ...current, title } : current))
+        }
+      })
+    }
   }
   const columns: ColumnDef<ReviewElement, unknown>[] = [
     {

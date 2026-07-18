@@ -5,6 +5,8 @@
 import { useEffect } from 'react'
 import { installKeybindings } from '../../services/command-registry'
 import { getCommandContext, registerBuiltinCommands } from '../../services/builtin-commands'
+import { loadKeybindingOverrides } from '../../services/keybindings'
+import { clearUndoHistory } from '../../services/undo-service'
 import { invoke, onBackendEvent } from '../../services/backend'
 import { useEditorStore } from '../../stores/editor-store'
 import { useJobsStore, type JobRecord } from '../../stores/jobs-store'
@@ -22,6 +24,7 @@ import { ResizeHandle } from './ResizeHandle'
 import { SecondarySideBar } from './SecondarySideBar'
 import { ScreenTextSearch } from './ScreenTextSearch'
 import { GlobalButtonTooltips } from './GlobalButtonTooltips'
+import { ContextMenuHost } from '../common/ContextMenu'
 import { StatusBar } from './StatusBar'
 import { TitleBar } from './TitleBar'
 
@@ -42,6 +45,7 @@ export function WorkbenchShell(): React.JSX.Element {
       registerBuiltinCommands()
       commandsRegistered = true
     }
+    loadKeybindingOverrides()
     loadPersisted('global')
     loadEditorPersisted('global')
     void Promise.all([
@@ -77,10 +81,13 @@ export function WorkbenchShell(): React.JSX.Element {
         useProjectStore.getState().setProject(info)
         useWorkbenchStore.getState().loadPersisted(info.projectUid)
         useEditorStore.getState().loadPersisted(info.projectUid)
+        // プロジェクトをまたぐ取り消しは二重適用の危険があるため履歴を破棄する。
+        clearUndoHistory()
       } else if (event === 'project.closed') {
         useProjectStore.getState().setProject(null)
         useWorkbenchStore.getState().loadPersisted('global')
         useEditorStore.getState().loadPersisted('global')
+        clearUndoHistory()
       } else if (
         [
           'source.imported',
@@ -169,6 +176,7 @@ export function WorkbenchShell(): React.JSX.Element {
       </div>
       <StatusBar />
       <CommandPalette />
+      <ContextMenuHost />
       <Notifications />
     </div>
   )

@@ -13,6 +13,7 @@ import { useProjectStore } from '../../stores/project-store'
 import { SearchEngineSettingsSection } from '../views/SearchSettingsView'
 import { PlantUmlSettingsSection } from '../views/PlantUmlSettingsView'
 import { AppSettingsStorageNotice } from '../views/AppSettingsStorageNotice'
+import { KeybindingSettingsSection } from '../views/KeybindingSettingsView'
 
 export function SettingsEditor(): React.JSX.Element {
   const theme = useWorkbenchStore((s) => s.theme)
@@ -89,6 +90,7 @@ export function SettingsEditor(): React.JSX.Element {
         <label style={{ width: 120, color: 'var(--d2d-fg-muted)' }}>表示モード</label>
         <select
           data-testid="setting-display-mode"
+          title="Workbench全体の明暗を選択します（例: light=明色、dark=暗色、system=OS設定に追従）"
           value={theme.displayMode}
           onChange={(e) => setTheme({ displayMode: e.target.value as (typeof DISPLAY_MODES)[number] })}
         >
@@ -103,6 +105,7 @@ export function SettingsEditor(): React.JSX.Element {
         <label style={{ width: 120, color: 'var(--d2d-fg-muted)' }}>カラーテーマ</label>
         <select
           data-testid="setting-color-theme"
+          title="アクセントカラーの配色テーマを選択します（例: blue、green）"
           value={theme.colorTheme}
           onChange={(e) => setTheme({ colorTheme: e.target.value as (typeof COLOR_THEMES)[number] })}
         >
@@ -124,6 +127,7 @@ export function SettingsEditor(): React.JSX.Element {
           onChange={(event) => setTheme({ fontSize: Number(event.target.value) })}
           data-testid="setting-font-size"
           aria-label="ツール全体の文字サイズ"
+          title="Workbench全体の文字サイズを10〜20pxで調整します（既定: 13px。Monacoエディタにも即時反映）"
         />
         <output data-testid="setting-font-size-value">{theme.fontSize}px</output>
       </div>
@@ -146,6 +150,8 @@ export function SettingsEditor(): React.JSX.Element {
         />
         新規プロジェクトでGitリポジトリを初期化する（既定: 有効、失敗時は継続）
       </label>
+
+      <KeybindingSettingsSection />
 
       <AppSettingsStorageNotice />
       <PlantUmlSettingsSection />
@@ -183,6 +189,7 @@ export function SettingsEditor(): React.JSX.Element {
           value={newKeyName}
           onChange={(e) => setNewKeyName(e.target.value)}
           placeholder="キー名（例: openai_api_key）"
+          title="保存する機密情報の識別名を入力します（例: openai_api_key、anthropic_api_key）"
         />
         <input
           style={{ flex: 1 }}
@@ -190,6 +197,7 @@ export function SettingsEditor(): React.JSX.Element {
           value={newKeyValue}
           onChange={(e) => setNewKeyValue(e.target.value)}
           placeholder="値"
+          title="機密情報の値を入力します（例: sk-... 形式のAPIキー）。safeStorageで暗号化され平文保存されません"
           data-testid="secret-value-input"
         />
         <button type="button" className="d2d-btn primary" onClick={() => void saveSecret()} data-testid="secret-save">

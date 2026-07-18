@@ -7,6 +7,7 @@ import { executeCommand } from '../../services/command-registry'
 import { useEditorStore } from '../../stores/editor-store'
 import { useJobsStore } from '../../stores/jobs-store'
 import { reviewStateFromEntityStatus, ReviewStatusBadge } from '../common/review'
+import { showContextMenu } from '../common/ContextMenu'
 import { DesignModelTree } from './DesignModelViews'
 
 export interface SourceDocumentItem {
@@ -140,6 +141,22 @@ export function DocumentsTree(): React.JSX.Element {
             data-testid={`source-doc-${doc.code}`}
             title={`名称: ${doc.file_name}\nID: ${doc.code}\n形式: ${doc.file_type}\n状態: ${doc.status}\nSHA-256: ${doc.file_hash}\n取込日時: ${doc.imported_at}`}
             onClick={() => openResource(`original://${doc.uid}`, doc.file_name, { preview: true })}
+            onContextMenu={(event) =>
+              showContextMenu(event, [
+                {
+                  label: '開く',
+                  testId: 'ctx-original-open',
+                  run: () => openResource(`original://${doc.uid}`, doc.file_name)
+                },
+                {
+                  label: 'OSアプリで開く',
+                  run: async () => {
+                    const result = await invoke('document.openExternal', { uid: doc.uid })
+                    if (!result.ok) notify('error', 'OSアプリで開けませんでした', result.error.message)
+                  }
+                }
+              ])
+            }
           >
             <span style={{ color: 'var(--d2d-fg-muted)', fontSize: 11 }}>{doc.file_type}</span>
             <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{doc.file_name}</span>
@@ -168,6 +185,15 @@ export function DocumentsTree(): React.JSX.Element {
             data-testid={`extracted-doc-${doc.code}`}
             title={`名称: ${doc.title ?? doc.code}\nID: ${doc.code}\n状態: ${doc.status} / ${doc.extraction_status}\n抽出器: ${doc.extractor_name} ${doc.extractor_version}\n要素数: ${doc.item_count}\n未確定: ${doc.unconfirmed_count}\n抽出日時: ${doc.extracted_at}`}
             onClick={() => openResource(`extracted://${doc.uid}`, `抽出: ${doc.title ?? doc.code}`, { preview: true })}
+            onContextMenu={(event) =>
+              showContextMenu(event, [
+                {
+                  label: '開く',
+                  testId: 'ctx-extracted-open',
+                  run: () => openResource(`extracted://${doc.uid}`, `抽出: ${doc.title ?? doc.code}`)
+                }
+              ])
+            }
           >
             <ReviewStatusBadge status={reviewStateFromEntityStatus(doc.status)} />
             <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{doc.title ?? doc.code}</span>
@@ -229,6 +255,15 @@ export function DocumentsTree(): React.JSX.Element {
                       <div
                         className="d2d-list-row d2d-explorer-artifact-row"
                         onClick={() => void openArtifact(artifact)}
+                        onContextMenu={(event) =>
+                          showContextMenu(event, [
+                            {
+                              label: '開く',
+                              testId: 'ctx-artifact-open',
+                              run: () => void openArtifact(artifact)
+                            }
+                          ])
+                        }
                       >
                         <span className="d2d-hierarchy-kind artifact">成果物</span>
                         {doc && <ReviewStatusBadge status={reviewStateFromEntityStatus(doc.status)} />}

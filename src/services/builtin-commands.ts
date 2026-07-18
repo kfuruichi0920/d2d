@@ -8,6 +8,8 @@ import { useProjectStore } from '../stores/project-store'
 import { useJobsStore } from '../stores/jobs-store'
 import { invoke } from './backend'
 import { COLOR_THEMES, DISPLAY_MODES } from '../theme/theme'
+import { performRedo, performUndo } from './undo-service'
+import { OPEN_SCREEN_TEXT_SEARCH } from '../components/workbench/ScreenTextSearch'
 
 export function getCommandContext(): CommandContext {
   const wb = useWorkbenchStore.getState()
@@ -33,6 +35,76 @@ export function registerBuiltinCommands(): void {
     title: 'コマンドパレットを開く',
     keybinding: 'Ctrl+Shift+P',
     run: () => wb().setPaletteOpen(true)
+  })
+
+  registerCommand({
+    id: 'menu.toggle',
+    title: 'アプリケーションメニューを開閉する',
+    keybinding: 'Alt+M',
+    run: () => wb().setMenuOpen(!wb().menuOpen)
+  })
+
+  // Undo/Redo（W4、NFR-012）。編集欄フォーカス中はテキスト自体の Undo を優先する。
+  registerCommand({
+    id: 'edit.undo',
+    title: '元に戻す（直前の操作）',
+    category: '編集',
+    keybinding: 'Ctrl+Z',
+    skipInEditable: true,
+    run: async () => {
+      const notify = useJobsStore.getState().notify
+      try {
+        const label = await performUndo()
+        notify('info', label ? `元に戻しました: ${label}` : '取り消せる操作はありません')
+      } catch (error) {
+        notify('error', '元に戻す操作に失敗しました', error instanceof Error ? error.message : String(error))
+      }
+    }
+  })
+  registerCommand({
+    id: 'edit.redo',
+    title: 'やり直す（取り消した操作）',
+    category: '編集',
+    keybinding: 'Ctrl+Y',
+    skipInEditable: true,
+    run: async () => {
+      const notify = useJobsStore.getState().notify
+      try {
+        const label = await performRedo()
+        notify('info', label ? `やり直しました: ${label}` : 'やり直せる操作はありません')
+      } catch (error) {
+        notify('error', 'やり直しに失敗しました', error instanceof Error ? error.message : String(error))
+      }
+    }
+  })
+
+  registerCommand({
+    id: 'search.screenText',
+    title: '画面内の文字列を検索する',
+    category: '検索',
+    run: () => {
+      window.dispatchEvent(new Event(OPEN_SCREEN_TEXT_SEARCH))
+    }
+  })
+
+  // ヘルプ（読取専用 Resource、P3-10）
+  registerCommand({
+    id: 'help.workflow',
+    title: 'ヘルプ: 操作フロー',
+    category: 'ヘルプ',
+    run: () => editor().openResource('help://workflow', '操作フロー')
+  })
+  registerCommand({
+    id: 'help.schema',
+    title: 'ヘルプ: データスキーマ',
+    category: 'ヘルプ',
+    run: () => editor().openResource('help://schema', 'データスキーマ')
+  })
+  registerCommand({
+    id: 'help.designModel',
+    title: 'ヘルプ: 設計モデル',
+    category: 'ヘルプ',
+    run: () => editor().openResource('help://design-model', '設計モデル')
   })
 
   // 作業モード切替（Ctrl+1〜6、§15）

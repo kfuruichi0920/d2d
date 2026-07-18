@@ -4,6 +4,7 @@
  */
 import { useRef } from 'react'
 import { useEditorStore, type EditorGroup, type EditorLayoutNode } from '../../stores/editor-store'
+import { showContextMenu } from '../common/ContextMenu'
 import { DashboardEditor } from '../editors/DashboardEditor'
 import { SettingsEditor } from '../editors/SettingsEditor'
 import { ProjectSettingsEditor } from '../editors/ProjectSettingsEditor'
@@ -161,6 +162,31 @@ function GroupView({ group }: { group: EditorGroup }): React.JSX.Element {
             }}
             onClick={() => activateTab(tab.uri, group.id)}
             onDoubleClick={() => pinTab(tab.uri)}
+            onContextMenu={(event) =>
+              showContextMenu(event, [
+                { label: '閉じる', detail: 'Ctrl+W', testId: 'tab-menu-close', run: () => closeTab(tab.uri, group.id) },
+                {
+                  label: '他のタブをすべて閉じる',
+                  disabled: group.tabs.length <= 1,
+                  testId: 'tab-menu-close-others',
+                  run: () => group.tabs.filter((t) => t.uri !== tab.uri).forEach((t) => closeTab(t.uri, group.id))
+                },
+                {
+                  label: 'すべてのタブを閉じる',
+                  testId: 'tab-menu-close-all',
+                  run: () => [...group.tabs].forEach((t) => closeTab(t.uri, group.id))
+                },
+                { separator: true },
+                {
+                  label: 'タブを固定表示にする',
+                  disabled: !tab.preview,
+                  run: () => pinTab(tab.uri)
+                },
+                { separator: true },
+                { label: 'Editorを左右に分割', run: () => splitGroup(group.id, 'horizontal') },
+                { label: 'Editorを上下に分割', run: () => splitGroup(group.id, 'vertical') }
+              ])
+            }
             title={tab.title}
           >
             <span className={'wb-tab-title ' + (tab.preview ? 'preview' : '')}>{tab.title}</span>

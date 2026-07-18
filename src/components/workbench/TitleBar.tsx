@@ -2,6 +2,7 @@
 import { useProjectStore } from '../../stores/project-store'
 import { useWorkbenchStore } from '../../stores/workbench-store'
 import { OPEN_SCREEN_TEXT_SEARCH } from './ScreenTextSearch'
+import { AppMenu } from './AppMenu'
 
 export function TitleBar(): React.JSX.Element {
   const project = useProjectStore((state) => state.project)
@@ -77,6 +78,7 @@ export function TitleBar(): React.JSX.Element {
           ▤ Panel
         </button>
       </div>
+      <AppMenu />
     </header>
   )
 }
