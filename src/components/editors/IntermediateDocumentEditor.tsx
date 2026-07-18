@@ -17,6 +17,7 @@ import { resourceTypeLabel } from '../../types/resource'
 import { reviewStateFromEntityStatus, ReviewStatusBadge } from '../common/review'
 import { ResizablePaneGroup } from '../workbench/ResizablePaneGroup'
 import { ChunkEditor } from './ChunkEditor'
+import { pushUndo } from '../../services/undo-service'
 
 interface IntermediateElement {
   id: string
@@ -420,11 +421,27 @@ export function IntermediateDocumentEditor({
     const statuses = ['draft', 'approved', 'review', 'rejected']
     const current = element.review?.status ?? 'draft'
     const next = statuses[(statuses.indexOf(current) + 1) % statuses.length]!
-    await call(
+    // DB 上の表現へ写像する（表示 'review' = 保存 'needs_fix'）
+    const toStored = (status: string): string => (status === 'review' ? 'needs_fix' : status)
+    const ok = await call(
       'intermediate.updateItemStatuses',
-      { elementIds: [element.id], status: next === 'review' ? 'needs_fix' : next },
+      { elementIds: [element.id], status: toStored(next) },
       'レビュー状態を更新しました'
     )
+    if (ok) {
+      // W7（NFR-012）: レビュー状態変更を Ctrl+Z で戻せるようにする。
+      const elementIds = [element.id]
+      const apply = async (status: string): Promise<void> => {
+        const result = await invoke('intermediate.updateItemStatuses', { uid, elementIds, status })
+        if (!result.ok) throw new Error(result.error.message)
+        await load()
+      }
+      pushUndo({
+        label: `③レビュー状態の変更（${current} → ${next}）`,
+        undo: () => apply(toStored(current)),
+        redo: () => apply(toStored(next))
+      })
+    }
   }
   const removeSelected = async (): Promise<void> => {
     if (selectedIds.size === 0) return

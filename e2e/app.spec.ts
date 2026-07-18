@@ -1794,6 +1794,46 @@ test('ユーザ操作のUndo/Redo（W4 / NFR-012）', async () => {
   await expect(page.getByTestId('stage-source-row-DOC-000002')).toBeVisible()
 })
 
+test('Undo拡張: ③削除の復元とマトリクス関係の取り消し（W7 / NFR-012）', async () => {
+  // ③中間データの論理削除 → Ctrl+Z で intermediate.restore により復元
+  await page.getByTestId('stage-intermediate').click()
+  const intermediateRow = page.getByTestId('stage-intermediate-row-IMDOC-000001')
+  await expect(intermediateRow).toBeVisible()
+  page.once('dialog', (dialog) => void dialog.accept())
+  await intermediateRow.getByRole('button', { name: '削除' }).click()
+  await expect(page.getByTestId('stage-intermediate-row-IMDOC-000001')).toBeHidden()
+  await page.keyboard.press('Control+Z')
+  await expect(page.getByTestId('notifications')).toContainText('元に戻しました')
+  await expect(page.getByTestId('stage-intermediate-row-IMDOC-000001')).toBeVisible()
+
+  // トレースマトリクスの単一セルトグル → Ctrl+Z / Ctrl+Y
+  if (
+    !(await page
+      .getByTestId('trace-sidebar')
+      .isVisible()
+      .catch(() => false))
+  ) {
+    await page.getByTestId('activity-trace').click()
+  }
+  await page.getByTestId('open-matrix').click()
+  await expect(page.getByTestId('trace-matrix')).toBeVisible()
+  await page.getByTestId('trace-matrix-row-scopes').selectOption('design:FUNC')
+  await page.getByTestId('trace-matrix-col-scopes').selectOption('design:REQ')
+  await page.getByTestId('trace-relation-based_on').uncheck()
+  await page.getByTestId('trace-relation-relates_to').check()
+  const cell = page.locator('.trace-matrix-table tbody td').first()
+  await cell.click()
+  await expect(cell).toContainText('→R')
+  await page.keyboard.press('Control+Z')
+  await expect(page.getByTestId('notifications')).toContainText('元に戻しました: マトリクス関係の切替')
+  await expect(cell).not.toContainText('→R')
+  await page.keyboard.press('Control+Y')
+  await expect(page.getByTestId('notifications')).toContainText('やり直しました: マトリクス関係の切替')
+  await expect(cell).toContainText('→R')
+  await page.keyboard.press('Control+Z')
+  await expect(cell).not.toContainText('→R')
+})
+
 test('スクリーンショットを保存する', async () => {
   await page.screenshot({ path: 'test-results/workbench.png' })
 })

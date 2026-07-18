@@ -239,6 +239,43 @@ export function registerIntermediateApi(router: ApiRouter, jobs: JobManager): vo
     eventBus.emit('intermediate.updated', { kind: 'deleted' })
     return { deleted: true }
   })
+
+  /**
+   * 論理削除した③中間データを復元する（W7、NFR-012 Undo）。
+   * 復元で表示中となるため、同一成果物（dev_phase_id + artifact_type_id）の他文書を
+   * アーカイブし、Explorer 表示を最大1件に保つ（アーカイブ復元と同じ排他規則）。
+   */
+  router.register('intermediate.restore', (params) => {
+    const p = asRecord(params)
+    const uid = requireString(p, 'uid')
+    const status = typeof p.status === 'string' && p.status !== 'deleted' ? p.status : 'draft'
+    const { db, info } = requireProject()
+    const target = db
+      .prepare(
+        `SELECT d.dev_phase_id, d.artifact_type_id
+           FROM intermediate_document d JOIN entity_registry e ON e.uid=d.uid
+          WHERE d.uid=? AND e.project_uid=? AND e.status='deleted'`
+      )
+      .get(uid, info.projectUid) as { dev_phase_id: string; artifact_type_id: string } | undefined
+    if (!target) throw new BackendError('not_found', '削除済みの中間データが見つかりません', '')
+    const now = new Date().toISOString()
+    db.transaction(() => {
+      db.prepare(
+        `UPDATE entity_registry SET is_archived=1, updated_by='user', updated_at=?
+          WHERE uid IN (
+            SELECT d.uid FROM intermediate_document d JOIN entity_registry e ON e.uid=d.uid
+             WHERE e.project_uid=? AND e.status <> 'deleted'
+               AND d.dev_phase_id=? AND d.artifact_type_id=? AND d.uid<>?
+          )`
+      ).run(now, info.projectUid, target.dev_phase_id, target.artifact_type_id, uid)
+      db.prepare(
+        `UPDATE entity_registry SET status=?, is_archived=0, updated_by='user', updated_at=?
+          WHERE uid=? AND project_uid=? AND entity_type='intermediate_document' AND status='deleted'`
+      ).run(status, now, uid, info.projectUid)
+    })()
+    eventBus.emit('intermediate.updated', { kind: 'restored' })
+    return { restored: true }
+  })
   router.register('intermediate.get', (params) => {
     const p = asRecord(params)
     const uid = requireString(p, 'uid')

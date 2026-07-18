@@ -313,16 +313,11 @@ export function PipelineStageEditor({ stage }: { stage: PipelineStage }): React.
       )
     )
       return
-    // ③は復元APIが無いため Undo 対象外（アーカイブ運用を案内）。
-    const undoSpec =
-      kind === 'intermediate'
-        ? undefined
-        : {
-            label: `${name} の削除`,
-            undoMethod: `${kind}.restore`,
-            undoParams: { uid, status: previousStatus ?? 'draft' }
-          }
-    void mutate(`${kind}.delete`, { uid }, `${name}を削除しました`, undoSpec)
+    void mutate(`${kind}.delete`, { uid }, `${name}を削除しました`, {
+      label: `${name} の削除`,
+      undoMethod: `${kind}.restore`,
+      undoParams: { uid, status: previousStatus ?? 'draft' }
+    })
   }
 
   const importDocuments = async (): Promise<void> => {
@@ -664,7 +659,12 @@ export function PipelineStageEditor({ stage }: { stage: PipelineStage }): React.
                 void mutate(
                   'intermediate.setArchived',
                   { uid: row.uid, archived: !row.is_archived },
-                  row.is_archived ? 'アーカイブを解除しました' : 'アーカイブしました'
+                  row.is_archived ? 'アーカイブを解除しました' : 'アーカイブしました',
+                  {
+                    label: `${row.code} の${row.is_archived ? 'アーカイブ解除' : 'アーカイブ'}`,
+                    undoMethod: 'intermediate.setArchived',
+                    undoParams: { uid: row.uid, archived: Boolean(row.is_archived) }
+                  }
                 )
               }
               onDelete={(row, artifactName) => confirmDelete('intermediate', row.uid, artifactName)}
