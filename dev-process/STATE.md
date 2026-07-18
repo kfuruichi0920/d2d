@@ -8,7 +8,7 @@
 - 完了: P0〜P13（クリティカルパス完走、MS6 相当まで）
 - 残り: **P14**（性能・オフライン確認・残 TBD-06〜08・パッケージング・商用版）、
   **P5 の他形式抽出**（Excel / PowerPoint / PDF / Visio / テキスト系、EXT-014/015）
-- テスト規模: ユニット 179 件 / pytest 10 件 / E2E 18 件（すべて成功の状態で引き渡し）
+- テスト規模: ユニット 185 件 / pytest 10 件 / E2E 18 件（すべて成功の状態で引き渡し）
 
 ## フェーズ履歴（要点のみ）
 
@@ -42,6 +42,7 @@
 | P9追加        | インパクト分析の列別scroll・全列リンク・Selection連携・DnD・構成保存・複数タブ化（Unit 179／E2E 18） | 本コミット      |
 | P9追加        | 見出しドラッグによる列間隔調整・外側列の連動移動・構成保存（Unit 179／E2E 18）                       | 本コミット      |
 | P3/P7追加     | 中間成果物のShift+上下範囲選択、ウェルカム設計思想・3種Help、検索導線・全ボタンTooltip               | 本コミット      |
+| P10追加       | セマンティック入力支援、構造化参照・正規化履歴・候補検索・辞書登録・関係検証（Unit 185／E2E 18）     | 本コミット      |
 
 ## 恒久制約（違反するとビルド/実行が壊れる、または設計方針違反）
 
@@ -50,19 +51,20 @@
   `npm run rebuild:electron`。※P11 マージ以降 `rebuild:node` スクリプトは無く、
   `postinstall` が rebuild:electron を実行する（npm install 直後は Electron ABI）。
 - **候補と正本の区別は entity_registry.status**（draft=候補 / approved=正本）。
+- **セマンティック入力は表示文章と構造化参照を分離する**。`semantic_text` に外部原文・表示文章・入力欄ポリシー、`semantic_reference` に文字範囲・参照UID・表示方法・関係種別・承認状態、`semantic_normalization_history` に差分・承認・取消履歴を保持する。自動認識は弱い `relates_to` の候補に限定し、承認済み参照だけを関係ルール検証後に `trace_link` へ確定する。辞書候補はスコープ・版・廃止・権限を考慮し、辞書登録は承認待ちで作成する。
 - **抽出由来・共有正本は破壊しない**: 編集・マージ・分割・表編集は新リソース + `based_on` trace_link
   （transform_note = edit / merge / split / edit-table）で由来を残し、旧リソースを保護する。
 - **Main は Gateway/Shell のみ**。業務ロジックは backend/（utilityProcess）に置く。
   safeStorage は Main 専用 → backend からは main-bridge（逆方向 RPC）経由。
 - **API キー等の秘密情報は平文で保存・ログ出力しない**（settings-service が強制）。
-- スキーマ変更は `backend/db/migrations.ts` に追記（バックアップ → DDL → 版数更新）。現在 1.5.0。
+- スキーマ変更は `backend/db/migrations.ts` に追記（バックアップ → DDL → 版数更新）。現在 1.6.0。
 - ②抽出レビューの選択・状態更新・構造プレビュー・Properties は `ReviewElement` 共通契約で実装し、
   Word 固有にしない。今後の Excel / PowerPoint / PDF / Visio / テキスト系も同じ操作体系へ接続する。
 - Python ワーカーは stdin/stdout とも UTF-8 ラップ必須（CP932 化け）。pytest はシステム Python
   （miniconda）で実行（PATH 先頭の venv に pip が無い）。
 - Workbench の文字サイズはツール全体設定 `theme.fontSize`（10〜20px、既定13px）で管理し、通常UIとMonacoへ即時反映する。
 - Primary／Secondary／下段パネルの表示・寸法とSecondaryアコーディオン開閉はWorkbench外周状態として1組だけ保持し、作業モード／①〜④ステージを切り替えても変更しない。再帰的なEditor分割木・分割比・タブ配置はプロジェクト単位（未選択時はglobal）でlocalStorageへ保持する。各境界はポインタと矢印キーで変更でき、領域内の表示超過は必要時だけ縦横スクロールする。
-- SecondaryはWorkbench全体で共通のProperties／Relations／Reviewだけを独立開閉できる縦アコーディオンとする。Propertiesは共通Selectionの選択アイテム属性、Relationsは当該UIDを端点とする`trace_link`の関係種別・相対方向・相手、Reviewはコメントを表示する。コメントは`resource_text(text_role='comment')`として保存し、コメント→選択アイテムの`relates_to`を同一トランザクションで作る。EvidenceはRelationsへ、LLM Candidatesは候補Editor／下段Panelへ集約する。Editorタブは最大220pxで省略表示し、収まらない場合は複数段へ折り返す。タブは分割区分へのドラッグ＆ドロップまたはコマンドで移動する。
+- SecondaryはWorkbench全体で共通のProperties／Relations／Review／Dictionaryを独立開閉できる縦アコーディオンとする。Propertiesは共通Selectionの選択アイテム属性、Relationsは当該UIDを端点とする`trace_link`の関係種別・相対方向・相手、Reviewはコメントを表示する。コメントは`resource_text(text_role='comment')`として保存し、コメント→選択アイテムの`relates_to`を同一トランザクションで作る。EvidenceはRelationsへ、LLM Candidatesは候補Editor／下段Panelへ集約する。Editorタブは最大220pxで省略表示し、収まらない場合は複数段へ折り返す。タブは分割区分へのドラッグ＆ドロップまたはコマンドで移動する。
 - Primary／Secondary／下段PanelはTitle Bar右側ボタンとCommandの双方から表示切替する。Activity BarはSettingsを下端固定し、それ以外のDnD順序をプロジェクト単位に保存する。選択ActivityはPrimary非表示時も選択色を維持する。保存レイアウトがないプロジェクトへ切り替えた場合は、直前プロジェクトの状態を持ち越さずM0既定値へ初期化する。
 - Primary ActivityはExplorer／Search／Trace／Reports／History／Settingsで構成する。Reviewは各編集画面とSecondary、Jobsは下段PanelとStatus Barに集約し、Primary Activityへ戻さない。旧永続値のreview／jobsは読込時にExplorerへ正規化する。
 - Pipeline Navigatorの選択表示はactiveなステージURIだけを基準とし、①〜④を排他的に表示する。①〜④の一覧行は薄青背景で選択を示し、上下矢印で選択行を移動、Enter／Spaceでクリックと同じ操作を実行する。④モデルは単一クリックで開く。①〜③の一覧／プレビュー境界は共通 `ResizablePaneGroup` で変更する。

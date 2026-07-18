@@ -64,6 +64,9 @@ describe('createDatabase / openDatabase（P1-1）', () => {
       'resource_metadata',
       'resource_glossary',
       'resource_glossary_synonym',
+      'semantic_text',
+      'semantic_reference',
+      'semantic_normalization_history',
       'trace_link',
       'relation_rule_master',
       'llm_run_ref',
@@ -74,7 +77,7 @@ describe('createDatabase / openDatabase（P1-1）', () => {
     }
     expect(tables).toContain('fts_entity_text')
 
-    expect(getSchemaVersion(db)).toBe('1.5.0')
+    expect(getSchemaVersion(db)).toBe('1.6.0')
     expect(getProjectRow(db).name).toBe('テスト')
     checkIntegrity(db) // 例外が出ないこと
   })
@@ -113,7 +116,7 @@ describe('createDatabase / openDatabase（P1-1）', () => {
     closeDatabase(created)
 
     db = openDatabase(path)
-    expect(getSchemaVersion(db)).toBe('1.5.0')
+    expect(getSchemaVersion(db)).toBe('1.6.0')
   })
 
   it('存在しない DB を開くと not_found エラーになる', () => {

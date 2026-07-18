@@ -20,9 +20,9 @@ export const WORK_MODES: { mode: WorkMode; label: string }[] = [
 export type Activity = 'explorer' | 'search' | 'trace' | 'reports' | 'history' | 'settings'
 export const DEFAULT_ACTIVITY_ORDER: Activity[] = ['explorer', 'search', 'trace', 'reports', 'history', 'settings']
 export type PanelTab = 'problems' | 'output' | 'jobs' | 'search' | 'validation' | 'llm'
-export type SecondaryTab = 'properties' | 'relations' | 'review'
+export type SecondaryTab = 'properties' | 'relations' | 'review' | 'dictionary'
 
-const ALL_SECONDARY_SECTIONS: SecondaryTab[] = ['properties', 'relations', 'review']
+const ALL_SECONDARY_SECTIONS: SecondaryTab[] = ['properties', 'relations', 'review', 'dictionary']
 
 export interface ModeLayout {
   activity: Activity

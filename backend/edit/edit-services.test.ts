@@ -46,9 +46,9 @@ describe('P10 編集機能', () => {
     rmSync(dir, { recursive: true, force: true })
   })
 
-  it('マイグレーション 1.5.0: 新規 DB は最新版の表セルとアーカイブ列を持つ', () => {
-    expect(LATEST_SCHEMA_VERSION).toBe('1.5.0')
-    expect(getSchemaVersion(db)).toBe('1.5.0')
+  it('マイグレーション 1.6.0: 新規 DB は最新版の表セル・アーカイブ列・セマンティック表を持つ', () => {
+    expect(LATEST_SCHEMA_VERSION).toBe('1.6.0')
+    expect(getSchemaVersion(db)).toBe('1.6.0')
     const table = db
       .prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'resource_table_cell'`)
       .get()
@@ -57,7 +57,7 @@ describe('P10 編集機能', () => {
     expect(columns.some((column) => column.name === 'is_archived')).toBe(true)
   })
 
-  it('マイグレーション: 1.0.0 の既存 DB を開くと 1.5.0 へ移行しバックアップを作る', () => {
+  it('マイグレーション: 1.0.0 の既存 DB を開くと 1.6.0 へ移行しバックアップを作る', () => {
     // 1.0.0 状態を再現（テーブル削除 + 版数戻し）
     const path = join(dir, 'old.db')
     const oldDb = createDatabase(path, { projectName: 'old' })
@@ -68,7 +68,7 @@ describe('P10 編集機能', () => {
     closeDatabase(oldDb)
 
     const migrated = openDatabase(path)
-    expect(getSchemaVersion(migrated)).toBe('1.5.0')
+    expect(getSchemaVersion(migrated)).toBe('1.6.0')
     expect(migrated.prepare(`SELECT name FROM sqlite_master WHERE name = 'resource_table_cell'`).get()).toBeTruthy()
     const columns = migrated.prepare(`PRAGMA table_info(entity_registry)`).all() as { name: string }[]
     expect(columns.some((column) => column.name === 'is_archived')).toBe(true)

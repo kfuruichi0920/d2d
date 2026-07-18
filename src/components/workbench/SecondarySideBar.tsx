@@ -12,7 +12,8 @@ import { useWorkbenchStore, type SecondaryTab } from '../../stores/workbench-sto
 const SECTIONS: { id: SecondaryTab; label: string }[] = [
   { id: 'properties', label: 'Properties' },
   { id: 'relations', label: 'Relations' },
-  { id: 'review', label: 'Review' }
+  { id: 'review', label: 'Review' },
+  { id: 'dictionary', label: 'Dictionary' }
 ]
 
 interface RelationRow {
@@ -90,6 +91,7 @@ export function SecondarySideBar(): React.JSX.Element {
                     {section.id === 'properties' && <PropertiesContent target={target} />}
                     {section.id === 'relations' && <RelationsContent target={target} openResource={openResource} />}
                     {section.id === 'review' && <ReviewContent target={target} />}
+                    {section.id === 'dictionary' && <DictionaryContent openResource={openResource} />}
                   </div>
                 )}
               </section>
@@ -276,6 +278,100 @@ function ReviewContent({ target }: { target: SelectedItem | null }): React.JSX.E
           ))
         )}
       </div>
+    </div>
+  )
+}
+
+interface DictionaryCandidate {
+  uid: string
+  code: string
+  title: string
+  definition: string | null
+  category: string | null
+}
+function DictionaryContent({
+  openResource
+}: {
+  openResource: (uri: string, title: string) => void
+}): React.JSX.Element {
+  const [query, setQuery] = useState('')
+  const [results, setResults] = useState<DictionaryCandidate[]>([])
+  const [tooBroad, setTooBroad] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const notify = useJobsStore((state) => state.notify)
+  useEffect(() => {
+    let active = true
+    const timer = window.setTimeout(async () => {
+      if (!query.trim()) {
+        setResults([])
+        setTooBroad(false)
+        return
+      }
+      const result = await invoke<{ tooBroad: boolean; groups: { glossary: DictionaryCandidate[] } }>(
+        'semantic.search',
+        {
+          prefix: query,
+          policy: { candidateKinds: ['glossary'], minimumPrefixLength: 1, maximumCandidates: 50 }
+        }
+      )
+      if (active && result.ok) {
+        setResults(result.result.groups.glossary)
+        setTooBroad(result.result.tooBroad)
+      }
+    }, 120)
+    return () => {
+      active = false
+      window.clearTimeout(timer)
+    }
+  }, [query])
+  const register = async (): Promise<void> => {
+    if (!query.trim()) return
+    setSaving(true)
+    const result = await invoke<{ uid: string }>('glossary.addTerm', { term: query.trim() })
+    setSaving(false)
+    if (!result.ok) return notify('error', '辞書候補を登録できません', result.error.message)
+    notify('info', `「${query.trim()}」を承認待ちの辞書候補として登録しました`)
+    setQuery('')
+  }
+  return (
+    <div className="secondary-dictionary" data-testid="secondary-dictionary">
+      <label htmlFor="secondary-dictionary-query">辞書の前方一致検索</label>
+      <input
+        id="secondary-dictionary-query"
+        value={query}
+        onChange={(event) => setQuery(event.target.value)}
+        placeholder="用語を入力"
+        data-testid="secondary-dictionary-query"
+      />
+      {tooBroad && <small>検索語を追加してください</small>}
+      <ul>
+        {results.map((term) => (
+          <li key={term.uid}>
+            <button
+              type="button"
+              title={`${term.code}\n${term.definition ?? ''}`}
+              onClick={() => openResource('glossary://workspace', term.title)}
+            >
+              <b>{term.title}</b>
+              <small>
+                {term.code} / {term.category ?? '未分類'}
+              </small>
+              {term.definition && <span>{term.definition}</span>}
+            </button>
+          </li>
+        ))}
+      </ul>
+      {query.trim() && !tooBroad && results.length === 0 && (
+        <button
+          type="button"
+          className="d2d-btn primary"
+          disabled={saving}
+          onClick={() => void register()}
+          data-testid="secondary-dictionary-register"
+        >
+          {saving ? '登録中…' : `「${query.trim()}」を辞書候補に登録`}
+        </button>
+      )}
     </div>
   )
 }

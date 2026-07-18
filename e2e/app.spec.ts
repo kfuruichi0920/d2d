@@ -1426,7 +1426,6 @@ test('編集機能: 用語集・状態遷移・表編集・検証編集（P10）
   await page.getByTestId('glossary-add').click()
   await expect(page.getByTestId('glossary-term-GLOSS-000001')).toBeVisible()
   await page.getByTestId('approve-GLOSS-000001').click()
-
   // ③から候補抽出（EDIT-051/055）
   await page.getByTestId('glossary-extract').click()
   await expect(page.getByTestId('glossary-candidates')).toBeVisible()
@@ -1435,6 +1434,10 @@ test('編集機能: 用語集・状態遷移・表編集・検証編集（P10）
   await page.getByTestId('intermediate-doc-IMDOC-000001').click()
   await expect(page.getByTestId('intermediate-editor')).toBeVisible()
   await expect(page.getByTestId('intermediate-markdown').locator('mark.d2d-term').first()).toHaveText('対象項目')
+  const semanticTerm = await page.evaluate(async () =>
+    window.api.invoke('glossary.addTerm', { term: 'モックLLM応答', definition: 'LLMによる候補文章', approved: true })
+  )
+  expect(semanticTerm).toMatchObject({ ok: true })
 
   // --- 表編集（P10-2）: セル修正→保存→Markdown へ反映（EDIT-022） ---
   const tableRow = page
@@ -1449,6 +1452,35 @@ test('編集機能: 用語集・状態遷移・表編集・検証編集（P10）
   await expect(page.getByTestId('resource-edit-dialog')).toHaveCount(0)
   await expect(page.getByTestId('intermediate-markdown')).toContainText('150ms以内')
 
+  // --- セマンティック入力支援（P10-7）: 既存文認識→承認→構造化検証→保存
+  const semanticRow = page
+    .getByTestId('intermediate-grid')
+    .getByRole('row')
+    .filter({ hasText: 'モックLLM応答' })
+    .first()
+  await semanticRow.dblclick()
+  await expect(page.getByTestId('resource-edit-dialog')).toBeVisible()
+  const semanticInput = page.getByTestId('semantic-input-text_body')
+  await expect(semanticInput).toBeVisible()
+  await expect(semanticInput.getByText('構造化参照')).toBeVisible()
+  await expect(semanticInput.getByRole('button', { name: '承認済み', exact: true }).first()).toBeVisible()
+  await semanticInput.getByRole('button', { name: '既存文を解析', exact: true }).click()
+  await semanticInput.getByRole('button', { name: '承認', exact: true }).first().click()
+  await semanticInput.getByRole('button', { name: 'プレビュー', exact: true }).click()
+  await expect(semanticInput.locator('.semantic-mark').first()).toBeVisible()
+  await semanticInput.getByRole('button', { name: '構造化データ', exact: true }).click()
+  await semanticInput.getByRole('button', { name: '検証して反映', exact: true }).click()
+  await expect(semanticInput).toContainText('検証に成功')
+  await page.getByTestId('resource-save').click()
+  await expect(page.getByTestId('resource-edit-dialog')).toHaveCount(0)
+
+  // Secondary Dictionary: 前方一致0件から承認待ち候補を直接登録
+  const dictionarySection = page.getByTestId('secondary-tab-dictionary')
+  if ((await dictionarySection.getAttribute('aria-expanded')) !== 'true') await dictionarySection.click()
+  await page.getByTestId('secondary-dictionary-query').fill('セマンティック未登録語')
+  await expect(page.getByTestId('secondary-dictionary-register')).toBeVisible()
+  await page.getByTestId('secondary-dictionary-register').click()
+  await expect(page.getByTestId('notifications')).toContainText('承認待ちの辞書候補')
   // --- 状態遷移（P10-4）: 作成→状態/イベント/遷移追加→検出→シミュレーション ---
   await page.getByTestId('stage-design').click()
   await page.getByTestId('add-state-machine').click()
