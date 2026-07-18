@@ -34,6 +34,7 @@ import { registerResourceApi } from './api/resource'
 import { parseLlmMergeCandidate, RESOURCE_TYPE_DEFINITIONS } from './resource/resource-service'
 import { createArchive } from './export/archive-service'
 import { registerReportApi, toReportOptions } from './api/report'
+import { registerSemanticApi } from './api/semantic'
 import { buildReportMarkdown, generateReport } from './report/report-service'
 import { getChunkText } from './intermediate/intermediate-service'
 import { validateCandidateOutput } from './llm/candidate-validation'
@@ -442,6 +443,7 @@ function main(): void {
   registerReportApi(router, jobs)
   registerSearchApi(router, settings)
   registerResourceApi(router, jobs)
+  registerSemanticApi(router, settings)
   registerDbToTextHook()
 
   // Backend 内イベントを Renderer へ転送する（CORE-030〜032）

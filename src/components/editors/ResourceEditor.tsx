@@ -7,6 +7,8 @@ import { invoke } from '../../services/backend'
 import { useJobsStore } from '../../stores/jobs-store'
 import { useSelectionStore } from '../../stores/selection-store'
 import { ResizablePaneGroup } from '../workbench/ResizablePaneGroup'
+import { SemanticTextInput } from '../common/SemanticTextInput'
+import type { SemanticDocument } from '../../types/semantic'
 
 interface FieldDefinition {
   name: string
@@ -74,12 +76,18 @@ function ResourceFields({
   definition,
   values,
   readonly = false,
-  onChange
+  onChange,
+  ownerUid,
+  semanticDocuments = {},
+  onSemanticChange
 }: {
   definition: TypeDefinition
   values: Record<string, string | number>
   readonly?: boolean
   onChange?: (values: Record<string, string | number>) => void
+  ownerUid?: string
+  semanticDocuments?: Record<string, SemanticDocument>
+  onSemanticChange?: (fieldName: string, document: SemanticDocument) => void
 }): React.JSX.Element {
   const update = (name: string, value: string): void => onChange?.({ ...values, [name]: value })
   return (
@@ -104,6 +112,17 @@ function ResourceFields({
                 </option>
               ))}
             </select>
+          ) : !readonly &&
+            ownerUid &&
+            (field.kind === 'text' || field.kind === 'multiline') &&
+            semanticDocuments[field.name] ? (
+            <SemanticTextInput
+              document={semanticDocuments[field.name]!}
+              multiline={field.kind === 'multiline'}
+              testId={`resource-field-${field.name}`}
+              onChange={(value) => update(field.name, value)}
+              onDocumentChange={(document) => onSemanticChange?.(field.name, document)}
+            />
           ) : field.kind === 'multiline' || field.kind === 'json' ? (
             <textarea
               value={values[field.name] ?? ''}
@@ -142,6 +161,7 @@ export function ResourceEditor({
   const [data, setData] = useState<ResourceData | null>(null)
   const [targetType, setTargetType] = useState('')
   const [values, setValues] = useState<Record<string, string | number>>({})
+  const [semanticDocuments, setSemanticDocuments] = useState<Record<string, SemanticDocument>>({})
   const [sources, setSources] = useState<MergeSource[]>([])
   const [sourceValues, setSourceValues] = useState<Record<string, Record<string, string | number>>>({})
   const [warnings, setWarnings] = useState<string[]>([])
@@ -153,7 +173,26 @@ export function ResourceEditor({
   const notify = useJobsStore((state) => state.notify)
   const setSelectedItem = useSelectionStore((state) => state.setSelectedItem)
   const clearSelectedItem = useSelectionStore((state) => state.clearSelectedItem)
-
+  const loadSemanticDocuments = useCallback(
+    async (ownerUid: string, definition: TypeDefinition, source: Record<string, unknown>) => {
+      const fields = definition.fields.filter((field) => field.kind === 'text' || field.kind === 'multiline')
+      const results = await Promise.all(
+        fields.map(async (field) => {
+          const fallbackText = String(source[field.name] ?? field.defaultValue ?? '')
+          const result = await invoke<SemanticDocument>('semantic.get', {
+            ownerUid,
+            fieldName: field.name,
+            fallbackText
+          })
+          return [field.name, result.ok ? result.result : null] as const
+        })
+      )
+      setSemanticDocuments(
+        Object.fromEntries(results.filter((entry): entry is readonly [string, SemanticDocument] => entry[1] !== null))
+      )
+    },
+    []
+  )
   useEffect(() => {
     if (embedded || !data) return
     const contextUri = `resource://${currentUid}`
@@ -192,6 +231,7 @@ export function ResourceEditor({
     setTargetType(resource.type)
     const definition = resource.definitions.find((candidate) => candidate.type === resource.type)!
     setValues(initialValues(definition, resource.values))
+    await loadSemanticDocuments(resource.uid, definition, resource.values)
     const mergeSources = contextResult?.ok ? contextResult.result.sources : []
     setSources(mergeSources)
     const allSources: MergeSource[] = [
@@ -217,7 +257,7 @@ export function ResourceEditor({
     setWarnings([])
     setMergeMode('edit-resource')
     setLlmRunUid(undefined)
-  }, [context, currentUid, notify])
+  }, [context, currentUid, loadSemanticDocuments, notify])
   useEffect(() => void load(), [load])
   useEffect(() => setCurrentUid(resourceUid), [resourceUid])
 
@@ -259,7 +299,9 @@ export function ResourceEditor({
     const next = data.definitions.find((candidate) => candidate.type === type)
     if (!next) return
     setTargetType(type)
-    setValues(initialValues(next, type === data.type ? data.values : undefined))
+    const nextValues = initialValues(next, type === data.type ? data.values : undefined)
+    setValues(nextValues)
+    void loadSemanticDocuments(data.uid, next, nextValues)
     setWarnings([])
     setMergeMode('edit-resource')
     setLlmRunUid(undefined)
@@ -311,6 +353,28 @@ export function ResourceEditor({
   }
   const submit = async (): Promise<void> => {
     if (!data || !definition) return
+    const textFields = definition.fields.filter((field) => field.kind === 'text' || field.kind === 'multiline')
+    const documents = textFields
+      .map((field) => semanticDocuments[field.name])
+      .filter((document): document is SemanticDocument => document !== undefined)
+      .map((document) => ({ ...document, displayText: String(values[document.fieldName] ?? document.displayText) }))
+    for (const document of documents) {
+      const validation = await invoke('semantic.validateStructured', {
+        ownerUid: data.uid,
+        fieldName: document.fieldName,
+        json: JSON.stringify({
+          schemaVersion: 1,
+          originalText: document.originalText,
+          displayText: document.displayText,
+          policy: document.policy,
+          references: document.references
+        })
+      })
+      if (!validation.ok) {
+        notify('error', `${document.fieldName} のセマンティック参照を保存できません`, validation.error.message)
+        return
+      }
+    }
     setSaving(true)
     const result = await invoke<{
       uid: string
@@ -330,6 +394,15 @@ export function ResourceEditor({
     setSaving(false)
     setConfirming(false)
     if (!result.ok) return notify('error', 'Resourceを保存できません', result.error.message)
+    for (const document of documents) {
+      const semanticResult = await invoke('semantic.save', {
+        document: { ...document, ownerUid: result.result.uid, history: undefined }
+      })
+      if (!semanticResult.ok) {
+        notify('error', `${document.fieldName} の構造化参照を保存できません`, semanticResult.error.message)
+        return
+      }
+    }
     const message =
       result.result.saveMode === 'updated'
         ? `${definition.label} Resourceを同じIDへ上書きしました`
@@ -436,7 +509,16 @@ export function ResourceEditor({
               ))}
             </div>
           )}
-          <ResourceFields definition={definition} values={values} onChange={setValues} />
+          <ResourceFields
+            definition={definition}
+            values={values}
+            onChange={setValues}
+            ownerUid={data.uid}
+            semanticDocuments={semanticDocuments}
+            onSemanticChange={(fieldName, document) =>
+              setSemanticDocuments((current) => ({ ...current, [fieldName]: document }))
+            }
+          />
           <div className="resource-editor-actions">
             <button
               type="button"

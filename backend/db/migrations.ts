@@ -101,6 +101,76 @@ export const MIGRATIONS: Migration[] = [
         'CREATE INDEX IF NOT EXISTS idx_entity_registry_archive ON entity_registry(project_uid, entity_type, is_archived, status);'
       )
     }
+  },
+  {
+    // P10-7 / EDIT-057〜071: 表示文章と構造化参照、正規化履歴を分離して保持する。
+    version: '1.6.0',
+    description: 'セマンティック入力支援データの追加（EDIT-057〜071）',
+    apply(db) {
+      const glossaryColumns = db.prepare('PRAGMA table_info(resource_glossary)').all() as { name: string }[]
+      if (!glossaryColumns.some((column) => column.name === 'dictionary_scope'))
+        db.exec("ALTER TABLE resource_glossary ADD COLUMN dictionary_scope TEXT NOT NULL DEFAULT 'project';")
+      if (!glossaryColumns.some((column) => column.name === 'version_tag'))
+        db.exec("ALTER TABLE resource_glossary ADD COLUMN version_tag TEXT NOT NULL DEFAULT '1';")
+      if (!glossaryColumns.some((column) => column.name === 'is_deprecated'))
+        db.exec(
+          'ALTER TABLE resource_glossary ADD COLUMN is_deprecated INTEGER NOT NULL DEFAULT 0 CHECK (is_deprecated IN (0,1));'
+        )
+      if (!glossaryColumns.some((column) => column.name === 'access_level'))
+        db.exec(
+          "ALTER TABLE resource_glossary ADD COLUMN access_level TEXT NOT NULL DEFAULT 'write' CHECK (access_level IN ('read','write','none'));"
+        )
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS semantic_text (
+          uid TEXT PRIMARY KEY,
+          project_uid TEXT NOT NULL,
+          owner_uid TEXT NOT NULL,
+          field_name TEXT NOT NULL,
+          original_text TEXT NOT NULL,
+          display_text TEXT NOT NULL,
+          policy_json TEXT NOT NULL DEFAULT '{}',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          UNIQUE (owner_uid, field_name),
+          FOREIGN KEY (project_uid) REFERENCES project(uid) ON DELETE CASCADE,
+          FOREIGN KEY (owner_uid) REFERENCES entity_registry(uid) ON DELETE CASCADE
+        );
+        CREATE TABLE IF NOT EXISTS semantic_reference (
+          uid TEXT PRIMARY KEY,
+          semantic_text_uid TEXT NOT NULL,
+          start_offset INTEGER NOT NULL CHECK (start_offset >= 0),
+          end_offset INTEGER NOT NULL CHECK (end_offset > start_offset),
+          surface_text TEXT NOT NULL,
+          target_uid TEXT NOT NULL,
+          target_kind TEXT NOT NULL CHECK (target_kind IN ('glossary', 'model')),
+          display_mode TEXT NOT NULL CHECK (display_mode IN ('link', 'string', 'id', 'uid')),
+          relation_type TEXT NOT NULL DEFAULT 'relates_to',
+          status TEXT NOT NULL DEFAULT 'candidate' CHECK (status IN ('candidate', 'approved', 'rejected')),
+          source TEXT NOT NULL DEFAULT 'user' CHECK (source IN ('user', 'dictionary', 'morphology', 'llm')),
+          confidence REAL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          FOREIGN KEY (semantic_text_uid) REFERENCES semantic_text(uid) ON DELETE CASCADE,
+          FOREIGN KEY (target_uid) REFERENCES entity_registry(uid)
+        );
+        CREATE TABLE IF NOT EXISTS semantic_normalization_history (
+          uid TEXT PRIMARY KEY,
+          semantic_text_uid TEXT NOT NULL,
+          before_text TEXT NOT NULL,
+          after_text TEXT NOT NULL,
+          method TEXT NOT NULL CHECK (method IN ('mechanical', 'dictionary', 'llm', 'user')),
+          status TEXT NOT NULL CHECK (status IN ('candidate', 'approved', 'rejected', 'reverted')),
+          detail_json TEXT NOT NULL DEFAULT '{}',
+          created_at TEXT NOT NULL,
+          decided_at TEXT,
+          FOREIGN KEY (semantic_text_uid) REFERENCES semantic_text(uid) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_semantic_text_owner ON semantic_text(owner_uid, field_name);
+        CREATE INDEX IF NOT EXISTS idx_semantic_reference_text ON semantic_reference(semantic_text_uid, start_offset);
+        CREATE INDEX IF NOT EXISTS idx_semantic_reference_target ON semantic_reference(target_uid, status, updated_at);
+        CREATE INDEX IF NOT EXISTS idx_semantic_history_text ON semantic_normalization_history(semantic_text_uid, created_at);
+      `)
+    }
   }
 ]
 

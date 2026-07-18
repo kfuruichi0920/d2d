@@ -20,9 +20,9 @@ export const WORK_MODES: { mode: WorkMode; label: string }[] = [
 export type Activity = 'explorer' | 'search' | 'trace' | 'reports' | 'history' | 'settings'
 export const DEFAULT_ACTIVITY_ORDER: Activity[] = ['explorer', 'search', 'trace', 'reports', 'history', 'settings']
 export type PanelTab = 'problems' | 'output' | 'jobs' | 'search' | 'validation' | 'llm'
-export type SecondaryTab = 'properties' | 'relations' | 'review'
+export type SecondaryTab = 'properties' | 'relations' | 'review' | 'dictionary'
 
-const ALL_SECONDARY_SECTIONS: SecondaryTab[] = ['properties', 'relations', 'review']
+export const SECONDARY_SECTION_ORDER: SecondaryTab[] = ['properties', 'relations', 'review', 'dictionary']
 
 export interface ModeLayout {
   activity: Activity
@@ -49,7 +49,7 @@ function modeLayout(
     sideBarVisible: true,
     secondaryVisible,
     secondaryTab,
-    secondaryExpanded: [...ALL_SECONDARY_SECTIONS],
+    secondaryExpanded: [...SECONDARY_SECTION_ORDER],
     panelVisible,
     panelTab,
     primarySize: 260,
@@ -263,12 +263,12 @@ export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
       const layout: ModeLayout = {
         ...MODE_DEFAULT_LAYOUTS.M0,
         ...saved,
-        secondaryTab: ALL_SECONDARY_SECTIONS.includes(saved?.secondaryTab as SecondaryTab)
+        secondaryTab: SECONDARY_SECTION_ORDER.includes(saved?.secondaryTab as SecondaryTab)
           ? (saved?.secondaryTab as SecondaryTab)
           : 'properties',
         secondaryExpanded:
           saved?.secondaryExpanded?.filter((section): section is SecondaryTab =>
-            ALL_SECONDARY_SECTIONS.includes(section as SecondaryTab)
+            SECONDARY_SECTION_ORDER.includes(section as SecondaryTab)
           ) ?? MODE_DEFAULT_LAYOUTS.M0.secondaryExpanded,
         activity: saved?.activity && DEFAULT_ACTIVITY_ORDER.includes(saved.activity) ? saved.activity : 'explorer'
       }

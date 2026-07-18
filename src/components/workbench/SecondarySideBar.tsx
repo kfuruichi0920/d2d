@@ -1,19 +1,21 @@
 /**
  * Workbench共通Secondary Side Bar（P3-9、UI-026/040、sdd_ui_design §11）。
- * Properties／Relations／Reviewを現在のSelectionへ同期する。
+ * Properties／Relations／Reviewを現在のSelectionへ同期し、Dictionaryを固定順で表示する。
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { invoke, onBackendEvent } from '../../services/backend'
 import { useEditorStore } from '../../stores/editor-store'
 import { useJobsStore } from '../../stores/jobs-store'
 import { useSelectionStore, type SelectedItem } from '../../stores/selection-store'
-import { useWorkbenchStore, type SecondaryTab } from '../../stores/workbench-store'
+import { SECONDARY_SECTION_ORDER, useWorkbenchStore, type SecondaryTab } from '../../stores/workbench-store'
 
-const SECTIONS: { id: SecondaryTab; label: string }[] = [
-  { id: 'properties', label: 'Properties' },
-  { id: 'relations', label: 'Relations' },
-  { id: 'review', label: 'Review' }
-]
+const SECTION_LABELS: Record<SecondaryTab, string> = {
+  properties: 'Properties',
+  relations: 'Relations',
+  review: 'Review',
+  dictionary: 'Dictionary'
+}
+const SECTIONS = SECONDARY_SECTION_ORDER.map((id) => ({ id, label: SECTION_LABELS[id] }))
 
 interface RelationRow {
   uid: string
@@ -65,36 +67,35 @@ export function SecondarySideBar(): React.JSX.Element {
   return (
     <aside className="wb-secondary" data-testid="secondary-sidebar">
       <div className="wb-secondary-accordions">
-        {[...SECTIONS]
-          .sort((a, b) => Number(expanded.includes(b.id)) - Number(expanded.includes(a.id)))
-          .map((section) => {
-            const open = expanded.includes(section.id)
-            return (
-              <section
-                key={section.id}
-                className={'wb-secondary-accordion ' + (activeSection === section.id ? 'active' : '')}
-                data-testid={'secondary-accordion-' + section.id}
+        {SECTIONS.map((section) => {
+          const open = expanded.includes(section.id)
+          return (
+            <section
+              key={section.id}
+              className={'wb-secondary-accordion ' + (activeSection === section.id ? 'active' : '')}
+              data-testid={'secondary-accordion-' + section.id}
+            >
+              <button
+                type="button"
+                className="wb-secondary-accordion-header"
+                aria-expanded={open}
+                onClick={() => toggleSection(section.id)}
+                data-testid={'secondary-tab-' + section.id}
               >
-                <button
-                  type="button"
-                  className="wb-secondary-accordion-header"
-                  aria-expanded={open}
-                  onClick={() => toggleSection(section.id)}
-                  data-testid={'secondary-tab-' + section.id}
-                >
-                  <span>{open ? '▾' : '▸'}</span>
-                  {section.label}
-                </button>
-                {open && (
-                  <div className="wb-secondary-accordion-body">
-                    {section.id === 'properties' && <PropertiesContent target={target} />}
-                    {section.id === 'relations' && <RelationsContent target={target} openResource={openResource} />}
-                    {section.id === 'review' && <ReviewContent target={target} />}
-                  </div>
-                )}
-              </section>
-            )
-          })}
+                <span>{open ? '▾' : '▸'}</span>
+                {section.label}
+              </button>
+              {open && (
+                <div className="wb-secondary-accordion-body">
+                  {section.id === 'properties' && <PropertiesContent target={target} />}
+                  {section.id === 'relations' && <RelationsContent target={target} openResource={openResource} />}
+                  {section.id === 'review' && <ReviewContent target={target} />}
+                  {section.id === 'dictionary' && <DictionaryContent openResource={openResource} />}
+                </div>
+              )}
+            </section>
+          )
+        })}
       </div>
     </aside>
   )
@@ -276,6 +277,100 @@ function ReviewContent({ target }: { target: SelectedItem | null }): React.JSX.E
           ))
         )}
       </div>
+    </div>
+  )
+}
+
+interface DictionaryCandidate {
+  uid: string
+  code: string
+  title: string
+  definition: string | null
+  category: string | null
+}
+function DictionaryContent({
+  openResource
+}: {
+  openResource: (uri: string, title: string) => void
+}): React.JSX.Element {
+  const [query, setQuery] = useState('')
+  const [results, setResults] = useState<DictionaryCandidate[]>([])
+  const [tooBroad, setTooBroad] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const notify = useJobsStore((state) => state.notify)
+  useEffect(() => {
+    let active = true
+    const timer = window.setTimeout(async () => {
+      if (!query.trim()) {
+        setResults([])
+        setTooBroad(false)
+        return
+      }
+      const result = await invoke<{ tooBroad: boolean; groups: { glossary: DictionaryCandidate[] } }>(
+        'semantic.search',
+        {
+          prefix: query,
+          policy: { candidateKinds: ['glossary'], minimumPrefixLength: 1, maximumCandidates: 50 }
+        }
+      )
+      if (active && result.ok) {
+        setResults(result.result.groups.glossary)
+        setTooBroad(result.result.tooBroad)
+      }
+    }, 120)
+    return () => {
+      active = false
+      window.clearTimeout(timer)
+    }
+  }, [query])
+  const register = async (): Promise<void> => {
+    if (!query.trim()) return
+    setSaving(true)
+    const result = await invoke<{ uid: string }>('glossary.addTerm', { term: query.trim() })
+    setSaving(false)
+    if (!result.ok) return notify('error', '辞書候補を登録できません', result.error.message)
+    notify('info', `「${query.trim()}」を承認待ちの辞書候補として登録しました`)
+    setQuery('')
+  }
+  return (
+    <div className="secondary-dictionary" data-testid="secondary-dictionary">
+      <label htmlFor="secondary-dictionary-query">辞書の前方一致検索</label>
+      <input
+        id="secondary-dictionary-query"
+        value={query}
+        onChange={(event) => setQuery(event.target.value)}
+        placeholder="用語を入力"
+        data-testid="secondary-dictionary-query"
+      />
+      {tooBroad && <small>検索語を追加してください</small>}
+      <ul>
+        {results.map((term) => (
+          <li key={term.uid}>
+            <button
+              type="button"
+              title={`${term.code}\n${term.definition ?? ''}`}
+              onClick={() => openResource('glossary://workspace', term.title)}
+            >
+              <b>{term.title}</b>
+              <small>
+                {term.code} / {term.category ?? '未分類'}
+              </small>
+              {term.definition && <span>{term.definition}</span>}
+            </button>
+          </li>
+        ))}
+      </ul>
+      {query.trim() && !tooBroad && results.length === 0 && (
+        <button
+          type="button"
+          className="d2d-btn primary"
+          disabled={saving}
+          onClick={() => void register()}
+          data-testid="secondary-dictionary-register"
+        >
+          {saving ? '登録中…' : `「${query.trim()}」を辞書候補に登録`}
+        </button>
+      )}
     </div>
   )
 }
