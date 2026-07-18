@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { DEFAULT_THEME, getWorkbenchColorVariables } from '../theme/theme'
 import { isSemanticEditShortcut } from '../components/common/SemanticTextInput'
+import { composePromptMessages } from '../components/common/LlmRequestDialog'
 import { DEFAULT_ACTIVITY_ORDER, SECONDARY_SECTION_ORDER, useWorkbenchStore } from './workbench-store'
 
 function reset(): void {
@@ -96,5 +97,33 @@ describe('workbench-store（P3-1、UI-038/040）', () => {
     expect(isSemanticEditShortcut('Enter')).toBe(true)
     expect(isSemanticEditShortcut('F2')).toBe(true)
     expect(isSemanticEditShortcut('Space')).toBe(false)
+  })
+})
+describe('LLM共通送信確認（P6-3/P6-4、LLM-024/040）', () => {
+  it('編集したプロンプトでsystemメッセージだけを差し替える', () => {
+    expect(
+      composePromptMessages(
+        [
+          { role: 'system', content: '既定' },
+          { role: 'user', content: '対象本文' }
+        ],
+        '画面別プロンプト'
+      )
+    ).toEqual([
+      { role: 'system', content: '画面別プロンプト' },
+      { role: 'user', content: '対象本文' }
+    ])
+  })
+
+  it('{{body}}へ対象本文を展開して送信内容を構成する', () => {
+    expect(
+      composePromptMessages(
+        [
+          { role: 'system', content: '既定' },
+          { role: 'user', content: '対象本文' }
+        ],
+        '次を分析してください:\n{{body}}'
+      )
+    ).toEqual([{ role: 'user', content: '次を分析してください:\n対象本文' }])
   })
 })

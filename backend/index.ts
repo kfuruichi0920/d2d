@@ -31,14 +31,14 @@ import { registerEditApi } from './api/edit'
 import { registerDataApi, registerDbToTextHook } from './api/data'
 import { registerSearchApi } from './api/search'
 import { registerResourceApi } from './api/resource'
-import { parseLlmMergeCandidate, RESOURCE_TYPE_DEFINITIONS } from './resource/resource-service'
+import { parseLlmMergeCandidate } from './resource/resource-service'
 import { createArchive } from './export/archive-service'
 import { registerReportApi, toReportOptions } from './api/report'
 import { registerSemanticApi } from './api/semantic'
 import { registerLogsApi } from './api/logs'
 import { appendDebugLog } from './logging/debug-log'
 import { buildReportMarkdown, generateReport } from './report/report-service'
-import { getChunkText } from './intermediate/intermediate-service'
+import { buildDesignCandidateMessages, buildResourceMergeMessages } from './llm/request-messages'
 import { validateCandidateOutput } from './llm/candidate-validation'
 import { runLlm } from './llm/llm-service'
 import type { ChatMessage } from './llm/providers'
@@ -158,10 +158,11 @@ function main(): void {
 
   // LLM 実行ジョブ（P6、NFR-003。UI をブロックせず、キャンセル可能）
   jobs.registerExecutor('llm.run', async (params, ctx) => {
-    const { messages, processName, jsonMode } = params as {
+    const { messages, processName, jsonMode, promptTemplateUid } = params as {
       messages: ChatMessage[]
       processName: string
       jsonMode?: boolean
+      promptTemplateUid?: string
     }
     const { db, info } = requireProject()
     ctx.reportProgress(10, 'LLM へ送信中')
@@ -169,7 +170,7 @@ function main(): void {
       db,
       settings,
       { projectUid: info.projectUid, rootPath: info.rootPath },
-      { processName, messages, jsonMode, signal: ctx.signal }
+      { processName, messages, jsonMode, promptTemplateUid, signal: ctx.signal }
     )
     ctx.log('info', `LLM 実行完了: ${result.code}`, {
       inputTokens: result.inputTokens,
@@ -257,27 +258,15 @@ function main(): void {
 
   // ④設計モデル候補生成ジョブ（P8-3、LLM-030〜034、sdd_function_architecture §10.2）
   jobs.registerExecutor('design.generateCandidates', async (params, ctx) => {
-    const { chunkUid } = params as { chunkUid: string }
+    const { chunkUid, messages, promptTemplateUid } = params as {
+      chunkUid: string
+      messages?: ChatMessage[]
+      promptTemplateUid?: string
+    }
     const { db, info } = requireProject()
 
     ctx.reportProgress(10, '入力チャンクを構築中')
-    const chunkText = getChunkText(db, chunkUid)
-    const chunkPrompt =
-      (
-        db.prepare('SELECT additional_prompt FROM chunk WHERE uid=?').get(chunkUid) as
-          { additional_prompt: string } | undefined
-      )?.additional_prompt ?? ''
-
-    const systemPrompt = [
-      'あなたは設計文書から設計モデル候補を抽出するAIです。',
-      '与えられた本文から設計要素候補と関係候補を抽出し、次の JSON だけを出力してください。',
-      '{"elements":[{"temp_id":"t1","category":"REQ","title":"...","description":"...","evidence":"根拠となる本文の抜粋"}],',
-      ' "relations":[{"from_temp_id":"t2","to_temp_id":"t1","relation_type":"satisfies","rationale":"..."}],',
-      ' "warnings":[]}',
-      'category は STD/REQ/CST/FUNC/STRUCT/BEH/STATE/IF/DATA/VERIF/MGMT/IMPL のいずれか。',
-      'relation_type は based_on/satisfies/allocated_to/verifies/contains/decomposes/implements/uses/calls/conflicts_with/relates_to のいずれか。',
-      '関係の from_temp_id / to_temp_id は elements の temp_id を参照すること。'
-    ].join('\n')
+    const requestMessages = messages ?? buildDesignCandidateMessages(db, chunkUid)
 
     ctx.reportProgress(30, 'LLM で候補を生成中')
     const result = await runLlm(
@@ -286,12 +275,10 @@ function main(): void {
       { projectUid: info.projectUid, rootPath: info.rootPath },
       {
         processName: 'design-candidates',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: chunkPrompt ? chunkText + '\n\n追加指示:\n' + chunkPrompt : chunkText }
-        ],
+        messages: requestMessages,
         jsonMode: true,
         inputRefUid: chunkUid,
+        promptTemplateUid,
         signal: ctx.signal
       }
     )
@@ -322,13 +309,14 @@ function main(): void {
   // ZIP アーカイブ生成ジョブ（P12-3、DATA-030。blob 量に応じて長時間化するためジョブ化）
   // Resource EditorのLLMマージ候補。候補を返すだけで正本は保存しない（MID-005）。
   jobs.registerExecutor('resource.mergeCandidate', async (params, ctx) => {
-    const { targetType, sources } = params as {
+    const { targetType, sources, messages, promptTemplateUid } = params as {
       targetType: string
       sources: Array<{ resourceUid?: string; type: string; values: Record<string, unknown> }>
+      messages?: ChatMessage[]
+      promptTemplateUid?: string
     }
     const { db, info } = requireProject()
-    const definition = RESOURCE_TYPE_DEFINITIONS.find((candidate) => candidate.type === targetType)
-    if (!definition) throw new BackendError('validation', `未対応のResource種別です: ${targetType}`, '')
+    const requestMessages = messages ?? buildResourceMergeMessages(targetType, sources)
     ctx.reportProgress(20, 'ResourceのLLMマージ候補を生成中')
     const result = await runLlm(
       db,
@@ -336,23 +324,10 @@ function main(): void {
       { projectUid: info.projectUid, rootPath: info.rootPath },
       {
         processName: 'resource-merge',
-        messages: [
-          {
-            role: 'system',
-            content:
-              'あなたは設計情報の統合支援AIです。入力Resource群を意味を失わずに統合し、指定された出力フィールドだけを持つJSONオブジェクトを返してください。説明やMarkdownは出力しないでください。'
-          },
-          {
-            role: 'user',
-            content: JSON.stringify({
-              targetType,
-              outputFields: definition.fields.map((field) => ({ name: field.name, kind: field.kind })),
-              sources
-            })
-          }
-        ],
+        messages: requestMessages,
         jsonMode: true,
         inputRefUid: sources[0]?.resourceUid,
+        promptTemplateUid,
         signal: ctx.signal
       }
     )

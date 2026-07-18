@@ -11,6 +11,14 @@ import { requireProject } from '../project/project-service'
 import { previewLlm, resolveLlmSettings } from '../llm/llm-service'
 import type { ChatMessage } from '../llm/providers'
 import {
+  buildConnectionTestMessages,
+  buildDesignCandidateMessages,
+  buildResourceMergeMessages,
+  buildSemanticTermMessages,
+  type LlmRequestOperation,
+  type ResourceMergeSource
+} from '../llm/request-messages'
+import {
   getPromptTemplate,
   listPromptTemplates,
   renderTemplate,
@@ -54,13 +62,97 @@ export function registerLlmApi(router: ApiRouter, jobs: JobManager, settings: Se
     return previewLlm(settings, project.info.rootPath, asMessages(p.messages))
   })
 
+  /** 画面別の既定プロンプトと送信本文を構築する。Providerへの送信・ジョブ登録は行わない（LLM-024/040）。 */
+  router.register('llm.prepareRequest', (params) => {
+    const p = asRecord(params)
+    const operation = String(p.operation ?? '') as LlmRequestOperation
+    const context = asRecord(p.context ?? {})
+    const { db } = requireProject()
+    if (operation === 'connection-test') {
+      return {
+        operation,
+        purpose: 'other',
+        processName: 'connection-test',
+        jsonMode: false,
+        messages: buildConnectionTestMessages()
+      }
+    }
+    if (operation === 'semantic-terms') {
+      return {
+        operation,
+        purpose: 'glossary',
+        processName: 'semantic-term-candidates',
+        jsonMode: true,
+        messages: buildSemanticTermMessages(String(context.text ?? ''))
+      }
+    }
+    if (operation === 'design-candidates') {
+      const chunkUid = String(context.chunkUid ?? '')
+      if (!chunkUid) throw new BackendError('validation', 'chunkUidは必須です', '')
+      return {
+        operation,
+        purpose: 'classify',
+        processName: 'design-candidates',
+        jsonMode: true,
+        messages: buildDesignCandidateMessages(db, chunkUid)
+      }
+    }
+    if (operation === 'resource-merge') {
+      const targetType = String(context.targetType ?? '')
+      const sources = Array.isArray(context.sources) ? (context.sources as ResourceMergeSource[]) : []
+      return {
+        operation,
+        purpose: 'other',
+        processName: 'resource-merge',
+        jsonMode: true,
+        messages: buildResourceMergeMessages(targetType, sources)
+      }
+    }
+    throw new BackendError('validation', `未対応のLLM問い合わせです: ${operation}`, '')
+  })
+
+  /** 確認画面で承認済みのメッセージだけを対応ジョブへ登録する（LLM-040）。 */
+  router.register('llm.runConfirmed', (params) => {
+    const p = asRecord(params)
+    const operation = String(p.operation ?? '') as LlmRequestOperation
+    const context = asRecord(p.context ?? {})
+    const messages = asMessages(p.messages)
+    const promptTemplateUid = typeof p.promptTemplateUid === 'string' ? p.promptTemplateUid : undefined
+    requireProject()
+    if (operation === 'connection-test' || operation === 'semantic-terms') {
+      return jobs.enqueue('llm.run', {
+        messages,
+        processName: operation === 'connection-test' ? 'connection-test' : 'semantic-term-candidates',
+        jsonMode: operation === 'semantic-terms',
+        promptTemplateUid
+      })
+    }
+    if (operation === 'design-candidates') {
+      const chunkUid = String(context.chunkUid ?? '')
+      if (!chunkUid) throw new BackendError('validation', 'chunkUidは必須です', '')
+      return jobs.enqueue('design.generateCandidates', { chunkUid, messages, promptTemplateUid })
+    }
+    if (operation === 'resource-merge') {
+      const targetType = String(context.targetType ?? '')
+      const sources = Array.isArray(context.sources) ? (context.sources as ResourceMergeSource[]) : []
+      buildResourceMergeMessages(targetType, sources)
+      return jobs.enqueue('resource.mergeCandidate', { targetType, sources, messages, promptTemplateUid })
+    }
+    throw new BackendError('validation', `未対応のLLM問い合わせです: ${operation}`, '')
+  })
+
   /** LLM 実行をジョブとして開始（NFR-003）。結果は job.output（llmRunUid） */
   router.register('llm.run', (params) => {
     const p = asRecord(params)
     requireProject()
     const messages = asMessages(p.messages)
     const processName = typeof p.processName === 'string' && p.processName ? p.processName : 'adhoc'
-    return jobs.enqueue('llm.run', { messages, processName, jsonMode: p.jsonMode === true })
+    return jobs.enqueue('llm.run', {
+      messages,
+      processName,
+      jsonMode: p.jsonMode === true,
+      promptTemplateUid: typeof p.promptTemplateUid === 'string' ? p.promptTemplateUid : undefined
+    })
   })
 
   /** LLM 実行ログ一覧（LLM-015、Panel LLM Logs） */

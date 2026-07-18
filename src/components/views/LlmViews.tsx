@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { invoke, onBackendEvent } from '../../services/backend'
 import { useEditorStore } from '../../stores/editor-store'
 import { useJobsStore } from '../../stores/jobs-store'
+import { LlmRequestDialog, type LlmRequestMessage, type PreparedLlmRequest } from '../common/LlmRequestDialog'
 
 interface LlmSettings {
   provider: string
@@ -17,21 +18,12 @@ interface LlmSettings {
   externalSendAllowed: boolean
 }
 
-interface LlmPreview {
-  provider: string
-  model: string
-  external: boolean
-  externalSendAllowed: boolean
-  maskedMessages: { role: string; content: string }[]
-  warnings: string[]
-}
-
 const PROVIDERS = ['ollama', 'openai', 'gemini', 'azure']
 
 /** Settings Editor 内の LLM Provider 設定（LLM-005、V-12） */
 export function LlmSettingsSection({ showExternalSend = true }: { showExternalSend?: boolean }): React.JSX.Element {
   const [config, setConfig] = useState<LlmSettings | null>(null)
-  const [preview, setPreview] = useState<LlmPreview | null>(null)
+  const [request, setRequest] = useState<PreparedLlmRequest | null>(null)
   const notify = useJobsStore((s) => s.notify)
 
   const load = useCallback(async () => {
@@ -45,31 +37,35 @@ export function LlmSettingsSection({ showExternalSend = true }: { showExternalSe
 
   const setSetting = async (key: string, value: unknown): Promise<void> => {
     await invoke('settings.set', { key, value })
-    setPreview(null)
+    setRequest(null)
     await load()
   }
 
   const setProjectAllowed = async (allowed: boolean): Promise<void> => {
     const res = await invoke('settings.setProjectSetting', { key: 'llm.externalSendAllowed', value: allowed })
     if (!res.ok) notify('error', 'プロジェクト設定を更新できませんでした', res.error.message)
-    setPreview(null)
+    setRequest(null)
     await load()
   }
 
-  // 送信前確認フロー（LLM-040）: preview → ユーザ確認 → 送信
-  const testMessages = [{ role: 'user', content: 'D2D 接続テストです。「OK」とだけ返答してください。' }]
-
-  const showPreview = async (): Promise<void> => {
-    const res = await invoke<LlmPreview>('llm.preview', { messages: testMessages })
-    if (res.ok) setPreview(res.result)
-    else notify('error', 'プレビューに失敗しました', res.error.message)
+  const openConnectionTest = async (): Promise<void> => {
+    const result = await invoke<PreparedLlmRequest>('llm.prepareRequest', {
+      operation: 'connection-test',
+      context: {}
+    })
+    if (result.ok) setRequest(result.result)
+    else notify('error', '接続テストの確認画面を開けませんでした', result.error.message)
   }
 
-  const sendTest = async (): Promise<void> => {
-    setPreview(null)
-    const res = await invoke('llm.run', { messages: testMessages, processName: 'connection-test' })
-    if (res.ok) notify('info', '接続テストジョブを開始しました（結果は LLM Logs へ）')
-    else notify('error', '接続テストを開始できませんでした', res.error.message)
+  const sendTest = async (messages: LlmRequestMessage[], promptTemplateUid?: string): Promise<void> => {
+    const result = await invoke('llm.runConfirmed', {
+      operation: 'connection-test',
+      context: {},
+      messages,
+      promptTemplateUid
+    })
+    if (result.ok) notify('info', '接続テストジョブを開始しました（結果は LLM Logs へ）')
+    else notify('error', '接続テストを開始できませんでした', result.error.message)
   }
 
   if (!config) return <div className="d2d-empty">読込中…</div>
@@ -156,54 +152,24 @@ export function LlmSettingsSection({ showExternalSend = true }: { showExternalSe
       )}
 
       <div style={{ marginTop: 8 }}>
-        <button type="button" className="d2d-btn" onClick={() => void showPreview()} data-testid="llm-test-button">
+        <button
+          type="button"
+          className="d2d-btn"
+          onClick={() => void openConnectionTest()}
+          data-testid="llm-test-button"
+        >
           接続テスト（送信前確認）
         </button>
       </div>
 
-      {preview && (
-        <div
-          data-testid="llm-preview"
-          style={{
-            marginTop: 8,
-            border: '1px solid var(--d2d-border)',
-            borderLeft: '3px solid var(--d2d-warning)',
-            borderRadius: 'var(--d2d-radius)',
-            padding: 10
-          }}
-        >
-          <div style={{ fontWeight: 700, marginBottom: 4 }}>送信前確認（LLM-040）</div>
-          <dl className="d2d-kv" style={{ padding: 0 }}>
-            <dt>送信先</dt>
-            <dd>
-              {preview.provider} / {preview.model}（{preview.external ? '外部' : 'ローカル'}）
-            </dd>
-            <dt>送信内容</dt>
-            <dd>
-              <pre style={{ margin: 0, whiteSpace: 'pre-wrap', fontSize: 11 }}>
-                {preview.maskedMessages.map((m) => `[${m.role}] ${m.content}`).join('\n')}
-              </pre>
-            </dd>
-          </dl>
-          {preview.warnings.map((w, i) => (
-            <div key={i} style={{ color: 'var(--d2d-warning)', fontSize: 11.5 }}>
-              ⚠ {w}
-            </div>
-          ))}
-          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-            <button
-              type="button"
-              className="d2d-btn primary"
-              onClick={() => void sendTest()}
-              data-testid="llm-send-button"
-            >
-              送信する
-            </button>
-            <button type="button" className="d2d-btn" onClick={() => setPreview(null)}>
-              キャンセル
-            </button>
-          </div>
-        </div>
+      {request && (
+        <LlmRequestDialog
+          request={request}
+          screenId="settings.connection-test"
+          title="LLM接続テスト"
+          onClose={() => setRequest(null)}
+          onConfirmed={sendTest}
+        />
       )}
     </div>
   )
@@ -278,10 +244,12 @@ export function LlmRunViewer({ uid }: { uid: string }): React.JSX.Element {
         raw_response_text: string | null
         error_detail: string | null
         input_ref_uid: string | null
+        prompt_template_uid: string | null
       })
     | null
   >(null)
   const notify = useJobsStore((s) => s.notify)
+  const [retryRequest, setRetryRequest] = useState<PreparedLlmRequest | null>(null)
 
   useEffect(() => {
     void invoke<typeof run>('llm.getRun', { uid }).then((res) => {
@@ -289,8 +257,35 @@ export function LlmRunViewer({ uid }: { uid: string }): React.JSX.Element {
     })
   }, [uid])
 
-  const retry = async (): Promise<void> => {
-    const result = await invoke('llm.retryRun', { uid })
+  const openRetry = (): void => {
+    if (!run?.prompt_text) {
+      notify('error', '候補を再作成できませんでした', '保存済みの送信内容がありません')
+      return
+    }
+    try {
+      const messages = run.prompt_text
+        .split(/\r?\n/)
+        .filter(Boolean)
+        .map((line) => JSON.parse(line) as LlmRequestMessage)
+      setRetryRequest({
+        operation: 'design-candidates',
+        purpose: 'classify',
+        processName: 'design-candidates',
+        jsonMode: true,
+        messages
+      })
+    } catch {
+      notify('error', '候補を再作成できませんでした', '保存済みの送信内容を解釈できません')
+    }
+  }
+
+  const retry = async (messages: LlmRequestMessage[], promptTemplateUid?: string): Promise<void> => {
+    const result = await invoke('llm.runConfirmed', {
+      operation: 'design-candidates',
+      context: { chunkUid: run?.input_ref_uid },
+      messages,
+      promptTemplateUid
+    })
     if (result.ok) notify('info', '候補再作成ジョブを登録しました', 'Jobs Panel で進捗を確認できます')
     else notify('error', '候補を再作成できませんでした', result.error.message)
   }
@@ -331,12 +326,21 @@ export function LlmRunViewer({ uid }: { uid: string }): React.JSX.Element {
         <button
           type="button"
           className="d2d-btn primary small"
-          onClick={() => void retry()}
+          onClick={openRetry}
           title="この実行と同じ入力チャンクで④候補生成ジョブを再実行します"
           data-testid="llm-retry-run"
         >
           このログから候補を再作成
         </button>
+      )}
+      {retryRequest && (
+        <LlmRequestDialog
+          request={retryRequest}
+          screenId="llm-log.design-candidates"
+          title="このログから候補を再作成"
+          onClose={() => setRetryRequest(null)}
+          onConfirmed={retry}
+        />
       )}
       <h2 style={{ fontSize: 13 }}>送信内容（マスキング後）</h2>
       <pre style={preStyle}>{run.prompt_text ?? '（なし）'}</pre>

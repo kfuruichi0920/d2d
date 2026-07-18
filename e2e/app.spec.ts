@@ -430,6 +430,17 @@ test('原本取込→Word抽出→レビュー→②正本確定の全経路（P
   await expect(page.getByTestId('source-doc-DOC-000002')).toBeVisible({ timeout: 15_000 })
   await expect(page.getByTestId('stage-source')).toContainText('2')
   await expect(page.getByTestId('source-doc-DOC-000001')).toHaveAttribute('title', /SHA-256:/)
+  await expect(page.getByTestId('explorer-section-original').locator('summary .d2d-explorer-folder-icon')).toBeVisible()
+  await expect(
+    page.getByTestId('source-doc-DOC-000001').locator('.d2d-explorer-resource-icon.is-original')
+  ).toBeVisible()
+  await expect(page.getByTestId('source-doc-DOC-000001').locator('.d2d-explorer-tags')).toContainText('word')
+  const sourceNameBox = await page
+    .getByTestId('source-doc-DOC-000001')
+    .locator('.d2d-explorer-resource-name')
+    .boundingBox()
+  const sourceTagsBox = await page.getByTestId('source-doc-DOC-000001').locator('.d2d-explorer-tags').boundingBox()
+  expect(sourceTagsBox!.x).toBeGreaterThan(sourceNameBox!.x)
   await expect(page.getByTestId('explorer-section-original')).toHaveAttribute('open', '')
   await page.getByTestId('explorer-section-original').locator('summary').click()
   await expect(page.getByTestId('source-doc-DOC-000001')).toBeHidden()
@@ -1204,6 +1215,17 @@ test('③→④候補生成→候補レビュー→採用の全経路（P8）', 
     await expect(page.getByTestId('chunk-editor')).toBeVisible()
     await page.getByTestId('chunk-editor').locator('.chunk-grid').nth(1).locator('tbody tr').first().click()
     await page.getByRole('button', { name: '④モデル候補生成' }).click()
+    await expect(page.getByTestId('llm-request-dialog')).toBeVisible()
+    await expect(page.getByTestId('candidate-editor')).toHaveCount(0)
+    await page.getByTestId('llm-prompt-save-name').fill('設計候補E2E')
+    await page.getByTestId('llm-prompt-save-version').fill('1.0.0')
+    await page.getByTestId('llm-prompt-save').click()
+    await expect(page.getByTestId('llm-prompt-select')).toContainText('設計候補E2E@1.0.0')
+    await expect(page.getByTestId('llm-send-button')).toBeDisabled()
+    await page.getByTestId('llm-preview-button').click()
+    await expect(page.getByTestId('llm-preview')).toContainText('送信先: ollama')
+    await expect(page.getByTestId('llm-preview')).toContainText('モデル: mock-model')
+    await page.getByTestId('llm-send-button').click()
     await expect(page.getByTestId('candidate-editor')).toBeVisible({ timeout: 60_000 })
 
     // 候補が表形式で表示され、要素名変更が関係 From/To 表示へ追従する（MODEL-008）
@@ -1226,6 +1248,11 @@ test('③→④候補生成→候補レビュー→採用の全経路（P8）', 
     await expect(page.getByTestId('design-el-FUNC-000001')).toBeVisible()
     await expect(page.getByTestId('design-tree')).toHaveAttribute('open', '')
     await expect(page.getByTestId('design-el-REQ-000001')).toHaveAttribute('title', /分類: REQ/)
+    await expect(page.getByTestId('design-tree').locator('summary .d2d-explorer-folder-icon')).toBeVisible()
+    await expect(
+      page.getByTestId('design-el-REQ-000001').locator('.d2d-explorer-resource-icon.is-design')
+    ).toBeVisible()
+    await expect(page.getByTestId('design-el-REQ-000001').locator('.d2d-explorer-tags')).toContainText('REQ')
 
     // Pipeline ④はソート可能なモデル一覧を表示する。
     await page.getByTestId('stage-design').click()
@@ -1454,7 +1481,15 @@ test('トレースクエリ→グラフ→マトリクス→整合性検査（P9
 
   // リスト見出しのDnDで左右順を変更できる。
   const firstScopeBefore = await page.getByTestId('impact-scopes-0').inputValue()
-  await page.getByTestId('impact-column-drag-0').dragTo(page.getByTestId('impact-column-drag-2'))
+  await page.evaluate(() => {
+    const source = document.querySelector<HTMLElement>('[data-testid="impact-column-drag-0"]')!
+    const target = document.querySelector<HTMLElement>('[data-testid="impact-column-drag-2"]')!
+    const transfer = new DataTransfer()
+    source.dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer: transfer }))
+    target.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: transfer }))
+    target.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer }))
+    source.dispatchEvent(new DragEvent('dragend', { bubbles: true, dataTransfer: transfer }))
+  })
   await expect.poll(async () => page.getByTestId('impact-scopes-0').inputValue()).not.toBe(firstScopeBefore)
   // 整合性検査（Problems Panel）: REQ-000001 は verifies 未対応として検出される
   // Status Bar クリックで Panel を確実に開く（Ctrl+@ はトグルのため）
@@ -1949,8 +1984,13 @@ test('LLMログの生送受信表示と候補再作成（W12）', async () => {
   await expect(page.getByTestId('llm-raw-request')).toContainText('"url"')
   await expect(page.getByTestId('llm-raw-response')).toBeVisible()
 
-  // ログから候補再作成ジョブを登録できる
+  // ログからの候補再作成も、送信内容確認と明示承認を経てジョブ登録する
   await page.getByTestId('llm-retry-run').click()
+  await expect(page.getByTestId('llm-request-dialog')).toBeVisible()
+  await expect(page.getByTestId('llm-send-button')).toBeDisabled()
+  await page.getByTestId('llm-preview-button').click()
+  await expect(page.getByTestId('llm-preview')).toContainText('送信前確認')
+  await page.getByTestId('llm-send-button').click()
   await expect(page.getByTestId('notifications')).toContainText('候補再作成ジョブを登録しました')
   // 再作成ジョブの完了を待つ（後続テストへ実行中ジョブを残さない）
   await expect

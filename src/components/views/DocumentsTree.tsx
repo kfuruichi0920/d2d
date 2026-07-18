@@ -2,6 +2,13 @@
  * Explorer の ①原本 / ②抽出データ ツリー（P4-2 / P5-15、UI-010/011）。
  */
 import { useCallback, useEffect, useState } from 'react'
+import {
+  SerendieSymbolArticle,
+  SerendieSymbolData,
+  SerendieSymbolFile,
+  SerendieSymbolFileText,
+  SerendieSymbolFolderFilled
+} from '@serendie/symbols'
 import { invoke, onBackendEvent } from '../../services/backend'
 import { executeCommand } from '../../services/command-registry'
 import { useEditorStore } from '../../stores/editor-store'
@@ -68,6 +75,26 @@ export interface IntermediateDocumentItem {
   sources?: { extracted_document_uid: string; order: number }[]
 }
 
+function ExplorerFolderIcon(): React.JSX.Element {
+  return <SerendieSymbolFolderFilled width={16} height={16} className="d2d-explorer-folder-icon" />
+}
+
+function ExplorerResourceIcon({
+  kind
+}: {
+  kind: 'original' | 'extracted' | 'intermediate' | 'source'
+}): React.JSX.Element {
+  const Icon =
+    kind === 'original'
+      ? SerendieSymbolFile
+      : kind === 'extracted'
+        ? SerendieSymbolData
+        : kind === 'intermediate'
+          ? SerendieSymbolArticle
+          : SerendieSymbolFileText
+  return <Icon width={15} height={15} className={`d2d-explorer-resource-icon is-${kind}`} />
+}
+
 export function DocumentsTree(): React.JSX.Element {
   const [sources, setSources] = useState<SourceDocumentItem[]>([])
   const [extracted, setExtracted] = useState<ExtractedDocumentItem[]>([])
@@ -131,6 +158,7 @@ export function DocumentsTree(): React.JSX.Element {
     <div data-testid="documents-tree">
       <details open className="d2d-explorer-section" data-testid="explorer-section-original">
         <summary className="d2d-explorer-section-header">
+          <ExplorerFolderIcon />
           <span className="d2d-explorer-section-title">①原本</span>
           <span className="d2d-explorer-section-count">{sources.length}</span>
         </summary>
@@ -158,15 +186,19 @@ export function DocumentsTree(): React.JSX.Element {
               ])
             }
           >
-            <span style={{ color: 'var(--d2d-fg-muted)', fontSize: 11 }}>{doc.file_type}</span>
-            <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{doc.file_name}</span>
-            {doc.is_current === 0 && <span style={{ color: 'var(--d2d-fg-muted)', fontSize: 10 }}>旧版</span>}
+            <ExplorerResourceIcon kind="original" />
+            <span className="d2d-explorer-resource-name">{doc.file_name}</span>
+            <span className="d2d-explorer-tags">
+              <span className="d2d-explorer-tag">{doc.file_type}</span>
+              {doc.is_current === 0 && <span className="d2d-explorer-tag muted">旧版</span>}
+            </span>
           </div>
         ))}
       </details>
 
       <details open className="d2d-explorer-section" data-testid="explorer-section-extracted">
         <summary className="d2d-explorer-section-header">
+          <ExplorerFolderIcon />
           <span className="d2d-explorer-section-title">②抽出データ</span>
           <span className="d2d-explorer-section-count">{extracted.length}</span>
           <span
@@ -195,21 +227,25 @@ export function DocumentsTree(): React.JSX.Element {
               ])
             }
           >
-            <ReviewStatusBadge status={reviewStateFromEntityStatus(doc.status)} />
-            <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{doc.title ?? doc.code}</span>
-            <span
-              className={`d2d-unconfirmed-badge ${doc.unconfirmed_count === 0 ? 'is-zero' : ''}`}
-              data-testid={`extracted-unconfirmed-${doc.code}`}
-            >
-              未確定 {doc.unconfirmed_count}
+            <ExplorerResourceIcon kind="extracted" />
+            <span className="d2d-explorer-resource-name">{doc.title ?? doc.code}</span>
+            <span className="d2d-explorer-tags">
+              <ReviewStatusBadge status={reviewStateFromEntityStatus(doc.status)} />
+              <span
+                className={`d2d-unconfirmed-badge ${doc.unconfirmed_count === 0 ? 'is-zero' : ''}`}
+                data-testid={`extracted-unconfirmed-${doc.code}`}
+              >
+                未確定 {doc.unconfirmed_count}
+              </span>
+              <span className="d2d-explorer-tag muted">{doc.item_count}要素</span>
             </span>
-            <span style={{ color: 'var(--d2d-fg-muted)', fontSize: 11 }}>{doc.item_count}要素</span>
           </div>
         ))}
       </details>
 
       <details open className="d2d-explorer-section" data-testid="explorer-section-intermediate">
         <summary className="d2d-explorer-section-header">
+          <ExplorerFolderIcon />
           <span className="d2d-explorer-section-title">③中間データ</span>
           <span className="d2d-explorer-section-count">
             {artifacts.filter((artifact) => artifact.is_active === 1 && artifact.dev_phase_id).length}
@@ -227,8 +263,9 @@ export function DocumentsTree(): React.JSX.Element {
           .map((phase) => (
             <div key={phase.uid} className="d2d-explorer-phase" data-testid={`phase-${phase.dev_phase_id}`}>
               <div className="d2d-explorer-phase-label">
-                <span className="d2d-hierarchy-kind">フェーズ</span>
-                <span>▾ {phase.dev_phase_name}</span>
+                <ExplorerFolderIcon />
+                <span>{phase.dev_phase_name}</span>
+                <span className="d2d-explorer-tag muted">フェーズ</span>
               </div>
               {artifacts
                 .filter((artifact) => artifact.is_active === 1 && artifact.dev_phase_id === phase.dev_phase_id)
@@ -242,18 +279,15 @@ export function DocumentsTree(): React.JSX.Element {
                     ? `名称: ${artifact.artifact_name}\nID: ${doc.code}\n状態: ${doc.status} / ${doc.intermediate_status}\n開発フェーズ: ${phase.dev_phase_name}\n成果物: ${artifact.artifact_name}\n要素数: ${doc.item_count}\n未確定: ${doc.unconfirmed_count}\n統合元: ${sourceIds.length}件\n生成日時: ${doc.generated_at}`
                     : `名称: ${artifact.artifact_name}\n開発フェーズ: ${phase.dev_phase_name}\n成果物種別: ${artifact.artifact_type_id}\n状態: 未作成`
                   return (
-                    <div
-                      key={artifact.uid}
-                      data-testid={
-                        doc
-                          ? `intermediate-doc-${doc.code}`
-                          : `artifact-slot-${phase.dev_phase_id}-${artifact.artifact_type_id}`
-                      }
-                      title={tooltip}
-                      style={{ paddingLeft: 14, marginBottom: 3 }}
-                    >
+                    <div key={artifact.uid} style={{ paddingLeft: 14, marginBottom: 3 }}>
                       <div
                         className="d2d-list-row d2d-explorer-artifact-row"
+                        data-testid={
+                          doc
+                            ? `intermediate-doc-${doc.code}`
+                            : `artifact-slot-${phase.dev_phase_id}-${artifact.artifact_type_id}`
+                        }
+                        title={tooltip}
                         onClick={() => void openArtifact(artifact)}
                         onContextMenu={(event) =>
                           showContextMenu(event, [
@@ -265,24 +299,33 @@ export function DocumentsTree(): React.JSX.Element {
                           ])
                         }
                       >
-                        <span className="d2d-hierarchy-kind artifact">成果物</span>
-                        {doc && <ReviewStatusBadge status={reviewStateFromEntityStatus(doc.status)} />}
-                        <span style={{ flex: 1, minWidth: 0, fontWeight: 500 }}>{artifact.artifact_name}</span>
-                        {doc && (
-                          <span
-                            className={`d2d-unconfirmed-badge ${doc.unconfirmed_count === 0 ? 'is-zero' : ''}`}
-                            data-testid={`intermediate-unconfirmed-${doc.code}`}
-                          >
-                            未確定 {doc.unconfirmed_count}
-                          </span>
-                        )}
+                        <ExplorerResourceIcon kind="intermediate" />
+                        <span className="d2d-explorer-resource-name">{artifact.artifact_name}</span>
+                        <span className="d2d-explorer-tags">
+                          <span className="d2d-explorer-tag">成果物</span>
+                          {doc && <ReviewStatusBadge status={reviewStateFromEntityStatus(doc.status)} />}
+                          {doc && (
+                            <span
+                              className={`d2d-unconfirmed-badge ${doc.unconfirmed_count === 0 ? 'is-zero' : ''}`}
+                              data-testid={`intermediate-unconfirmed-${doc.code}`}
+                            >
+                              未確定 {doc.unconfirmed_count}
+                            </span>
+                          )}
+                        </span>
                       </div>
                       <div className="d2d-explorer-sources">
                         {sourceIds.length === 0 ? (
                           <span>↳ 統合元未選択</span>
                         ) : (
                           sourceIds.map((id) => (
-                            <span key={id}>↳ {extracted.find((item) => item.uid === id)?.title ?? id}</span>
+                            <span key={id} className="d2d-explorer-source-row">
+                              <ExplorerResourceIcon kind="source" />
+                              <span className="d2d-explorer-resource-name">
+                                {extracted.find((item) => item.uid === id)?.title ?? id}
+                              </span>
+                              <span className="d2d-explorer-tag muted">取込元</span>
+                            </span>
                           ))
                         )}
                       </div>

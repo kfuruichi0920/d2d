@@ -1,0 +1,77 @@
+/**
+ * 画面別LLM問い合わせの送信メッセージ構築（P6-3/P6-4、LLM-024/040）。
+ * プレビューと実行で同じメッセージを使用できるよう、既定プロンプトを一箇所へ集約する。
+ */
+import type { Database } from 'better-sqlite3'
+import { BackendError } from '../api/errors'
+import { getChunkText } from '../intermediate/intermediate-service'
+import { RESOURCE_TYPE_DEFINITIONS } from '../resource/resource-service'
+import type { ChatMessage } from './providers'
+
+export type LlmRequestOperation = 'connection-test' | 'semantic-terms' | 'design-candidates' | 'resource-merge'
+
+export interface ResourceMergeSource {
+  resourceUid?: string
+  type: string
+  values: Record<string, unknown>
+}
+
+export function buildConnectionTestMessages(): ChatMessage[] {
+  return [{ role: 'user', content: 'D2D 接続テストです。「OK」とだけ返答してください。' }]
+}
+
+export function buildSemanticTermMessages(text: string): ChatMessage[] {
+  if (!text.trim()) throw new BackendError('validation', 'LLMへ送信する文章が空です', '')
+  return [
+    {
+      role: 'system',
+      content:
+        '設計文から未登録と思われる専門用語候補だけを抽出し、{"terms":["用語"]}形式のJSONで返してください。同義語や関係を確定しないでください。'
+    },
+    { role: 'user', content: text }
+  ]
+}
+
+export function buildDesignCandidateMessages(db: Database, chunkUid: string): ChatMessage[] {
+  const chunkText = getChunkText(db, chunkUid)
+  const chunkPrompt =
+    (
+      db.prepare('SELECT additional_prompt FROM chunk WHERE uid=?').get(chunkUid) as
+        { additional_prompt: string } | undefined
+    )?.additional_prompt ?? ''
+  const systemPrompt = [
+    'あなたは設計文書から設計モデル候補を抽出するAIです。',
+    '与えられた本文から設計要素候補と関係候補を抽出し、次の JSON だけを出力してください。',
+    '{"elements":[{"temp_id":"t1","category":"REQ","title":"...","description":"...","evidence":"根拠となる本文の抜粋"}],',
+    ' "relations":[{"from_temp_id":"t2","to_temp_id":"t1","relation_type":"satisfies","rationale":"..."}],',
+    ' "warnings":[]}',
+    'category は STD/REQ/CST/FUNC/STRUCT/BEH/STATE/IF/DATA/VERIF/MGMT/IMPL のいずれか。',
+    'relation_type は based_on/satisfies/allocated_to/verifies/contains/decomposes/implements/uses/calls/conflicts_with/relates_to のいずれか。',
+    '関係の from_temp_id / to_temp_id は elements の temp_id を参照すること。'
+  ].join('\n')
+  return [
+    { role: 'system', content: systemPrompt },
+    { role: 'user', content: chunkPrompt ? `${chunkText}\n\n追加指示:\n${chunkPrompt}` : chunkText }
+  ]
+}
+
+export function buildResourceMergeMessages(targetType: string, sources: ResourceMergeSource[]): ChatMessage[] {
+  const definition = RESOURCE_TYPE_DEFINITIONS.find((candidate) => candidate.type === targetType)
+  if (!definition) throw new BackendError('validation', `未対応のResource種別です: ${targetType}`, '')
+  if (sources.length === 0) throw new BackendError('validation', 'マージ元Resourceがありません', '')
+  return [
+    {
+      role: 'system',
+      content:
+        'あなたは設計情報の統合支援AIです。入力Resource群を意味を失わずに統合し、指定された出力フィールドだけを持つJSONオブジェクトを返してください。説明やMarkdownは出力しないでください。'
+    },
+    {
+      role: 'user',
+      content: JSON.stringify({
+        targetType,
+        outputFields: definition.fields.map((field) => ({ name: field.name, kind: field.kind })),
+        sources
+      })
+    }
+  ]
+}

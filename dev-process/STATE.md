@@ -8,7 +8,7 @@
 - 完了: P0〜P13（クリティカルパス完走、MS6 相当まで）
 - 残り: **P14**（性能・オフライン確認・残 TBD-06〜08・パッケージング・商用版）、
   **P5 の他形式抽出**（Excel / PowerPoint / PDF / Visio / テキスト系、EXT-014/015）
-- テスト規模: ユニット 209 件 / pytest 10 件 / E2E 25 件（すべて成功の状態で引き渡し）
+- テスト規模: ユニット 214 件 / pytest 10 件 / E2E 25 件（すべて成功の状態で引き渡し）
 
 ## フェーズ履歴（要点のみ）
 
@@ -50,6 +50,7 @@
 | P3追加(W8)    | window.confirm 全廃、共通アプリ内確認ダイアログ confirmDialog（E2E制御可能・テーマ対応）（Unit 199／E2E 22）                                                                        | f79542e         |
 | W9〜W12       | 戻る/進む（Alt+←→）、フォーカス系ショートカット、モーダルESC統一、動作/デバッグログPanel・日付毎ファイル・レベル設定、LLM生送受信ログ・候補再作成（schema 1.8.0、Unit 207／E2E 25） | 本コミット      |
 | P3/P12追加    | Workbench共通10配色のユーザ設定・テーマ既定復帰、Git状態／ステージ／コミット／ローカルブランチ操作、DB to Text＋SQLite dump自動同梱（Unit 209／E2E 25）                             | 本コミット      |
+| P3/P6追加     | Explorerのフォルダ／Resource別アイコン・右端タグ、画面別プロンプト選択／編集／新版保存、全LLMボタンの送信前確認（Unit 214／E2E 25）                                                 | 本コミット      |
 
 ## 恒久制約（違反するとビルド/実行が壊れる、または設計方針違反）
 
@@ -70,15 +71,15 @@
 - Python ワーカーは stdin/stdout とも UTF-8 ラップ必須（CP932 化け）。pytest はシステム Python
   （miniconda）で実行（PATH 先頭の venv に pip が無い）。
 - Workbench の文字サイズはツール全体設定 `theme.fontSize`（10〜20px、既定13px）で管理し、通常UIとMonacoへ即時反映する。
-- Workbench共通カラーは heme.customColors で背景、サーフェス、文字、補助文字、境界、アクセント、選択、ボタン背景・文字・境界を個別上書きする。未設定または設定解除時は選択中テーマのデザイントークンへ戻す。
-- Git UIは状態確認、選択ファイルのステージ／解除、コミット、ローカルブランチ作成／切替、履歴・diff参照を提供する。コミット直前にDB to TextとSQLite dumpを再生成し、xports/db_to_text/とxports/sqlite_dump/を必ずステージする。project.dbやblobを自動ステージせず、ユーザが既にステージした変更は維持する。
+- Workbench共通カラーは `theme.customColors` で背景、サーフェス、文字、補助文字、境界、アクセント、選択、ボタン背景・文字・境界を個別上書きする。未設定または設定解除時は選択中テーマのデザイントークンへ戻す。
+- Git UIは状態確認、選択ファイルのステージ／解除、コミット、ローカルブランチ作成／切替、履歴・diff参照を提供する。コミット直前にDB to TextとSQLite dumpを再生成し、`exports/db_to_text/`と`exports/sqlite_dump/`を必ずステージする。project.dbやblobを自動ステージせず、ユーザが既にステージした変更は維持する。
 - Primary／Secondary／下段パネルの表示・寸法とSecondaryアコーディオン開閉はWorkbench外周状態として1組だけ保持し、作業モード／①〜④ステージを切り替えても変更しない。再帰的なEditor分割木・分割比・タブ配置はプロジェクト単位（未選択時はglobal）でlocalStorageへ保持する。各境界はポインタと矢印キーで変更でき、領域内の表示超過は必要時だけ縦横スクロールする。
 - SecondaryはWorkbench全体で共通のProperties／Relations／Review／Dictionaryを独立開閉できる縦アコーディオンとする。Propertiesは共通Selectionの選択アイテム属性、Relationsは当該UIDを端点とする`trace_link`の関係種別・相対方向・相手、Reviewはコメントを表示する。コメントは`resource_text(text_role='comment')`として保存し、コメント→選択アイテムの`relates_to`を同一トランザクションで作る。EvidenceはRelationsへ、LLM Candidatesは候補Editor／下段Panelへ集約する。Editorタブは最大220pxで省略表示し、収まらない場合は複数段へ折り返す。タブは分割区分へのドラッグ＆ドロップまたはコマンドで移動する。
 - Primary／Secondary／下段PanelはTitle Bar右側ボタンとCommandの双方から表示切替する。Activity BarはSettingsを下端固定し、それ以外のDnD順序をプロジェクト単位に保存する。選択ActivityはPrimary非表示時も選択色を維持する。保存レイアウトがないプロジェクトへ切り替えた場合は、直前プロジェクトの状態を持ち越さずM0既定値へ初期化する。
 - Primary ActivityはExplorer／Search／Trace／Reports／History／Settingsで構成する。Reviewは各編集画面とSecondary、Jobsは下段PanelとStatus Barに集約し、Primary Activityへ戻さない。旧永続値のreview／jobsは読込時にExplorerへ正規化する。
 - Pipeline Navigatorの選択表示はactiveなステージURIだけを基準とし、①〜④を排他的に表示する。①〜④の一覧行は薄青背景で選択を示し、上下矢印で選択行を移動、Enter／Spaceでクリックと同じ操作を実行する。④モデルは単一クリックで開く。①〜③の一覧／プレビュー境界は共通 `ResizablePaneGroup` で変更する。
 - Explorer未確定Badgeは文書状態ではなく要素単位で集計し、extracted_itemはresource_uid、intermediate_itemはitem uidに対応するentity_registry.statusがapproved／deleted以外の件数を表示する。削除済みを除く子要素が1件以上かつ全件approvedの場合だけ抽出／中間文書もapprovedとし、それ以外はdraftへ同期する。
-- Explorerの①〜④は強調した折りたたみ見出しとし、原本・抽出・中間・設計モデル各行は保持プロパティをTooltip表示する。Explorerは一覧と選択によるEditor表示に限定し、取込・名称変更・チャンク・モデル追加ボタンを置かない。Pipeline Navigatorの各ステージはEditor Areaにソート可能な一覧を開き、①は一覧上部の取込からWindows複数ファイル選択を直接開く読取専用詳細、②は独自プレビューとExplorer選択案内、③は一覧上部の取込とフェーズ－成果物階層、④はモデル一覧と追加操作を表示する。原本はファイルごとに独立した `import.source` Jobへ登録する（実行はJob Managerの直列制約を維持）。
+- Explorerの①〜④はフォルダアイコン付き折りたたみ見出しとし、原本・抽出・中間・設計モデル・統合元はResource種別別ファイル系アイコンを名称左へ、状態・形式・分類・件数タグを名称右へ表示する。各行は保持プロパティをTooltip表示する。Explorerは一覧と選択によるEditor表示に限定し、取込・名称変更・チャンク・モデル追加ボタンを置かない。Pipeline Navigatorの各ステージはEditor Areaにソート可能な一覧を開き、①は一覧上部の取込からWindows複数ファイル選択を直接開く読取専用詳細、②は独自プレビューとExplorer選択案内、③は一覧上部の取込とフェーズ－成果物階層、④はモデル一覧と追加操作を表示する。原本はファイルごとに独立した `import.source` Jobへ登録する（実行はJob Managerの直列制約を維持）。
 - 抽出文書の初期 `entity_registry.title` は原本の `source_document.file_name` と同一にする。後の名称変更は抽出文書の `entity_registry.title` だけを更新し、原本名・blob・traceは変更しない。
 - ①原本はPipeline NavigatorとExplorerのどちらから選択しても「OSアプリで開く」と「②抽出データの生成（抽出ジョブ実行）」を表示する。`source_document.uid`を参照する`extracted_document`が存在する場合は抽出実行を無効表示し、Backendも重複実行を拒否する。
 - ①原本・②抽出・③中間の通常削除は `status='deleted'` の論理削除、Explorerだけからの一時非表示は `is_archived=1` とする。アーカイブはステージ一覧に残して復元可能とし、schema 1.5.0で `entity_registry.is_archived` と索引を追加した。同じ `dev_phase_id`／`artifact_type_id` の③が複数ある場合は、現在表示中の1件を優先し、表示中が複数なら最新1件以外を自動アーカイブする。復元時は同一成果物の他文書をアーカイブしてExplorer表示を最大1件に保つ。
@@ -99,6 +100,7 @@
 - デバッグログはプロジェクトの `logs/debug/<frontend|backend>-YYYY-MM-DD.log`（日付毎・ローカル日付）。レベルはプロジェクト設定 `logging.debugLevel`（error<warn<info<debug、既定 info）。Backend API の失敗は `router.onDispatchError` 経由で backend ログへ自動記録する（log.* 自身は除外）。プロジェクト未オープン時はファイル出力しない。
 - LLM 実行は生送受信ログ（マスキング後・APIキーなし。Gemini はURLキーもマスク）を blobs/llm/ へ保存し、`llm_run_ref.raw_request_blob_uid`／`raw_response_blob_uid` から参照する。`llm.retryRun` は `process_name='design-candidates'` かつ input_ref_uid のある実行だけ同一チャンクで候補生成ジョブを再登録する。
 - prettier は docs/ と tasks/ を対象外（.prettierignore）。
+- 画面上のLLM実行（接続テスト、④候補生成、Resourceマージ、セマンティック用語候補、ログ再実行）は共通 `LlmRequestDialog` で用途別テンプレートを選択・実行時編集・新版保存し、`llm.preview` で送信先、モデル、マスキング後の全メッセージを表示する。明示承認後だけ `llm.runConfirmed` からジョブ登録し、選択した `prompt_template.uid` を実行ログへ保持する。
 - LLM 外部送信はプロジェクト設定 `llm.externalSendAllowed`（既定 false）でブロックされる。
 - 新規プロジェクトは標準5フェーズ・18成果物を登録する。同名成果物（レビュー記録／障害台帳）はフェーズ単位で独立して保持する。ツール全体設定 `project.initializeGitOnCreate` は既定trueで、作成時にbest-effortで `git init` を実行し、失敗してもプロジェクト作成は継続する。schema 1.7.0では成果物名の一意性を `(project_uid, dev_phase_id, artifact_name)` とし、移行時も成果物関係を保持する。
 - Settings はツール全体設定（`settings://tool`）とプロジェクト設定（`project-settings://current`）を分離する。
