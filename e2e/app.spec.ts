@@ -1200,17 +1200,193 @@ test('トレースクエリ→グラフ→マトリクス→整合性検査（P9
   await page.getByTestId('graph-node-FUNC-000001').click()
   await expect(page.getByTestId('design-element-viewer')).toBeVisible()
 
-  // トレースマトリクス（UI-014）: FUNC×REQ に ● が入る
+  // 汎用トレースマトリクス（UI-014 / TRACE-026〜029）
+  // 複数行・複数列選択を確実に検証できるよう、同分類Resourceを追加する。
+  await page.evaluate(async () => {
+    await window.api.invoke('design.createElement', { category: 'REQ', title: 'マトリクス追加要求' })
+    await window.api.invoke('design.createElement', { category: 'FUNC', title: 'マトリクス追加機能' })
+  })
   await page.getByTestId('open-matrix').click()
-  await expect(page.getByTestId('trace-matrix')).toBeVisible()
-  await expect(page.getByTestId('trace-matrix')).toContainText('FUNC-000001')
-  await expect(page.getByTestId('trace-matrix').locator('td', { hasText: '●' }).first()).toBeVisible()
+  await page.getByTestId('open-matrix').click()
+  await expect(page.locator('.wb-tab-title', { hasText: 'トレースマトリクス' })).toHaveCount(2)
+  const traceMatrix = page.getByTestId('trace-matrix')
+  await expect(traceMatrix).toBeVisible()
+  await expect(traceMatrix).toContainText('FUNC-000001')
+  await expect(page.getByTestId('trace-cell-FUNC-000001-REQ-000001')).toContainText('→S')
 
-  // 根拠チェーン（UI-015）: ④要素 → ③中間文書
-  await page.getByTestId('open-basis-chain').click()
-  await expect(page.getByTestId('basis-chain')).toBeVisible()
-  await expect(page.getByTestId('basis-chain')).toContainText('IMDOC-000001')
+  // 関係を持つ見出し・選択十字、Tooltip、sticky見出し、ズームを確認する。
+  await expect(page.getByTestId('trace-row-FUNC-000001')).toHaveClass(/connected/)
+  await expect(page.getByTestId('trace-col-REQ-000001')).toHaveClass(/connected/)
+  await expect(page.getByTestId('trace-row-FUNC-000001')).toHaveAttribute('title', /entity_type:/)
+  await expect(page.getByTestId('trace-col-REQ-000001')).toHaveAttribute('title', /状態:/)
+  await expect(page.getByTestId('trace-row-FUNC-000001')).toHaveCSS('position', 'sticky')
+  await expect(page.getByTestId('trace-col-REQ-000001')).toHaveCSS('position', 'sticky')
+  await page.getByTestId('trace-matrix-zoom').fill('130')
+  await expect(page.locator('.trace-matrix-table')).toHaveCSS('font-size', /%|px/)
 
+  // ②抽出文書Resource集合 × ③中間成果物Resource集合のbased_onを俯瞰表示する。
+  const rowScopes = page.getByTestId('trace-matrix-row-scopes')
+  const colScopes = page.getByTestId('trace-matrix-col-scopes')
+  const scopeValues = await rowScopes
+    .locator('option')
+    .evaluateAll((options) =>
+      options.map((option) => ({ value: (option as HTMLOptionElement).value, text: option.textContent ?? '' }))
+    )
+  const extractedScope = scopeValues.find((scope) => scope.value.startsWith('extracted:'))!.value
+  const intermediateScope = scopeValues.find((scope) => scope.value.startsWith('intermediate:'))!.value
+  expect(scopeValues.some((scope) => scope.value.startsWith('resource_type:'))).toBe(true)
+  await page.getByTestId('trace-relation-satisfies').uncheck()
+  await page.getByTestId('trace-relation-based_on').check()
+  await rowScopes.selectOption(intermediateScope)
+  await colScopes.selectOption(extractedScope)
+  await expect(traceMatrix.locator('td.has-relation').first()).toContainText('→B')
+
+  // 行列入替は表示軸だけを交換し、保存済み方向は逆向き表示になる。
+  await page.getByTestId('trace-matrix-transpose').click()
+  await expect(rowScopes).toHaveValue(extractedScope)
+  await expect(colScopes).toHaveValue(intermediateScope)
+  await expect(traceMatrix.locator('td.has-relation').first()).toContainText('←B')
+
+  // 設計Resource集合へ戻し、単一セルクリックで関係をトグルする。
+  await rowScopes.selectOption('design:FUNC')
+  await colScopes.selectOption('design:REQ')
+  await page.getByTestId('trace-relation-based_on').uncheck()
+  await page.getByTestId('trace-relation-relates_to').check()
+  await page.getByTestId('trace-relation-satisfies').check()
+  await expect(page.getByTestId('trace-relation-satisfies')).toBeChecked()
+  await expect(page.getByTestId('trace-relation-relates_to')).toBeChecked()
+  await page.getByTestId('trace-relation-satisfies').uncheck()
+  const firstMatrixCell = page.locator('.trace-matrix-table tbody td').first()
+  await firstMatrixCell.click()
+  await expect(firstMatrixCell).toContainText('→R')
+  await expect(page.getByTestId('trace-row-FUNC-000001')).toHaveClass(/cross-active/)
+  await expect(page.getByTestId('trace-col-REQ-000001')).toHaveClass(/cross-active/)
+  await firstMatrixCell.click()
+  await expect(firstMatrixCell).not.toContainText('→R')
+
+  // 行タイトル／列タイトルから複数セルを選び、一括追加・削除する。
+  await page.getByTestId('trace-row-FUNC-000001').click()
+  await expect(traceMatrix).toContainText('2 セル選択')
+  await page.getByTestId('trace-matrix-add').click()
+  await expect(page.locator('.trace-matrix-table tbody tr').first().locator('td', { hasText: '→R' })).toHaveCount(2)
+  await page.getByTestId('trace-matrix-delete').click()
+  await expect(page.locator('.trace-matrix-table tbody tr').first().locator('td', { hasText: '→R' })).toHaveCount(0)
+
+  await page.getByTestId('trace-col-REQ-000001').click()
+  await expect(traceMatrix).toContainText('2 セル選択')
+  await page.getByTestId('trace-col-REQ-000002').click({ modifiers: ['Control'] })
+  await expect(traceMatrix).toContainText('4 セル選択')
+
+  // 方向を列→行に変えた単一トグルでは逆向き記号を表示する。
+  await page.getByTestId('trace-matrix-direction').selectOption('col_to_row')
+  await firstMatrixCell.click()
+  await expect(firstMatrixCell).toContainText('←R')
+  await firstMatrixCell.click()
+  await expect(firstMatrixCell).not.toContainText('←R')
+
+  // 汎用インパクト分析（UI-015 / TRACE-030〜034）
+  await page.getByTestId('open-impact-analysis').click()
+  await page.getByTestId('open-impact-analysis').click()
+  await expect(page.locator('.wb-tab-title', { hasText: 'インパクト分析' })).toHaveCount(2)
+  const impact = page.getByTestId('trace-impact')
+  await expect(impact).toBeVisible()
+  await expect(impact).toContainText('汎用インパクト分析')
+  await expect(impact.locator('.trace-impact-column')).toHaveCount(3)
+
+  // ②・③の階層、項目Tooltip、方向・関係種別付きリンクを表示する。
+  const firstImpactItem = impact.locator('.trace-impact-item').first()
+  await expect(firstImpactItem).toHaveAttribute('title', /entity_type:/)
+  const firstImpactLink = impact.locator('.impact-link path').first()
+  await expect(firstImpactLink).toBeVisible()
+  await expect(page.getByTestId('impact-list-0')).toHaveCSS('overflow-y', 'auto')
+  await expect(page.getByTestId('impact-list-1')).toHaveCSS('overflow-y', 'auto')
+  await page.getByTestId('impact-links-visible').uncheck()
+  await expect(impact.locator('.impact-link path')).toHaveCount(0)
+  await page.getByTestId('impact-links-visible').check()
+  await expect(impact.locator('.impact-link path').first()).toBeVisible()
+  await expect(firstImpactLink.locator('title')).toContainText('関係: based_on')
+  const markerStart = await firstImpactLink.getAttribute('marker-start')
+  const markerEnd = await firstImpactLink.getAttribute('marker-end')
+  expect(Boolean(markerStart || markerEnd)).toBe(true)
+
+  const hierarchyToggle = impact.locator('[data-testid^="impact-toggle-"]').first()
+  if (await hierarchyToggle.isVisible().catch(() => false)) {
+    const beforeCollapse = await impact.locator('.trace-impact-item').count()
+    await hierarchyToggle.click()
+    await expect.poll(async () => impact.locator('.trace-impact-item').count()).toBeLessThan(beforeCollapse)
+    await hierarchyToggle.click()
+  }
+
+  // リンク選択で両端を複数選択し、その先の列までインパクト強調する。
+  await firstImpactLink.dispatchEvent('click')
+  await expect(impact).toContainText('2項目選択')
+  await expect(impact.locator('.trace-impact-item.impacted')).not.toHaveCount(0)
+  await page.getByTestId('impact-related-only').check()
+  await expect(page.getByTestId('impact-related-only')).toBeChecked()
+  await expect(impact.locator('.trace-impact-column').first().locator('.trace-impact-item')).not.toHaveCount(0)
+
+  // 関係種別の複数選択と、左右への任意列追加を行える。
+  await page.getByTestId('impact-relation-satisfies').check()
+  await expect(page.getByTestId('impact-relation-based_on')).toBeChecked()
+  await expect(page.getByTestId('impact-relation-satisfies')).toBeChecked()
+  await page.getByTestId('impact-add-right').click()
+  await expect(impact.locator('.trace-impact-column')).toHaveCount(4)
+
+  // CtrlとShift+上下キーで同一リスト内の複数項目を選択し、Secondaryへ同期する。
+  await page.getByTestId('impact-clear-selection').click()
+  const firstColumnItems = impact.locator('.trace-impact-column').first().locator('.trace-impact-item')
+  await firstColumnItems.nth(0).click()
+  await expect(page.getByTestId('selected-item-properties')).toContainText(
+    await firstColumnItems.nth(0).locator('.trace-impact-code').innerText()
+  )
+  await firstColumnItems.nth(0).press('ArrowDown')
+  await page.locator('.trace-impact-item:focus').press('Shift+ArrowDown')
+  await expect(impact).toContainText('2項目選択')
+  await firstColumnItems.nth(0).click()
+  await firstColumnItems.nth(1).click({ modifiers: ['Control'] })
+  await expect(impact).toContainText('2項目選択')
+
+  // 列順・表示対象・関係種別・リンク表示状態を名前付きで保存し、別構成から復元する。
+  await page.getByTestId('impact-configuration-name').fill('E2E構成')
+  await page.getByTestId('impact-save-configuration').click()
+  await expect(page.getByTestId('impact-saved-configurations')).toContainText('E2E構成')
+  await page.getByTestId('impact-add-right').click()
+  await expect(impact.locator('.trace-impact-column')).toHaveCount(5)
+  await page.getByTestId('impact-saved-configurations').selectOption({ label: 'E2E構成' })
+  await expect(impact.locator('.trace-impact-column')).toHaveCount(4)
+
+  // 見出しの間隔ハンドルを右へドラッグすると、その境界より外側の全リストが同じ差分だけ移動する。
+  const columnsBeforeSpacing = await Promise.all(
+    [0, 1, 2].map(async (index) => (await impact.locator('.trace-impact-column').nth(index).boundingBox())!)
+  )
+  const spacingHandle = page.getByTestId('impact-column-spacing-1')
+  const spacingBox = (await spacingHandle.boundingBox())!
+  await page.mouse.move(spacingBox.x + spacingBox.width / 2, spacingBox.y + spacingBox.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(spacingBox.x + spacingBox.width / 2 + 48, spacingBox.y + spacingBox.height / 2)
+  await page.mouse.up()
+  const columnsAfterSpacing = await Promise.all(
+    [0, 1, 2].map(async (index) => (await impact.locator('.trace-impact-column').nth(index).boundingBox())!)
+  )
+  expect(Math.abs(columnsAfterSpacing[0]!.x - columnsBeforeSpacing[0]!.x)).toBeLessThan(2)
+  const movedSecond = columnsAfterSpacing[1]!.x - columnsBeforeSpacing[1]!.x
+  const movedThird = columnsAfterSpacing[2]!.x - columnsBeforeSpacing[2]!.x
+  expect(movedSecond).toBeGreaterThan(40)
+  expect(Math.abs(movedThird - movedSecond)).toBeLessThan(2)
+
+  // 調整した列間隔も名前付き構成へ保存・復元する。
+  const adjustedGap = await spacingHandle.getAttribute('aria-valuenow')
+  await page.getByTestId('impact-configuration-name').fill('E2E間隔構成')
+  await page.getByTestId('impact-save-configuration').click()
+  await spacingHandle.press('ArrowLeft')
+  await expect(spacingHandle).not.toHaveAttribute('aria-valuenow', adjustedGap!)
+  await page.getByTestId('impact-saved-configurations').selectOption({ label: 'E2E間隔構成' })
+  await expect(page.getByTestId('impact-column-spacing-1')).toHaveAttribute('aria-valuenow', adjustedGap!)
+
+  // リスト見出しのDnDで左右順を変更できる。
+  const firstScopeBefore = await page.getByTestId('impact-scopes-0').inputValue()
+  await page.getByTestId('impact-column-drag-0').dragTo(page.getByTestId('impact-column-drag-2'))
+  await expect.poll(async () => page.getByTestId('impact-scopes-0').inputValue()).not.toBe(firstScopeBefore)
   // 整合性検査（Problems Panel）: REQ-000001 は verifies 未対応として検出される
   // Status Bar クリックで Panel を確実に開く（Ctrl+@ はトグルのため）
   await page.getByTestId('status-jobs').click()

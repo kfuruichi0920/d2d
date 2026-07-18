@@ -5,8 +5,11 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { Database } from 'better-sqlite3'
 import { closeDatabase, createDatabase, getProjectRow } from '../store/database'
 import { createDesignElement, createTraceLink } from '../design/design-service'
+import { registerEntity } from '../store/entity-registry'
 import { checkConsistency, exportSubgraph, getTraceMatrix, getTraceSubgraph } from './trace-service'
 
+import { getEditableTraceMatrix, listTraceMatrixScopes, updateTraceMatrixLinks } from './trace-matrix-service'
+import { getTraceImpactView } from './trace-impact-service'
 describe('トレーサビリティ（P9）', () => {
   let dir: string
   let db: Database
@@ -99,6 +102,186 @@ describe('トレーサビリティ（P9）', () => {
     expect(matrix.cells[func1.uid]?.[req2.uid]).toBeUndefined()
   })
 
+  it('汎用マトリクス: 複数Resource集合と両方向の関係を返す（TRACE-026/029）', () => {
+    const scopes = listTraceMatrixScopes(db, projectUid)
+    expect(scopes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'design:FUNC', count: 1 }),
+        expect.objectContaining({ id: 'design:REQ', count: 2 })
+      ])
+    )
+
+    const forward = getEditableTraceMatrix(db, projectUid, ['design:FUNC'], ['design:REQ'], ['satisfies'])
+    expect(forward.rows.map((row) => row.code)).toEqual([func1.code])
+    expect(forward.cells[func1.uid]?.[req1.uid]?.[0]).toMatchObject({
+      relationType: 'satisfies',
+      direction: 'row_to_col'
+    })
+
+    const reverse = getEditableTraceMatrix(db, projectUid, ['design:REQ'], ['design:FUNC'], ['satisfies'])
+    expect(reverse.cells[req1.uid]?.[func1.uid]?.[0]).toMatchObject({
+      relationType: 'satisfies',
+      direction: 'col_to_row'
+    })
+  })
+
+  it('汎用マトリクス: 選択セルへ関係を一括追加・論理削除できる（TRACE-027）', () => {
+    const added = updateTraceMatrixLinks(db, projectUid, {
+      pairs: [{ rowUid: func1.uid, colUid: req2.uid }],
+      relationTypes: ['satisfies', 'relates_to'],
+      direction: 'row_to_col',
+      operation: 'add'
+    })
+    expect(added).toMatchObject({ added: 2, deleted: 0 })
+
+    const matrix = getEditableTraceMatrix(db, projectUid, ['design:FUNC'], ['design:REQ'], ['satisfies', 'relates_to'])
+    expect(matrix.cells[func1.uid]?.[req2.uid]?.map((link) => link.relationType).sort()).toEqual([
+      'relates_to',
+      'satisfies'
+    ])
+
+    const removed = updateTraceMatrixLinks(db, projectUid, {
+      pairs: [{ rowUid: func1.uid, colUid: req2.uid }],
+      relationTypes: ['satisfies', 'relates_to'],
+      direction: 'row_to_col',
+      operation: 'delete'
+    })
+    expect(removed.deleted).toBe(2)
+    expect(
+      getEditableTraceMatrix(db, projectUid, ['design:FUNC'], ['design:REQ']).cells[func1.uid]?.[req2.uid]
+    ).toBeUndefined()
+  })
+
+  it('汎用マトリクス: セルクリック相当のtoggleで関係を反転する（TRACE-027）', () => {
+    const input = {
+      pairs: [{ rowUid: func1.uid, colUid: req2.uid }],
+      relationTypes: ['satisfies'] as const,
+      direction: 'row_to_col' as const,
+      operation: 'toggle' as const
+    }
+    expect(updateTraceMatrixLinks(db, projectUid, input).added).toBe(1)
+    expect(updateTraceMatrixLinks(db, projectUid, input).deleted).toBe(1)
+  })
+
+  it('汎用マトリクス: 一括追加の途中で許容関係エラーなら全体をロールバックする', () => {
+    expect(() =>
+      updateTraceMatrixLinks(db, projectUid, {
+        pairs: [
+          { rowUid: func1.uid, colUid: req2.uid },
+          { rowUid: req1.uid, colUid: func1.uid }
+        ],
+        relationTypes: ['satisfies'],
+        direction: 'row_to_col',
+        operation: 'add'
+      })
+    ).toThrow(/許容されない関係/)
+    expect(
+      getEditableTraceMatrix(db, projectUid, ['design:FUNC'], ['design:REQ']).cells[func1.uid]?.[req2.uid]
+    ).toBeUndefined()
+  })
+
+  it('汎用インパクト分析: 離れた列を含む全列組合せのリンクと方向を返す（TRACE-030〜035）', () => {
+    createTraceLink(db, projectUid, {
+      fromUid: func1.uid,
+      toUid: verif1.uid,
+      relationType: 'relates_to',
+      createdBy: 'human'
+    })
+    const impact = getTraceImpactView(
+      db,
+      projectUid,
+      [
+        { id: 'functions', scopeIds: ['design:FUNC'] },
+        { id: 'requirements', scopeIds: ['design:REQ'] },
+        { id: 'verifications', scopeIds: ['design:VERIF'] }
+      ],
+      ['satisfies', 'verifies', 'relates_to']
+    )
+    expect(impact.columns.map((column) => column.items.length)).toEqual([1, 2, 1])
+    expect(impact.links).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          leftColumnId: 'functions',
+          rightColumnId: 'requirements',
+          relationType: 'satisfies',
+          displayDirection: 'left_to_right'
+        }),
+        expect.objectContaining({
+          leftColumnId: 'requirements',
+          rightColumnId: 'verifications',
+          relationType: 'verifies',
+          displayDirection: 'right_to_left'
+        }),
+        expect.objectContaining({
+          leftColumnId: 'functions',
+          rightColumnId: 'verifications',
+          relationType: 'relates_to',
+          displayDirection: 'left_to_right'
+        })
+      ])
+    )
+    expect(impact.truncatedLinks).toBe(false)
+  })
+
+  it('汎用インパクト分析: ③文書構造を親子階層として返す（TRACE-033）', () => {
+    const doc = registerEntity(db, { projectUid, entityType: 'intermediate_document', title: '階層成果物' })
+    const headingResource = registerEntity(db, { projectUid, entityType: 'resource_label', title: '1. 見出し' })
+    db.prepare(`INSERT INTO resource_label (uid,label_text,label_kind,level) VALUES (?,?,'section',1)`).run(
+      headingResource.uid,
+      '1. 見出し'
+    )
+    const bodyResource = registerEntity(db, { projectUid, entityType: 'resource_text', title: '本文' })
+    db.prepare(`INSERT INTO resource_text (uid,text_body,text_role,language) VALUES (?,?,'body','ja')`).run(
+      bodyResource.uid,
+      '本文'
+    )
+    const headingItem = registerEntity(db, { projectUid, entityType: 'intermediate_item' })
+    const bodyItem = registerEntity(db, { projectUid, entityType: 'intermediate_item' })
+    const structure = {
+      metadata: { title: '階層成果物', artifact_type_id: 'ART', dev_phase_id: 'PHASE' },
+      sources: [],
+      elements: [
+        {
+          id: 'i1',
+          type: 'heading',
+          level: 1,
+          text: '1. 見出し',
+          resource_uid: headingResource.uid,
+          intermediate_item_uid: headingItem.uid
+        },
+        {
+          id: 'i2',
+          type: 'paragraph',
+          text: '本文',
+          resource_uid: bodyResource.uid,
+          intermediate_item_uid: bodyItem.uid
+        }
+      ]
+    }
+    db.prepare(
+      `INSERT INTO intermediate_document (uid,artifact_type_id,dev_phase_id,structure_json) VALUES (?,'ART','PHASE',?)`
+    ).run(doc.uid, JSON.stringify(structure))
+    db.prepare(
+      `INSERT INTO intermediate_item (uid,intermediate_document_uid,item_type,resource_uid) VALUES (?,?,?,?)`
+    ).run(headingItem.uid, doc.uid, 'resource_label', headingResource.uid)
+    db.prepare(
+      `INSERT INTO intermediate_item (uid,intermediate_document_uid,item_type,resource_uid) VALUES (?,?,?,?)`
+    ).run(bodyItem.uid, doc.uid, 'resource_text', bodyResource.uid)
+
+    const impact = getTraceImpactView(
+      db,
+      projectUid,
+      [
+        { id: 'intermediate', scopeIds: [`intermediate:${doc.uid}`] },
+        { id: 'requirements', scopeIds: ['design:REQ'] }
+      ],
+      []
+    )
+    expect(impact.columns[0]?.items).toEqual([
+      expect.objectContaining({ uid: headingItem.uid, depth: 0, parentUid: null, hasChildren: true }),
+      expect.objectContaining({ uid: bodyItem.uid, depth: 1, parentUid: headingItem.uid, hasChildren: false })
+    ])
+  })
   it('整合性検査: 未接続・根拠不足・検証未対応・暫定リンク・循環を検出する（srs §2.3）', () => {
     // 未接続要素を追加
     const isolated = createDesignElement(db, projectUid, { category: 'MGMT', title: '未接続の判断' })
