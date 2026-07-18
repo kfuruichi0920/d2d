@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { invoke } from '../../services/backend'
 import { useJobsStore } from '../../stores/jobs-store'
+import { confirmDialog } from '../common/ConfirmDialog'
 interface Artifact {
   uid: string
   artifact_name: string
@@ -85,7 +86,12 @@ export function ProjectSettingsEditor(): React.JSX.Element {
     }
   }
   const remove = async (method: string, uid: string, label: string): Promise<void> => {
-    if (!window.confirm(`${label}を削除します。関連する中間データも復旧不能になります。よろしいですか？`)) return
+    const accepted = await confirmDialog({
+      message: `${label}を削除します。関連する中間データも復旧不能になります。よろしいですか？`,
+      okLabel: '削除',
+      danger: true
+    })
+    if (!accepted) return
     const res = await invoke(method, { uid })
     if (!res.ok) notify('error', `${label}を削除できませんでした`, res.error.message)
     else {

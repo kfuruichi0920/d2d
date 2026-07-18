@@ -10,6 +10,7 @@ import { useSelectionStore } from '../../stores/selection-store'
 import { reviewStateFromEntityStatus, ReviewStatusBadge } from '../common/review'
 import { DocumentPreviewMetaControls, useDocumentPreviewMeta } from '../common/DocumentPreviewMeta'
 import { ResizablePaneGroup } from '../workbench/ResizablePaneGroup'
+import { confirmDialog } from '../common/ConfirmDialog'
 
 interface ElementRow {
   id: string
@@ -247,7 +248,8 @@ export function ChunkEditor({ uid }: { uid: string }): React.JSX.Element {
     await refresh()
   }
   const remove = async (): Promise<void> => {
-    if (!selectedChunk || !window.confirm('選択中のチャンクを削除しますか？')) return
+    if (!selectedChunk) return
+    if (!(await confirmDialog({ message: '選択中のチャンクを削除しますか？', okLabel: '削除', danger: true }))) return
     const result = await invoke('chunk.delete', { uid: selectedChunk })
     if (!result.ok) return notify('error', 'チャンクを削除できません', result.error.message)
     setSelectedChunk(null)

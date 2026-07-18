@@ -20,6 +20,7 @@ import type { DesignElementRow } from '../views/DesignModelViews'
 import { ResizablePaneGroup } from '../workbench/ResizablePaneGroup'
 import { IntermediateImportDialog } from './IntermediateImportDialog'
 import { pushUndo } from '../../services/undo-service'
+import { confirmDialog } from '../common/ConfirmDialog'
 import {
   DocumentPreviewMetaControls,
   useDocumentPreviewMeta,
@@ -301,18 +302,18 @@ export function PipelineStageEditor({ stage }: { stage: PipelineStage }): React.
       })
     }
   }
-  const confirmDelete = (
+  const confirmDelete = async (
     kind: 'document' | 'extracted' | 'intermediate',
     uid: string,
     name: string,
     previousStatus?: string
-  ): void => {
-    if (
-      !window.confirm(
-        `${name}を削除しますか？\n通常削除のためデータは論理削除され、一覧とExplorerから非表示になります。`
-      )
-    )
-      return
+  ): Promise<void> => {
+    const accepted = await confirmDialog({
+      message: `${name}を削除しますか？\n通常削除のためデータは論理削除され、一覧とExplorerから非表示になります。`,
+      okLabel: '削除',
+      danger: true
+    })
+    if (!accepted) return
     void mutate(`${kind}.delete`, { uid }, `${name}を削除しました`, {
       label: `${name} の削除`,
       undoMethod: `${kind}.restore`,
@@ -560,7 +561,7 @@ export function PipelineStageEditor({ stage }: { stage: PipelineStage }): React.
                         className="d2d-btn small danger"
                         onClick={(event) => {
                           event.stopPropagation()
-                          confirmDelete('document', row.uid, row.file_name, row.status)
+                          void confirmDelete('document', row.uid, row.file_name, row.status)
                         }}
                       >
                         削除
@@ -631,7 +632,7 @@ export function PipelineStageEditor({ stage }: { stage: PipelineStage }): React.
                         className="d2d-btn small danger"
                         onClick={(event) => {
                           event.stopPropagation()
-                          confirmDelete('extracted', row.uid, row.title ?? row.code)
+                          void confirmDelete('extracted', row.uid, row.title ?? row.code)
                         }}
                       >
                         削除
@@ -667,7 +668,7 @@ export function PipelineStageEditor({ stage }: { stage: PipelineStage }): React.
                   }
                 )
               }
-              onDelete={(row, artifactName) => confirmDelete('intermediate', row.uid, artifactName)}
+              onDelete={(row, artifactName) => void confirmDelete('intermediate', row.uid, artifactName)}
             />
           )}
           {stage === 'design' && (

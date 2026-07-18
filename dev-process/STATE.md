@@ -46,7 +46,8 @@
 | P10追加       | テキスト欄の色付き通常プレビュー・Enter/F2編集ダイアログ・Secondary固定順（Unit 187／E2E 18）                                             | 本コミット      |
 | P2追加        | プロジェクト作成時の標準5フェーズ・18成果物登録、設定可能なGit初期化（Unit 189／E2E 18）                                                  | 本コミット      |
 | P3追加(W1〜6) | ショートカット上書き設定画面、Alt+Mメニュー、右クリックメニュー、Undo/Redo基盤、入力Tooltip保証、Welcome装飾のIDE調整（Unit 199／E2E 21） | 2f76e0b         |
-| P3追加(W7)    | Undo接続拡大: intermediate.restore API、③削除／アーカイブ、③レビュー状態、マトリクスセル操作（Unit 199／E2E 22）                          | 本コミット      |
+| P3追加(W7)    | Undo接続拡大: intermediate.restore API、③削除／アーカイブ、③レビュー状態、マトリクスセル操作（Unit 199／E2E 22）                          | cea12d5         |
+| P3追加(W8)    | window.confirm 全廃、共通アプリ内確認ダイアログ confirmDialog（E2E制御可能・テーマ対応）（Unit 199／E2E 22）                              | 本コミット      |
 
 ## 恒久制約（違反するとビルド/実行が壊れる、または設計方針違反）
 
@@ -131,7 +132,7 @@
 - プロジェクト作成の既定Git初期化を検証する前に、永続化された project.initializeGitOnCreate を削除してテスト開始条件を固定する。
 - `e2e/app.spec.ts` は**逐次実行・状態共有**（beforeAll で 1 プロジェクト作成、afterAll で
   app.close 後に削除。開いている project.db を rmSync すると EBUSY）。
-- Electron Rendererの `window.prompt()` は入力ダイアログとして利用できない。名称変更等はテーマ対応のアプリ内ダイアログを使う。
+- Electron Rendererの `window.prompt()` は入力ダイアログとして利用できない。`window.confirm()` もネイティブダイアログとなり Playwright の dialog イベントで確実に制御できず出っぱなしになる。名称変更・破壊的操作の確認はテーマ対応のアプリ内ダイアログ（確認は共通 `confirmDialog()` + `ConfirmDialogHost`、`confirm-ok`／`confirm-cancel` testid）を使い、E2E はボタンクリックで操作する。
 - Activity Bar のボタンは**再クリックでサイドバーが閉じる**トグル。クリック前に
   `isVisible().catch(() => false)` で条件分岐する（既存テストのパターンを踏襲）。
 - `<input>` の値は textContent に出ない → `toHaveValue` を使う。

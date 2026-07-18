@@ -721,8 +721,10 @@ test('②→③統合・編集・確定（P7）', async () => {
   await page.getByTestId('stage-intermediate-row-IMDOC-000001').getByRole('button', { name: '解除' }).click()
   await expect(duplicateRow).toContainText('アーカイブ')
   await expect(page.getByTestId('intermediate-doc-IMDOC-000001')).toBeVisible()
-  page.once('dialog', (dialog) => void dialog.accept())
   await duplicateRow.getByRole('button', { name: '削除' }).click()
+  await expect(page.getByTestId('confirm-dialog')).toBeVisible()
+  await page.getByTestId('confirm-ok').click()
+  await expect(page.getByTestId('confirm-dialog')).toBeHidden()
 
   // Intermediate Document Editor を開く
   await page.getByTestId('intermediate-doc-IMDOC-000001').click()
@@ -1785,9 +1787,10 @@ test('ユーザ操作のUndo/Redo（W4 / NFR-012）', async () => {
   await page.keyboard.press('Control+Z')
   await expect(row.getByRole('button', { name: 'アーカイブ' })).toBeVisible()
 
-  // 論理削除も Undo で復元できる（document.restore、W4）
-  page.once('dialog', (dialog) => void dialog.accept())
+  // 論理削除も Undo で復元できる（document.restore、W4）。確認はアプリ内ダイアログ（W8）
   await row.getByRole('button', { name: '削除' }).click()
+  await expect(page.getByTestId('confirm-message')).toContainText('論理削除され')
+  await page.getByTestId('confirm-ok').click()
   await expect(page.getByTestId('stage-source-row-DOC-000002')).toBeHidden()
   await page.keyboard.press('Control+Z')
   await expect(page.getByTestId('notifications')).toContainText('元に戻しました')
@@ -1799,8 +1802,12 @@ test('Undo拡張: ③削除の復元とマトリクス関係の取り消し（W7
   await page.getByTestId('stage-intermediate').click()
   const intermediateRow = page.getByTestId('stage-intermediate-row-IMDOC-000001')
   await expect(intermediateRow).toBeVisible()
-  page.once('dialog', (dialog) => void dialog.accept())
+  // 確認はアプリ内ダイアログ（W8）。キャンセルで削除されないことも確認する
   await intermediateRow.getByRole('button', { name: '削除' }).click()
+  await page.getByTestId('confirm-cancel').click()
+  await expect(intermediateRow).toBeVisible()
+  await intermediateRow.getByRole('button', { name: '削除' }).click()
+  await page.getByTestId('confirm-ok').click()
   await expect(page.getByTestId('stage-intermediate-row-IMDOC-000001')).toBeHidden()
   await page.keyboard.press('Control+Z')
   await expect(page.getByTestId('notifications')).toContainText('元に戻しました')

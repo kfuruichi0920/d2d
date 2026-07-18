@@ -25,6 +25,7 @@ import { SecondarySideBar } from './SecondarySideBar'
 import { ScreenTextSearch } from './ScreenTextSearch'
 import { GlobalButtonTooltips } from './GlobalButtonTooltips'
 import { ContextMenuHost } from '../common/ContextMenu'
+import { ConfirmDialogHost } from '../common/ConfirmDialog'
 import { StatusBar } from './StatusBar'
 import { TitleBar } from './TitleBar'
 
@@ -177,6 +178,7 @@ export function WorkbenchShell(): React.JSX.Element {
       <StatusBar />
       <CommandPalette />
       <ContextMenuHost />
+      <ConfirmDialogHost />
       <Notifications />
     </div>
   )

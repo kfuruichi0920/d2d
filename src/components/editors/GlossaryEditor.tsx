@@ -7,6 +7,7 @@ import { invoke } from '../../services/backend'
 import { useJobsStore } from '../../stores/jobs-store'
 import { reviewStateFromEntityStatus, ReviewStatusBadge } from '../common/review'
 import { pushUndo } from '../../services/undo-service'
+import { confirmDialog } from '../common/ConfirmDialog'
 
 interface GlossaryTerm {
   uid: string
@@ -60,7 +61,11 @@ export function GlossaryEditor(): React.JSX.Element {
 
   const setStatus = async (uid: string, status: string): Promise<void> => {
     // 破壊的操作の確認（NFR-013）
-    if (status === 'deleted' && !window.confirm('この用語を削除しますか？')) return
+    if (
+      status === 'deleted' &&
+      !(await confirmDialog({ message: 'この用語を削除しますか？', okLabel: '削除', danger: true }))
+    )
+      return
     const entry = terms.find((term) => term.uid === uid)
     const previousStatus = entry?.status
     const res = await invoke('glossary.setStatus', { uid, status })
