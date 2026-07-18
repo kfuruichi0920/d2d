@@ -29,6 +29,16 @@ interface GitCommit {
   author: string
 }
 
+interface GitStatusFile {
+  path: string
+  status: string
+  staged: boolean
+}
+
+interface GitBranchState {
+  current: string
+  branches: string[]
+}
 function formatSize(size: number): string {
   if (size >= 1024 * 1024) return `${(size / 1024 / 1024).toFixed(1)} MB`
   if (size >= 1024) return `${(size / 1024).toFixed(1)} KB`
@@ -41,21 +51,32 @@ export function HistorySideBar(): React.JSX.Element {
   const notify = useJobsStore((s) => s.notify)
   const [archives, setArchives] = useState<ArchiveItem[]>([])
   const [git, setGit] = useState<{ isRepo: boolean; commits: GitCommit[] } | null>(null)
+  const [gitFiles, setGitFiles] = useState<GitStatusFile[]>([])
+  const [branches, setBranches] = useState<GitBranchState>({ current: '', branches: [] })
+  const [selectedGitPaths, setSelectedGitPaths] = useState<string[]>([])
+  const [commitMessage, setCommitMessage] = useState('')
+  const [authorName, setAuthorName] = useState('D2D User')
+  const [authorEmail, setAuthorEmail] = useState('d2d@example.local')
+  const [newBranchName, setNewBranchName] = useState('')
 
   const refresh = useCallback(async () => {
-    const [archivesRes, gitRes] = await Promise.all([
+    const [archivesRes, gitRes, statusRes, branchRes] = await Promise.all([
       invoke<ArchiveItem[]>('archive.list'),
-      invoke<{ isRepo: boolean; commits: GitCommit[] }>('git.log', { maxCount: 30 })
+      invoke<{ isRepo: boolean; commits: GitCommit[] }>('git.log', { maxCount: 30 }),
+      invoke<{ isRepo: boolean; files: GitStatusFile[] }>('git.status'),
+      invoke<GitBranchState>('git.branches')
     ])
     if (archivesRes.ok) setArchives(archivesRes.result)
     if (gitRes.ok) setGit(gitRes.result)
+    if (statusRes.ok) setGitFiles(statusRes.result.files)
+    if (branchRes.ok) setBranches(branchRes.result)
   }, [])
 
   useEffect(() => {
     if (!project) return
     void refresh()
     return onBackendEvent((event) => {
-      if (event === 'archive.created') void refresh()
+      if (event === 'archive.created' || event === 'git.committed') void refresh()
     })
   }, [project, refresh])
 
@@ -82,6 +103,55 @@ export function HistorySideBar(): React.JSX.Element {
     else notify('error', 'アーカイブを作成できませんでした', res.error.message)
   }
 
+  const changeGitSelection = (path: string, checked: boolean): void => {
+    setSelectedGitPaths((current) =>
+      checked ? [...new Set([...current, path])] : current.filter((item) => item !== path)
+    )
+  }
+
+  const updateGitIndex = async (method: 'git.stage' | 'git.unstage'): Promise<void> => {
+    if (selectedGitPaths.length === 0) return
+    const result = await invoke(method, { paths: selectedGitPaths })
+    if (result.ok) {
+      setSelectedGitPaths([])
+      await refresh()
+    } else notify('error', 'Gitのステージ状態を更新できませんでした', result.error.message)
+  }
+
+  const commitGit = async (): Promise<void> => {
+    const result = await invoke<{
+      commit: GitCommit
+      dbToTextFiles: number
+      sqliteDumpFiles: number
+    }>('git.commit', { message: commitMessage, authorName, authorEmail })
+    if (result.ok) {
+      notify(
+        'info',
+        `Gitコミット ${result.result.commit.shortHash} を作成しました`,
+        `DB to Text ${result.result.dbToTextFiles}件 / SQLite dump ${result.result.sqliteDumpFiles}件`
+      )
+      setCommitMessage('')
+      setSelectedGitPaths([])
+      await refresh()
+    } else notify('error', 'Gitコミットに失敗しました', result.error.message)
+  }
+
+  const createBranch = async (): Promise<void> => {
+    const result = await invoke<GitBranchState>('git.branchCreate', { name: newBranchName })
+    if (result.ok) {
+      setBranches(result.result)
+      setNewBranchName('')
+      notify('info', `ブランチ ${result.result.current} を作成しました`)
+    } else notify('error', 'ブランチを作成できませんでした', result.error.message)
+  }
+
+  const checkoutBranch = async (name: string): Promise<void> => {
+    const result = await invoke<GitBranchState>('git.checkout', { name })
+    if (result.ok) {
+      setBranches(result.result)
+      await refresh()
+    } else notify('error', 'ブランチを切り替えられませんでした', result.error.message)
+  }
   const importForDiff = async (fileName: string): Promise<void> => {
     const res = await invoke('archive.importForDiff', { fileName })
     if (res.ok) {
@@ -146,31 +216,147 @@ export function HistorySideBar(): React.JSX.Element {
       </div>
 
       <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--d2d-fg-muted)', marginTop: 6 }}>
-        Git 履歴（読み取り専用）
+        Git操作（GIT-003/004/007）
       </div>
-      <div data-testid="git-log">
-        {git === null && <div className="d2d-empty">読込中…</div>}
-        {git !== null && !git.isRepo && (
-          <div className="d2d-empty" data-testid="git-not-repo">
-            Git リポジトリではありません。コミットはツール外の Git 操作で行ってください（GIT-007）。
+      {git === null && <div className="d2d-empty">読込中…</div>}
+      {git !== null && !git.isRepo && (
+        <div className="d2d-empty" data-testid="git-not-repo">
+          Gitリポジトリではありません。ツール設定で新規プロジェクトのGit初期化を有効にしてください。
+        </div>
+      )}
+      {git?.isRepo && (
+        <div data-testid="git-operations" style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+          <div style={{ display: 'flex', gap: 4 }}>
+            <select
+              value={branches.current}
+              onChange={(event) => void checkoutBranch(event.target.value)}
+              data-testid="git-current-branch"
+              title="ローカルブランチを切り替えます"
+              style={{ minWidth: 0, flex: 1 }}
+            >
+              {branches.branches.map((branch) => (
+                <option key={branch} value={branch}>
+                  {branch}
+                </option>
+              ))}
+            </select>
+            <button type="button" className="d2d-btn small" onClick={() => void refresh()} data-testid="git-refresh">
+              更新
+            </button>
           </div>
-        )}
+          <div style={{ display: 'flex', gap: 4 }}>
+            <input
+              value={newBranchName}
+              onChange={(event) => setNewBranchName(event.target.value)}
+              placeholder="新規ブランチ名"
+              data-testid="git-new-branch-name"
+              style={{ minWidth: 0, flex: 1 }}
+            />
+            <button
+              type="button"
+              className="d2d-btn small"
+              disabled={!newBranchName.trim()}
+              onClick={() => void createBranch()}
+              data-testid="git-create-branch"
+            >
+              作成
+            </button>
+          </div>
+          <div data-testid="git-status-files" style={{ maxHeight: 160, overflow: 'auto' }}>
+            {gitFiles.length === 0 && <div className="d2d-empty">作業ツリーに変更はありません</div>}
+            {gitFiles.map((file) => (
+              <label key={file.path} className="d2d-list-row" style={{ display: 'flex', gap: 5 }}>
+                <input
+                  type="checkbox"
+                  checked={selectedGitPaths.includes(file.path)}
+                  onChange={(event) => changeGitSelection(file.path, event.target.checked)}
+                  data-testid={`git-select-${file.path.replaceAll('/', '-')}`}
+                />
+                <code style={{ width: 24, color: file.staged ? 'var(--d2d-success)' : 'var(--d2d-warning)' }}>
+                  {file.status || 'M'}
+                </code>
+                <span title={file.path} style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {file.path}
+                </span>
+              </label>
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: 4 }}>
+            <button
+              type="button"
+              className="d2d-btn small"
+              disabled={selectedGitPaths.length === 0}
+              onClick={() => void updateGitIndex('git.stage')}
+              data-testid="git-stage"
+            >
+              ステージ
+            </button>
+            <button
+              type="button"
+              className="d2d-btn small"
+              disabled={selectedGitPaths.length === 0}
+              onClick={() => void updateGitIndex('git.unstage')}
+              data-testid="git-unstage"
+            >
+              ステージ解除
+            </button>
+          </div>
+          <input
+            value={commitMessage}
+            onChange={(event) => setCommitMessage(event.target.value)}
+            placeholder="コミットメッセージ"
+            data-testid="git-commit-message"
+          />
+          <div style={{ display: 'flex', gap: 4 }}>
+            <input
+              value={authorName}
+              onChange={(event) => setAuthorName(event.target.value)}
+              placeholder="作成者名"
+              data-testid="git-author-name"
+              style={{ minWidth: 0, flex: 1 }}
+            />
+            <input
+              value={authorEmail}
+              onChange={(event) => setAuthorEmail(event.target.value)}
+              placeholder="メール"
+              data-testid="git-author-email"
+              style={{ minWidth: 0, flex: 1 }}
+            />
+          </div>
+          <button
+            type="button"
+            className="d2d-btn primary"
+            disabled={!commitMessage.trim() || !authorName.trim() || !authorEmail.trim()}
+            onClick={() => void commitGit()}
+            data-testid="git-commit"
+            title="DB to TextとSQLite dumpを再生成・ステージして、現在のステージ内容をコミットします"
+          >
+            テキスト化してコミット
+          </button>
+        </div>
+      )}
+
+      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--d2d-fg-muted)', marginTop: 6 }}>Git履歴</div>
+      <div data-testid="git-log">
         {git?.isRepo && git.commits.length === 0 && (
           <div className="d2d-empty" data-testid="git-empty-repo">
             Gitリポジトリは初期化済みです。コミットはまだありません。
           </div>
         )}
         {git?.isRepo &&
-          git.commits.map((c) => (
+          git.commits.map((commit) => (
             <div
-              key={c.hash}
+              key={commit.hash}
               className="d2d-list-row"
               onClick={() =>
-                openResource(`diff://git/${c.hash}`, `${c.shortHash} ${c.message.slice(0, 20)}`, { preview: true })
+                openResource(`diff://git/${commit.hash}`, `${commit.shortHash} ${commit.message.slice(0, 20)}`, {
+                  preview: true
+                })
               }
-              title={`${c.author} ${c.date}`}
+              title={`${commit.author} ${commit.date}`}
             >
-              <span style={{ color: 'var(--d2d-fg-muted)', fontFamily: 'monospace' }}>{c.shortHash}</span> {c.message}
+              <span style={{ color: 'var(--d2d-fg-muted)', fontFamily: 'monospace' }}>{commit.shortHash}</span>{' '}
+              {commit.message}
             </div>
           ))}
       </div>

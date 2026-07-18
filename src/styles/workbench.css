@@ -810,16 +810,16 @@
   text-align: center;
 }
 .d2d-btn {
-  border: 1px solid var(--d2d-border);
-  background: var(--d2d-surface-raised);
-  color: var(--d2d-fg);
+  border: 1px solid var(--d2d-button-border, var(--d2d-border));
+  background: var(--d2d-button-bg, var(--d2d-surface-raised));
+  color: var(--d2d-button-fg, var(--d2d-fg));
   border-radius: var(--d2d-radius);
   padding: 4px 10px;
   cursor: pointer;
   font-size: 12px;
 }
 .d2d-btn:hover {
-  background: var(--d2d-surface-hover);
+  background: color-mix(in srgb, var(--d2d-button-bg, var(--d2d-surface-raised)) 82%, var(--d2d-fg) 18%);
 }
 .d2d-btn.primary {
   background: var(--d2d-accent);

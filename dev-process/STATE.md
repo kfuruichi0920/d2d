@@ -8,7 +8,7 @@
 - 完了: P0〜P13（クリティカルパス完走、MS6 相当まで）
 - 残り: **P14**（性能・オフライン確認・残 TBD-06〜08・パッケージング・商用版）、
   **P5 の他形式抽出**（Excel / PowerPoint / PDF / Visio / テキスト系、EXT-014/015）
-- テスト規模: ユニット 207 件 / pytest 10 件 / E2E 25 件（すべて成功の状態で引き渡し）
+- テスト規模: ユニット 209 件 / pytest 10 件 / E2E 25 件（すべて成功の状態で引き渡し）
 
 ## フェーズ履歴（要点のみ）
 
@@ -22,7 +22,7 @@
 | P9            | 再帰 CTE トレース・SVG グラフ・マトリクス・整合性検査 → Problems                                                                                                                    | —               |
 | P10           | 状態遷移 / 用語集 / 表編集 / 検証編集 / PlantUML。schema 1.1.0 初適用                                                                                                               | 81d96d1         |
 | P11           | 検索（FTS5 + MeCab トグル）※別セッションで実装・マージ                                                                                                                              | 921a55d 等      |
-| P12           | DB to Text / SQLite dump / ZIP + manifest / 差分インポート / Git 参照 / ストア閲覧                                                                                                  | d2bc9c6         |
+| P12           | DB to Text / SQLite dump / ZIP + manifest / 差分インポート / Git操作・履歴参照 / ストア閲覧                                                                                         | d2bc9c6         |
 | P13           | レポート出力（②③④→文書風、フィルタ、Markdown/HTML、report:// プレビュー）                                                                                                           | 1123e29         |
 | P7 追加       | 任意複数③マージ、2ペインResource Editor、所有判定による上書き／置換／保護派生                                                                                                       | aa9e815         |
 | P3 追加       | 文字サイズ一括変更、可変パネル、Secondaryアコーディオン、再帰分割・タブ移動                                                                                                         | f59cadc         |
@@ -49,6 +49,7 @@
 | P3追加(W7)    | Undo接続拡大: intermediate.restore API、③削除／アーカイブ、③レビュー状態、マトリクスセル操作（Unit 199／E2E 22）                                                                    | cea12d5         |
 | P3追加(W8)    | window.confirm 全廃、共通アプリ内確認ダイアログ confirmDialog（E2E制御可能・テーマ対応）（Unit 199／E2E 22）                                                                        | f79542e         |
 | W9〜W12       | 戻る/進む（Alt+←→）、フォーカス系ショートカット、モーダルESC統一、動作/デバッグログPanel・日付毎ファイル・レベル設定、LLM生送受信ログ・候補再作成（schema 1.8.0、Unit 207／E2E 25） | 本コミット      |
+| P3/P12追加    | Workbench共通10配色のユーザ設定・テーマ既定復帰、Git状態／ステージ／コミット／ローカルブランチ操作、DB to Text＋SQLite dump自動同梱（Unit 209／E2E 25）                             | 本コミット      |
 
 ## 恒久制約（違反するとビルド/実行が壊れる、または設計方針違反）
 
@@ -69,6 +70,8 @@
 - Python ワーカーは stdin/stdout とも UTF-8 ラップ必須（CP932 化け）。pytest はシステム Python
   （miniconda）で実行（PATH 先頭の venv に pip が無い）。
 - Workbench の文字サイズはツール全体設定 `theme.fontSize`（10〜20px、既定13px）で管理し、通常UIとMonacoへ即時反映する。
+- Workbench共通カラーは heme.customColors で背景、サーフェス、文字、補助文字、境界、アクセント、選択、ボタン背景・文字・境界を個別上書きする。未設定または設定解除時は選択中テーマのデザイントークンへ戻す。
+- Git UIは状態確認、選択ファイルのステージ／解除、コミット、ローカルブランチ作成／切替、履歴・diff参照を提供する。コミット直前にDB to TextとSQLite dumpを再生成し、xports/db_to_text/とxports/sqlite_dump/を必ずステージする。project.dbやblobを自動ステージせず、ユーザが既にステージした変更は維持する。
 - Primary／Secondary／下段パネルの表示・寸法とSecondaryアコーディオン開閉はWorkbench外周状態として1組だけ保持し、作業モード／①〜④ステージを切り替えても変更しない。再帰的なEditor分割木・分割比・タブ配置はプロジェクト単位（未選択時はglobal）でlocalStorageへ保持する。各境界はポインタと矢印キーで変更でき、領域内の表示超過は必要時だけ縦横スクロールする。
 - SecondaryはWorkbench全体で共通のProperties／Relations／Review／Dictionaryを独立開閉できる縦アコーディオンとする。Propertiesは共通Selectionの選択アイテム属性、Relationsは当該UIDを端点とする`trace_link`の関係種別・相対方向・相手、Reviewはコメントを表示する。コメントは`resource_text(text_role='comment')`として保存し、コメント→選択アイテムの`relates_to`を同一トランザクションで作る。EvidenceはRelationsへ、LLM Candidatesは候補Editor／下段Panelへ集約する。Editorタブは最大220pxで省略表示し、収まらない場合は複数段へ折り返す。タブは分割区分へのドラッグ＆ドロップまたはコマンドで移動する。
 - Primary／Secondary／下段PanelはTitle Bar右側ボタンとCommandの双方から表示切替する。Activity BarはSettingsを下端固定し、それ以外のDnD順序をプロジェクト単位に保存する。選択ActivityはPrimary非表示時も選択色を維持する。保存レイアウトがないプロジェクトへ切り替えた場合は、直前プロジェクトの状態を持ち越さずM0既定値へ初期化する。
@@ -148,6 +151,8 @@
 - チャンク編集を開き直した場合、チャンク選択は復元しない。候補生成など選択必須操作のE2Eは、対象チャンク行を明示選択してから実行する。
 
 ## 残課題（正直リスト）
+
+- Git UIのremote操作（fetch／pull／push）、merge／rebase、競合解消は未対応。現時点の基本操作はローカルRepository内に限定する。
 
 - P14 一式（性能 NFR-001〜005 実測、オフライン確認、TBD-06〜08、
   Java/Graphviz/PlantUML/MeCab 同梱パッケージング P14-5、pymupdf 商用版 P14-6）

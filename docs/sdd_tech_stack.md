@@ -48,7 +48,7 @@
 | モデル図レンダリング | PlantUML | 1.2025.x | **GPL 3.0（既定）/ MIT・LGPL・商用等の代替ライセンス版あり** | **(要審査)** PlantUML / SysMLv2 テキストのレンダリング（SRS FORM-001、UI設計モデル表示）。実行にJavaランタイムが必要で、一部図種はGraphvizに依存する。配布方式（jar同梱 / ユーザー環境のJava利用）とライセンス形態（MIT限定ビルド等）を審査のうえ確定する（TBD-02、`docs/tbd_register.md`） |
 | ファイルハッシュ | Node.js crypto（built-in） | — | — | SHA-256 による原本同一性確認（SRS IMP-008） |
 | ZIP 操作 | adm-zip | 0.5+ | MIT | ZIP 生成・展開（SRS DATA-030〜033） |
-| Git 操作 | simple-git | 3.x | MIT | Git 履歴・diff の読み取り専用参照（SRS GIT-001〜002）。コミットは行わない |
+| Git 操作 | simple-git | 3.x | MIT | Git状態、ステージ／解除、コミット、ローカルブランチ、履歴・diff参照（SRS GIT-001〜007）。コミット前のDB to Text／SQLite dump生成はLocal Backendで実行する |
 | UUID 生成 | uuid | 11.x | MIT | UUIDv7 形式の UID 生成（SRS EXT-013） |
 | 日本語形態素解析 | MeCab 実行バイナリ + 辞書 | 0.996+ | BSD / GPL / LGPL（採用条件をBSDとして確認） | FTS5登録用の検索本文をアプリ側で分かち書きする。Windows優先で同梱またはインストールパス設定を扱う |
 

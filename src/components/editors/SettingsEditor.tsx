@@ -7,7 +7,7 @@ import { useEffect, useState } from 'react'
 import { invoke } from '../../services/backend'
 import { useJobsStore } from '../../stores/jobs-store'
 import { useWorkbenchStore } from '../../stores/workbench-store'
-import { COLOR_THEMES, DISPLAY_MODES } from '../../theme/theme'
+import { COLOR_THEMES, DISPLAY_MODES, WORKBENCH_COLOR_DEFINITIONS, type WorkbenchColors } from '../../theme/theme'
 import { LlmSettingsSection } from '../views/LlmViews'
 import { useProjectStore } from '../../stores/project-store'
 import { SearchEngineSettingsSection } from '../views/SearchSettingsView'
@@ -15,6 +15,18 @@ import { PlantUmlSettingsSection } from '../views/PlantUmlSettingsView'
 import { AppSettingsStorageNotice } from '../views/AppSettingsStorageNotice'
 import { KeybindingSettingsSection } from '../views/KeybindingSettingsView'
 
+const DEFAULT_WORKBENCH_COLORS: Record<(typeof WORKBENCH_COLOR_DEFINITIONS)[number]['key'], string> = {
+  workbenchBackground: '#1b1d21',
+  surfaceBackground: '#232529',
+  foreground: '#d6d8dc',
+  mutedForeground: '#8b8f98',
+  border: '#3a3d45',
+  accent: '#0a6dd1',
+  selectionBackground: '#315a83',
+  buttonBackground: '#2a2d33',
+  buttonForeground: '#d6d8dc',
+  buttonBorder: '#3a3d45'
+}
 export function SettingsEditor(): React.JSX.Element {
   const theme = useWorkbenchStore((s) => s.theme)
   const setTheme = useWorkbenchStore((s) => s.setTheme)
@@ -132,6 +144,54 @@ export function SettingsEditor(): React.JSX.Element {
         <output data-testid="setting-font-size-value">{theme.fontSize}px</output>
       </div>
 
+      <h2 style={{ fontSize: 14, marginTop: 20 }}>Workbench共通カラー（UI-052）</h2>
+      <p style={{ color: 'var(--d2d-fg-muted)', fontSize: 11.5 }}>
+        共通デザイントークンをパーツ単位で上書きします。未設定へ戻すと選択中テーマの配色を使用します。
+      </p>
+      <div data-testid="setting-workbench-colors" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+        {WORKBENCH_COLOR_DEFINITIONS.map((definition) => {
+          const configured = theme.customColors[definition.key]
+          return (
+            <label key={definition.key} style={{ ...rowStyle, margin: 0 }}>
+              <span style={{ flex: 1 }}>{definition.label}</span>
+              <input
+                type="color"
+                value={configured ?? DEFAULT_WORKBENCH_COLORS[definition.key]}
+                onChange={(event) =>
+                  setTheme({
+                    customColors: { ...theme.customColors, [definition.key]: event.target.value } as WorkbenchColors
+                  })
+                }
+                data-testid={`setting-color-${definition.key}`}
+                aria-label={`${definition.label}の色`}
+                title={`${definition.label}の共通色を設定します`}
+              />
+              <button
+                type="button"
+                className="d2d-btn small"
+                disabled={!configured}
+                onClick={() => {
+                  const next = { ...theme.customColors }
+                  delete next[definition.key]
+                  setTheme({ customColors: next })
+                }}
+                data-testid={`setting-color-reset-${definition.key}`}
+              >
+                既定
+              </button>
+            </label>
+          )
+        })}
+      </div>
+      <button
+        type="button"
+        className="d2d-btn"
+        style={{ marginTop: 8 }}
+        onClick={() => setTheme({ customColors: {} })}
+        data-testid="setting-colors-reset-all"
+      >
+        すべてテーマ既定色へ戻す
+      </button>
       <h2 style={{ fontSize: 14, marginTop: 20 }}>プロジェクト作成（CORE-047）</h2>
       <label style={rowStyle} title="新規プロジェクトの作成後にgit initを実行します。失敗しても作成処理は継続します。">
         <input

@@ -15,7 +15,19 @@ import {
   importArchiveForDiff,
   listArchives
 } from '../export/archive-service'
-import { getGitFileAt, getGitLog, getGitShow, getGitStatus, isGitRepo } from '../git/git-service'
+import {
+  checkoutGitBranch,
+  commitGitChanges,
+  createGitBranch,
+  getGitBranches,
+  getGitFileAt,
+  getGitLog,
+  getGitShow,
+  getGitStatus,
+  isGitRepo,
+  stageGitFiles,
+  unstageGitFiles
+} from '../git/git-service'
 
 function asRecord(params: unknown): Record<string, unknown> {
   if (typeof params !== 'object' || params === null) {
@@ -32,6 +44,13 @@ function requireString(params: Record<string, unknown>, key: string): string {
   return value
 }
 
+function requireStringArray(params: Record<string, unknown>, key: string): string[] {
+  const value = params[key]
+  if (!Array.isArray(value) || !value.every((item) => typeof item === 'string')) {
+    throw new BackendError('validation', `${key} は文字列配列です`, '')
+  }
+  return value
+}
 export function registerDataApi(router: ApiRouter, jobs: JobManager): void {
   // ---- DB to Text / SQLite dump（P12-1/P12-2） ----
 
@@ -87,7 +106,7 @@ export function registerDataApi(router: ApiRouter, jobs: JobManager): void {
     return getArchiveDiffContent(requireString(p, 'file'))
   })
 
-  // ---- Git 履歴参照（P12-5。読み取り専用、GIT-007） ----
+  // ---- Git連携（P12-5、GIT-001〜007） ----
 
   router.register('git.info', async () => {
     const { info } = requireProject()
@@ -110,6 +129,53 @@ export function registerDataApi(router: ApiRouter, jobs: JobManager): void {
     return { isRepo: true, files: await getGitStatus(info.rootPath) }
   })
 
+  router.register('git.branches', async () => {
+    const { info } = requireProject()
+    return getGitBranches(info.rootPath)
+  })
+
+  router.register('git.stage', async (params) => {
+    const p = asRecord(params)
+    const { info } = requireProject()
+    await stageGitFiles(info.rootPath, requireStringArray(p, 'paths'))
+    return { files: await getGitStatus(info.rootPath) }
+  })
+
+  router.register('git.unstage', async (params) => {
+    const p = asRecord(params)
+    const { info } = requireProject()
+    await unstageGitFiles(info.rootPath, requireStringArray(p, 'paths'))
+    return { files: await getGitStatus(info.rootPath) }
+  })
+
+  router.register('git.branchCreate', async (params) => {
+    const p = asRecord(params)
+    const { info } = requireProject()
+    return createGitBranch(info.rootPath, requireString(p, 'name'))
+  })
+
+  router.register('git.checkout', async (params) => {
+    const p = asRecord(params)
+    const { info } = requireProject()
+    return checkoutGitBranch(info.rootPath, requireString(p, 'name'))
+  })
+
+  /** GIT-004/007: コミット直前に両テキスト出力を再生成し、必ずコミットへ含める。 */
+  router.register('git.commit', async (params) => {
+    const p = asRecord(params)
+    const { db, info } = requireProject()
+    const dbToText = exportDbToText(db, info.projectUid, info.rootPath)
+    const sqliteDump = exportSqliteDump(db, info.rootPath)
+    await stageGitFiles(info.rootPath, ['exports/db_to_text', 'exports/sqlite_dump'])
+    const commit = await commitGitChanges(
+      info.rootPath,
+      requireString(p, 'message'),
+      requireString(p, 'authorName'),
+      requireString(p, 'authorEmail')
+    )
+    eventBus.emit('git.committed', { hash: commit.hash })
+    return { commit, dbToTextFiles: dbToText.files.length, sqliteDumpFiles: sqliteDump.files.length }
+  })
   /** コミットの --stat + patch（GIT-005） */
   router.register('git.show', async (params) => {
     const p = asRecord(params)

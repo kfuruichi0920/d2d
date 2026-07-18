@@ -1,7 +1,7 @@
 /**
- * Git 履歴参照（P12-5、GIT-001/002/005/006/007）。
- * simple-git による読み取り専用参照に限定する。コミット・プッシュ等の書込み操作は
- * 本ツールでは一切実行せず、ユーザがツール外の Git 操作として行う（GIT-007）。
+ * Git連携（P12-5、GIT-001〜007）。
+ * 履歴・差分参照に加え、状態確認、ステージ、コミット、ローカルブランチ操作を提供する。
+ * コミット前のDB to Text／SQLite dump生成はAPI層が担う（GIT-004/007）。
  */
 import { simpleGit, type SimpleGit } from 'simple-git'
 import { BackendError } from '../api/errors'
@@ -48,14 +48,107 @@ export async function getGitLog(projectRoot: string, maxCount = 50): Promise<Git
 export interface GitStatusItem {
   path: string
   status: string
+  staged: boolean
 }
 
 /** 作業ツリーの変更一覧（Diff ビューの入口） */
 export async function getGitStatus(projectRoot: string): Promise<GitStatusItem[]> {
   const status = await git(projectRoot).status()
-  return status.files.map((f) => ({ path: f.path, status: `${f.index}${f.working_dir}`.trim() }))
+  return status.files.map((f) => ({
+    path: f.path,
+    status: `${f.index}${f.working_dir}`.trim(),
+    staged: f.index !== ' ' && f.index !== '?'
+  }))
 }
 
+function assertPaths(paths: string[]): string[] {
+  if (paths.length === 0) throw new BackendError('validation', '対象ファイルを1件以上選択してください', '')
+  for (const path of paths) {
+    if (!path || path.includes('..') || path.startsWith('/') || /^[A-Za-z]:/.test(path)) {
+      throw new BackendError('validation', `不正なパスです: ${path}`, '')
+    }
+  }
+  return paths.map((path) => path.replaceAll('\\', '/'))
+}
+
+/** 選択ファイルをステージする（GIT-003）。 */
+export async function stageGitFiles(projectRoot: string, paths: string[]): Promise<void> {
+  await git(projectRoot).add(assertPaths(paths))
+}
+
+/** 選択ファイルのステージを解除する（GIT-003）。未コミットRepositoryにも対応する。 */
+export async function unstageGitFiles(projectRoot: string, paths: string[]): Promise<void> {
+  const safePaths = assertPaths(paths)
+  if ((await getGitLog(projectRoot, 1)).length === 0) {
+    await git(projectRoot).raw(['rm', '--cached', '--ignore-unmatch', '--', ...safePaths])
+  } else {
+    await git(projectRoot).raw(['reset', 'HEAD', '--', ...safePaths])
+  }
+}
+
+export interface GitBranchState {
+  current: string
+  branches: string[]
+}
+
+/** ローカルブランチ一覧（GIT-003）。 */
+export async function getGitBranches(projectRoot: string): Promise<GitBranchState> {
+  const result = await git(projectRoot).branchLocal()
+  return { current: result.current, branches: result.all }
+}
+
+/** ローカルブランチを作成して切り替える（GIT-003）。 */
+export async function createGitBranch(projectRoot: string, branchName: string): Promise<GitBranchState> {
+  if (!branchName.trim() || /[\r\n]/.test(branchName)) {
+    throw new BackendError('validation', 'ブランチ名を入力してください', '')
+  }
+  await git(projectRoot).checkoutLocalBranch(branchName.trim())
+  return getGitBranches(projectRoot)
+}
+
+/** 既存ローカルブランチへ切り替える（GIT-003）。 */
+export async function checkoutGitBranch(projectRoot: string, branchName: string): Promise<GitBranchState> {
+  const branches = await getGitBranches(projectRoot)
+  if (!branches.branches.includes(branchName)) {
+    throw new BackendError('validation', `存在しないローカルブランチです: ${branchName}`, '')
+  }
+  await git(projectRoot).checkout(branchName)
+  return getGitBranches(projectRoot)
+}
+
+export interface GitCommitResult {
+  hash: string
+  shortHash: string
+  message: string
+}
+
+/** 現在のステージ内容をコミットする。API層が生成済みexportsも事前にステージする（GIT-004/007）。 */
+export async function commitGitChanges(
+  projectRoot: string,
+  message: string,
+  authorName: string,
+  authorEmail: string
+): Promise<GitCommitResult> {
+  const cleanMessage = message.trim()
+  if (!cleanMessage || /[\r\n]/.test(cleanMessage)) {
+    throw new BackendError('validation', 'コミットメッセージを1行で入力してください', '')
+  }
+  if (!authorName.trim() || /[\r\n]/.test(authorName) || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(authorEmail)) {
+    throw new BackendError('validation', 'コミット作成者名と有効なメールアドレスを入力してください', '')
+  }
+  await git(projectRoot).raw([
+    '-c',
+    `user.name=${authorName.trim()}`,
+    '-c',
+    `user.email=${authorEmail.trim()}`,
+    'commit',
+    '-m',
+    cleanMessage
+  ])
+  const latest = (await getGitLog(projectRoot, 1))[0]
+  if (!latest) throw new BackendError('internal', 'コミット結果を取得できませんでした', '')
+  return { hash: latest.hash, shortHash: latest.shortHash, message: latest.message }
+}
 const HASH_PATTERN = /^[0-9a-fA-F]{4,40}$/
 
 function assertHash(hash: string): void {

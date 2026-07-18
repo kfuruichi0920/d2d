@@ -53,8 +53,9 @@ export function WorkbenchShell(): React.JSX.Element {
     void Promise.all([
       invoke<unknown>('settings.get', { key: 'theme.displayMode' }),
       invoke<unknown>('settings.get', { key: 'theme.colorTheme' }),
-      invoke<unknown>('settings.get', { key: 'theme.fontSize' })
-    ]).then(([displayModeResult, colorThemeResult, fontSizeResult]) => {
+      invoke<unknown>('settings.get', { key: 'theme.fontSize' }),
+      invoke<unknown>('settings.get', { key: 'theme.customColors' })
+    ]).then(([displayModeResult, colorThemeResult, fontSizeResult, customColorsResult]) => {
       const theme: Partial<ThemeState> = {}
       if (displayModeResult.ok && DISPLAY_MODES.includes(displayModeResult.result as (typeof DISPLAY_MODES)[number])) {
         theme.displayMode = displayModeResult.result as ThemeState['displayMode']
@@ -69,6 +70,17 @@ export function WorkbenchShell(): React.JSX.Element {
         fontSizeResult.result <= 20
       ) {
         theme.fontSize = fontSizeResult.result
+      }
+      if (
+        customColorsResult.ok &&
+        typeof customColorsResult.result === 'object' &&
+        customColorsResult.result !== null
+      ) {
+        theme.customColors = Object.fromEntries(
+          Object.entries(customColorsResult.result).filter(
+            ([, value]) => typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value)
+          )
+        )
       }
       if (Object.keys(theme).length > 0) useWorkbenchStore.getState().setTheme(theme)
     })

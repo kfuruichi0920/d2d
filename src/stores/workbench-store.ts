@@ -241,13 +241,19 @@ export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
   },
 
   setTheme: (partial) => {
-    const theme = { ...get().theme, ...partial }
+    const current = get().theme
+    const theme = {
+      ...current,
+      ...partial,
+      customColors: partial.customColors === undefined ? current.customColors : { ...partial.customColors }
+    }
     set({ theme })
     applyTheme(theme)
     persist(get())
     void invoke('settings.set', { key: 'theme.displayMode', value: theme.displayMode })
     void invoke('settings.set', { key: 'theme.colorTheme', value: theme.colorTheme })
     void invoke('settings.set', { key: 'theme.fontSize', value: theme.fontSize })
+    void invoke('settings.set', { key: 'theme.customColors', value: theme.customColors })
   },
 
   setPaletteOpen: (open) => set({ paletteOpen: open }),

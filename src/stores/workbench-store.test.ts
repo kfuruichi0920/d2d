@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { DEFAULT_THEME } from '../theme/theme'
+import { DEFAULT_THEME, getWorkbenchColorVariables } from '../theme/theme'
 import { isSemanticEditShortcut } from '../components/common/SemanticTextInput'
 import { DEFAULT_ACTIVITY_ORDER, SECONDARY_SECTION_ORDER, useWorkbenchStore } from './workbench-store'
 
@@ -24,6 +24,18 @@ function reset(): void {
 
 describe('workbench-store（P3-1、UI-038/040）', () => {
   beforeEach(reset)
+
+  it('Workbench共通カラーは設定済みパーツだけをCSS変数へ変換する（UI-052）', () => {
+    expect(
+      getWorkbenchColorVariables({
+        workbenchBackground: '#102030',
+        buttonBackground: '#405060'
+      })
+    ).toEqual({
+      '--d2d-bg': '#102030',
+      '--d2d-button-bg': '#405060'
+    })
+  })
 
   it('外周パネル寸法を許容範囲へ制限する', () => {
     useWorkbenchStore.getState().setPrimarySize(900)
