@@ -8,7 +8,7 @@
 - 完了: P0〜P13（クリティカルパス完走、MS6 相当まで）
 - 残り: **P14**（性能・オフライン確認・残 TBD-06〜08・パッケージング・商用版）、
   **P5 の他形式抽出**（Excel / PowerPoint / PDF / Visio / テキスト系、EXT-014/015）
-- テスト規模: ユニット 185 件 / pytest 10 件 / E2E 18 件（すべて成功の状態で引き渡し）
+- テスト規模: ユニット 187 件 / pytest 10 件 / E2E 18 件（すべて成功の状態で引き渡し）
 
 ## フェーズ履歴（要点のみ）
 
@@ -43,6 +43,7 @@
 | P9追加        | 見出しドラッグによる列間隔調整・外側列の連動移動・構成保存（Unit 179／E2E 18）                       | 本コミット      |
 | P3/P7追加     | 中間成果物のShift+上下範囲選択、ウェルカム設計思想・3種Help、検索導線・全ボタンTooltip               | 本コミット      |
 | P10追加       | セマンティック入力支援、構造化参照・正規化履歴・候補検索・辞書登録・関係検証（Unit 185／E2E 18）     | 本コミット      |
+| P10追加       | テキスト欄の色付き通常プレビュー・Enter/F2編集ダイアログ・Secondary固定順（Unit 187／E2E 18）        | 本コミット      |
 
 ## 恒久制約（違反するとビルド/実行が壊れる、または設計方針違反）
 
@@ -51,7 +52,7 @@
   `npm run rebuild:electron`。※P11 マージ以降 `rebuild:node` スクリプトは無く、
   `postinstall` が rebuild:electron を実行する（npm install 直後は Electron ABI）。
 - **候補と正本の区別は entity_registry.status**（draft=候補 / approved=正本）。
-- **セマンティック入力は表示文章と構造化参照を分離する**。`semantic_text` に外部原文・表示文章・入力欄ポリシー、`semantic_reference` に文字範囲・参照UID・表示方法・関係種別・承認状態、`semantic_normalization_history` に差分・承認・取消履歴を保持する。自動認識は弱い `relates_to` の候補に限定し、承認済み参照だけを関係ルール検証後に `trace_link` へ確定する。辞書候補はスコープ・版・廃止・権限を考慮し、辞書登録は承認待ちで作成する。
+- **セマンティック入力は表示文章と構造化参照を分離する**。`semantic_text` に外部原文・表示文章・入力欄ポリシー、`semantic_reference` に文字範囲・参照UID・表示方法・関係種別・承認状態、`semantic_normalization_history` に差分・承認・取消履歴を保持する。自動認識は弱い `relates_to` の候補に限定し、承認済み参照だけを関係ルール検証後に `trace_link` へ確定する。辞書候補はスコープ・版・廃止・権限を考慮し、辞書登録は承認待ちで作成する。通常時のtext／multiline欄は専用背景のプレビューと編集ボタンだけを表示し、`Enter`／`F2`または編集ボタンで全編集機能を集約したモーダルダイアログを開く。
 - **抽出由来・共有正本は破壊しない**: 編集・マージ・分割・表編集は新リソース + `based_on` trace_link
   （transform_note = edit / merge / split / edit-table）で由来を残し、旧リソースを保護する。
 - **Main は Gateway/Shell のみ**。業務ロジックは backend/（utilityProcess）に置く。
@@ -76,7 +77,7 @@
 - Workbench内文字検索は `Ctrl/Cmd+F` の共通検索UIで提供する。文書プレビューのパーツ種別・セクション・要素ID表示は共通 `DocumentPreviewMeta` で切替・ツール全体保存し、抽出形式固有の表示判定を各Editorへ埋め込まない。
 - Workbenchの全操作ボタンは個別の詳細`title`を優先し、未設定時は共通Tooltip保証でアクセシブル名から操作説明を補う。画面内検索はCtrl/Cmd+Fに加えてTitle Barの常時表示ボタンから開く。
 - プロジェクト未選択時のウェルカムは、自然言語の「文書」とオントロジーへ写像した「データ」の定義を示す。操作フロー、データスキーマ、SRS 9章の設計モデルは `help://workflow`／`help://schema`／`help://design-model` の読取専用Resourceとして通常のEditorタブへ開く。
-- Secondaryの閉じたアコーディオンは開いたセクションの下へ安定ソートする。Relationsは相手エンティティから `resource://`／`original://`／`extracted://`／`intermediate://`／`chunk://` の編集URIを解決し、クリックまたはEnter／Spaceで開く。
+- SecondaryのProperties／Relations／Review／Dictionaryは開閉状態にかかわらずこの定義順を維持し、閉じても並べ替えない。Relationsは相手エンティティから `resource://`／`original://`／`extracted://`／`intermediate://`／`chunk://` の編集URIを解決し、クリックまたはEnter／Spaceで開く。
 - ストア閲覧はCOUNTによる総件数と500件単位の追加読込で全件到達可能にし、固定件数で打ち切らない。表は行番号・縦横スクロール・薄青選択・上下キー移動を備え、選択行を共通Selectionへ通知する。
 - 関係性候補の選択肢は `relation_rule_master.allowed=1` と始点／終点カテゴリから導出する。LLMが許容外の関係性を返した場合は元値を保持して警告表示し、許容関係へ修正するまで採用不可とする。
 - prettier は docs/ と tasks/ を対象外（.prettierignore）。

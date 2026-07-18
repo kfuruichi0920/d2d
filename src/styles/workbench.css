@@ -2414,12 +2414,87 @@ mark.d2d-term {
   opacity: 0.13;
 }
 
-/* セマンティック入力支援（P10-7、EDIT-057〜071） */
+/* セマンティック入力支援（P10-7、EDIT-057〜073） */
 .semantic-input {
   position: relative;
   display: grid;
   gap: 5px;
   min-width: 0;
+}
+.semantic-preview-field {
+  position: relative;
+  min-width: 0;
+}
+.semantic-preview-focus {
+  min-height: 36px;
+  padding-right: 54px;
+  color: var(--d2d-fg);
+  background: color-mix(in srgb, var(--d2d-accent) 10%, var(--d2d-surface-raised));
+  border: 1px solid color-mix(in srgb, var(--d2d-accent) 42%, var(--d2d-border));
+  border-radius: var(--d2d-radius);
+  cursor: text;
+}
+.semantic-preview-focus:focus {
+  outline: 2px solid var(--d2d-focus);
+  outline-offset: 1px;
+}
+.semantic-preview-focus > .semantic-preview {
+  min-height: 34px;
+  padding: 7px;
+  background: transparent;
+  border: 0;
+}
+.semantic-edit-trigger {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+}
+.semantic-edit-dialog {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: grid;
+  place-items: center;
+  padding: 6vh 10vw;
+  background: rgb(0 0 0 / 48%);
+}
+.semantic-edit-panel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: min(980px, 100%);
+  max-height: 88vh;
+  overflow: hidden;
+  color: var(--d2d-fg);
+  background: var(--d2d-surface-raised);
+  border: 1px solid var(--d2d-border);
+  border-radius: var(--d2d-radius);
+  box-shadow: 0 12px 42px var(--d2d-shadow);
+}
+.semantic-edit-dialog-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--d2d-border);
+}
+.semantic-edit-dialog-body {
+  position: relative;
+  display: grid;
+  gap: 7px;
+  min-height: 0;
+  padding: 12px;
+  overflow: auto;
+}
+.semantic-edit-dialog-body > input,
+.semantic-edit-dialog-body > textarea {
+  width: 100%;
+  min-height: 32px;
+  box-sizing: border-box;
+}
+.semantic-edit-dialog-body > textarea {
+  min-height: 140px;
+  resize: vertical;
 }
 .semantic-toolbar {
   display: flex;
@@ -2440,15 +2515,7 @@ mark.d2d-term {
   background: color-mix(in srgb, var(--d2d-accent) 24%, var(--d2d-bg));
   border-color: var(--d2d-accent);
 }
-.resource-editor-fields .semantic-input > input,
-.resource-editor-fields .semantic-input > textarea {
-  width: 100%;
-  min-height: 28px;
-}
-.resource-editor-fields .semantic-input > textarea {
-  min-height: 90px;
-  resize: vertical;
-}
+
 .semantic-preview {
   min-height: 32px;
   padding: 7px;

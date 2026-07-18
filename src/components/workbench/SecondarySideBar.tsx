@@ -1,20 +1,21 @@
 /**
  * Workbench共通Secondary Side Bar（P3-9、UI-026/040、sdd_ui_design §11）。
- * Properties／Relations／Reviewを現在のSelectionへ同期する。
+ * Properties／Relations／Reviewを現在のSelectionへ同期し、Dictionaryを固定順で表示する。
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { invoke, onBackendEvent } from '../../services/backend'
 import { useEditorStore } from '../../stores/editor-store'
 import { useJobsStore } from '../../stores/jobs-store'
 import { useSelectionStore, type SelectedItem } from '../../stores/selection-store'
-import { useWorkbenchStore, type SecondaryTab } from '../../stores/workbench-store'
+import { SECONDARY_SECTION_ORDER, useWorkbenchStore, type SecondaryTab } from '../../stores/workbench-store'
 
-const SECTIONS: { id: SecondaryTab; label: string }[] = [
-  { id: 'properties', label: 'Properties' },
-  { id: 'relations', label: 'Relations' },
-  { id: 'review', label: 'Review' },
-  { id: 'dictionary', label: 'Dictionary' }
-]
+const SECTION_LABELS: Record<SecondaryTab, string> = {
+  properties: 'Properties',
+  relations: 'Relations',
+  review: 'Review',
+  dictionary: 'Dictionary'
+}
+const SECTIONS = SECONDARY_SECTION_ORDER.map((id) => ({ id, label: SECTION_LABELS[id] }))
 
 interface RelationRow {
   uid: string
@@ -66,37 +67,35 @@ export function SecondarySideBar(): React.JSX.Element {
   return (
     <aside className="wb-secondary" data-testid="secondary-sidebar">
       <div className="wb-secondary-accordions">
-        {[...SECTIONS]
-          .sort((a, b) => Number(expanded.includes(b.id)) - Number(expanded.includes(a.id)))
-          .map((section) => {
-            const open = expanded.includes(section.id)
-            return (
-              <section
-                key={section.id}
-                className={'wb-secondary-accordion ' + (activeSection === section.id ? 'active' : '')}
-                data-testid={'secondary-accordion-' + section.id}
+        {SECTIONS.map((section) => {
+          const open = expanded.includes(section.id)
+          return (
+            <section
+              key={section.id}
+              className={'wb-secondary-accordion ' + (activeSection === section.id ? 'active' : '')}
+              data-testid={'secondary-accordion-' + section.id}
+            >
+              <button
+                type="button"
+                className="wb-secondary-accordion-header"
+                aria-expanded={open}
+                onClick={() => toggleSection(section.id)}
+                data-testid={'secondary-tab-' + section.id}
               >
-                <button
-                  type="button"
-                  className="wb-secondary-accordion-header"
-                  aria-expanded={open}
-                  onClick={() => toggleSection(section.id)}
-                  data-testid={'secondary-tab-' + section.id}
-                >
-                  <span>{open ? '▾' : '▸'}</span>
-                  {section.label}
-                </button>
-                {open && (
-                  <div className="wb-secondary-accordion-body">
-                    {section.id === 'properties' && <PropertiesContent target={target} />}
-                    {section.id === 'relations' && <RelationsContent target={target} openResource={openResource} />}
-                    {section.id === 'review' && <ReviewContent target={target} />}
-                    {section.id === 'dictionary' && <DictionaryContent openResource={openResource} />}
-                  </div>
-                )}
-              </section>
-            )
-          })}
+                <span>{open ? '▾' : '▸'}</span>
+                {section.label}
+              </button>
+              {open && (
+                <div className="wb-secondary-accordion-body">
+                  {section.id === 'properties' && <PropertiesContent target={target} />}
+                  {section.id === 'relations' && <RelationsContent target={target} openResource={openResource} />}
+                  {section.id === 'review' && <ReviewContent target={target} />}
+                  {section.id === 'dictionary' && <DictionaryContent openResource={openResource} />}
+                </div>
+              )}
+            </section>
+          )
+        })}
       </div>
     </aside>
   )

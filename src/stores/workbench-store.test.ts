@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { DEFAULT_THEME } from '../theme/theme'
-import { DEFAULT_ACTIVITY_ORDER, useWorkbenchStore } from './workbench-store'
+import { isSemanticEditShortcut } from '../components/common/SemanticTextInput'
+import { DEFAULT_ACTIVITY_ORDER, SECONDARY_SECTION_ORDER, useWorkbenchStore } from './workbench-store'
 
 function reset(): void {
   useWorkbenchStore.setState({
@@ -70,5 +71,18 @@ describe('workbench-store（P3-1、UI-038/040）', () => {
     expect(useWorkbenchStore.getState().secondaryExpanded).toEqual(['properties', 'relations'])
     useWorkbenchStore.getState().toggleSecondarySection('properties')
     expect(useWorkbenchStore.getState().secondaryExpanded).toEqual(['relations'])
+  })
+  it('Secondaryアコーディオンは開閉しても固定表示順の契約を変更しない（EDIT-073）', () => {
+    const order = [...SECONDARY_SECTION_ORDER]
+    useWorkbenchStore.getState().toggleSecondarySection('relations')
+    useWorkbenchStore.getState().toggleSecondarySection('dictionary')
+    expect(SECONDARY_SECTION_ORDER).toEqual(order)
+    expect(SECONDARY_SECTION_ORDER).toEqual(['properties', 'relations', 'review', 'dictionary'])
+  })
+
+  it('セマンティックプレビューはEnterまたはF2だけを編集ショートカットとして扱う（EDIT-072）', () => {
+    expect(isSemanticEditShortcut('Enter')).toBe(true)
+    expect(isSemanticEditShortcut('F2')).toBe(true)
+    expect(isSemanticEditShortcut('Space')).toBe(false)
   })
 })
