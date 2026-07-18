@@ -70,13 +70,29 @@ describe('プロジェクト設定 CRUD（P2-1、CORE-012）', () => {
     expect(listArtifactSettings(db, projectUid).find((a) => a.uid === artifact2.uid)).toBeUndefined()
   })
 
-  it('同名成果物は conflict になる', () => {
-    saveArtifactSetting(db, projectUid, { artifactName: '基本設計書', artifactTypeId: 'bd' })
+  it('成果物名は同じフェーズ内だけ重複を拒否し、異なるフェーズでは許可する（CORE-013）', () => {
+    saveDevPhase(db, projectUid, { devPhaseId: 'BD', devPhaseName: '基本設計' })
+    saveDevPhase(db, projectUid, { devPhaseId: 'DD', devPhaseName: '詳細設計' })
+    saveArtifactSetting(db, projectUid, {
+      artifactName: 'レビュー記録',
+      artifactTypeId: 'review_record',
+      devPhaseId: 'BD'
+    })
     expect(() =>
-      saveArtifactSetting(db, projectUid, { artifactName: '基本設計書', artifactTypeId: 'bd2' })
-    ).toThrowError(/既に存在/)
+      saveArtifactSetting(db, projectUid, {
+        artifactName: 'レビュー記録',
+        artifactTypeId: 'review_record_2',
+        devPhaseId: 'BD'
+      })
+    ).toThrowError(/同じ開発フェーズ/)
+    expect(
+      saveArtifactSetting(db, projectUid, {
+        artifactName: 'レビュー記録',
+        artifactTypeId: 'review_record',
+        devPhaseId: 'DD'
+      }).dev_phase_id
+    ).toBe('DD')
   })
-
   it('文書体系（親子関係）を追加・検証・無効化できる', () => {
     const srs = saveArtifactSetting(db, projectUid, { artifactName: '要求仕様書', artifactTypeId: 'srs' })
     const bd = saveArtifactSetting(db, projectUid, { artifactName: '基本設計書', artifactTypeId: 'bd' })

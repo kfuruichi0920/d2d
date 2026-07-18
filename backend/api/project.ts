@@ -1,5 +1,6 @@
 import type { ApiRouter } from './router'
 import { BackendError } from './errors'
+import type { SettingsService } from '../settings/settings-service'
 import { eventBus } from '../events/event-bus'
 import { closeProject, createProject, currentProject, openProject, requireProject } from '../project/project-service'
 import {
@@ -21,6 +22,7 @@ interface CreateParams {
   rootPath: string
   name: string
   description?: string
+  initializeGit?: boolean
 }
 
 interface OpenParams {
@@ -35,13 +37,14 @@ function asRecord(params: unknown): Record<string, unknown> {
 }
 
 /** プロジェクト操作 API（P1-3。設定 CRUD は P2-1 で拡張する） */
-export function registerProjectApi(router: ApiRouter): void {
+export function registerProjectApi(router: ApiRouter, settings: SettingsService): void {
   router.register('project.create', (params) => {
     const p = asRecord(params)
     return createProject({
       rootPath: String(p.rootPath ?? ''),
       name: String(p.name ?? ''),
-      description: p.description === undefined ? undefined : String(p.description)
+      description: p.description === undefined ? undefined : String(p.description),
+      initializeGit: settings.get('project.initializeGitOnCreate') !== false
     } satisfies CreateParams)
   })
 

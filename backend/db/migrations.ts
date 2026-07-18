@@ -171,6 +171,67 @@ export const MIGRATIONS: Migration[] = [
         CREATE INDEX IF NOT EXISTS idx_semantic_history_text ON semantic_normalization_history(semantic_text_uid, created_at);
       `)
     }
+  },
+  {
+    // P2-1 / CORE-013: 同じ成果物名を複数フェーズへ登録できるよう一意性をフェーズ単位にする。
+    version: '1.7.0',
+    description: '成果物名のフェーズ単位一意化（CORE-013）',
+    apply(db) {
+      // project_artifact_relation の外部キーを維持するため、関係行を退避して両表を再構築する。
+      db.exec(`
+        CREATE TEMP TABLE migration_1_7_artifact_relation AS
+          SELECT uid, project_uid, parent_artifact_uid, child_artifact_uid, sort_order, is_active, created_at, updated_at
+            FROM project_artifact_relation;
+        DROP TABLE project_artifact_relation;
+
+        CREATE TABLE project_artifact_setting_v17 (
+          uid TEXT PRIMARY KEY,
+          project_uid TEXT NOT NULL,
+          artifact_name TEXT NOT NULL,
+          artifact_type_id TEXT NOT NULL,
+          dev_phase_id TEXT,
+          sort_order INTEGER NOT NULL DEFAULT 0 CHECK (sort_order >= 0),
+          is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE (project_uid, dev_phase_id, artifact_name),
+          UNIQUE (uid, project_uid),
+          FOREIGN KEY (project_uid) REFERENCES project(uid) ON DELETE CASCADE
+        );
+        INSERT INTO project_artifact_setting_v17
+          (uid, project_uid, artifact_name, artifact_type_id, dev_phase_id, sort_order, is_active, created_at, updated_at)
+          SELECT uid, project_uid, artifact_name, artifact_type_id, dev_phase_id, sort_order, is_active, created_at, updated_at
+            FROM project_artifact_setting;
+        DROP TABLE project_artifact_setting;
+        ALTER TABLE project_artifact_setting_v17 RENAME TO project_artifact_setting;
+
+        CREATE TABLE project_artifact_relation (
+          uid TEXT PRIMARY KEY,
+          project_uid TEXT NOT NULL,
+          parent_artifact_uid TEXT NOT NULL,
+          child_artifact_uid TEXT NOT NULL,
+          sort_order INTEGER NOT NULL DEFAULT 0 CHECK (sort_order >= 0),
+          is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE (project_uid, parent_artifact_uid, child_artifact_uid),
+          CHECK (parent_artifact_uid <> child_artifact_uid),
+          FOREIGN KEY (project_uid) REFERENCES project(uid) ON DELETE CASCADE,
+          FOREIGN KEY (parent_artifact_uid, project_uid) REFERENCES project_artifact_setting(uid, project_uid) ON DELETE CASCADE,
+          FOREIGN KEY (child_artifact_uid, project_uid) REFERENCES project_artifact_setting(uid, project_uid) ON DELETE CASCADE
+        );
+        INSERT INTO project_artifact_relation
+          (uid, project_uid, parent_artifact_uid, child_artifact_uid, sort_order, is_active, created_at, updated_at)
+          SELECT uid, project_uid, parent_artifact_uid, child_artifact_uid, sort_order, is_active, created_at, updated_at
+            FROM migration_1_7_artifact_relation;
+        DROP TABLE migration_1_7_artifact_relation;
+
+        CREATE INDEX idx_project_artifact_setting_project ON project_artifact_setting(project_uid, sort_order);
+        CREATE INDEX idx_project_artifact_setting_phase ON project_artifact_setting(project_uid, dev_phase_id, sort_order);
+        CREATE INDEX idx_project_artifact_relation_parent ON project_artifact_relation(project_uid, parent_artifact_uid, sort_order);
+        CREATE INDEX idx_project_artifact_relation_child ON project_artifact_relation(project_uid, child_artifact_uid);
+      `)
+    }
   }
 ]
 

@@ -428,7 +428,7 @@ function main(): void {
 
   const router = new ApiRouter()
   registerAppApi(router, BACKEND_VERSION)
-  registerProjectApi(router)
+  registerProjectApi(router, settings)
   registerSettingsApi(router, settings)
   registerJobApi(router, jobs)
   registerFeatureApi(router)

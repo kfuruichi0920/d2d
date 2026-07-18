@@ -155,6 +155,11 @@ export function HistorySideBar(): React.JSX.Element {
             Git リポジトリではありません。コミットはツール外の Git 操作で行ってください（GIT-007）。
           </div>
         )}
+        {git?.isRepo && git.commits.length === 0 && (
+          <div className="d2d-empty" data-testid="git-empty-repo">
+            Gitリポジトリは初期化済みです。コミットはまだありません。
+          </div>
+        )}
         {git?.isRepo &&
           git.commits.map((c) => (
             <div

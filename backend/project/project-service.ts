@@ -1,8 +1,8 @@
 /**
- * プロジェクトの作成・オープン・クローズ（P1-3 の基盤サービス）。
- * 成果物定義・開発フェーズ等のプロジェクト設定 CRUD は P2-1 で拡張する。
+ * プロジェクトの作成・オープン・クローズ（P1-3 / P2-1、CORE-010〜013）。
  */
 import type { Database } from 'better-sqlite3'
+import { spawnSync } from 'node:child_process'
 import { dirname, resolve } from 'node:path'
 import { existsSync, statSync } from 'node:fs'
 import { BackendError } from '../api/errors'
@@ -21,6 +21,7 @@ import {
 } from './layout'
 
 import { eventBus } from '../events/event-bus'
+import { seedDefaultProjectSettings } from './project-settings'
 
 export interface ProjectInfo {
   projectUid: string
@@ -55,9 +56,28 @@ export interface CreateProjectInput {
   rootPath: string
   name: string
   description?: string
+  /** CORE-047: 既定true。失敗してもプロジェクト作成は継続する。 */
+  initializeGit?: boolean
 }
 
-export function createProject(input: CreateProjectInput): ProjectInfo {
+interface CreateProjectDependencies {
+  initializeGitRepository(rootPath: string): void
+}
+
+const defaultCreateProjectDependencies: CreateProjectDependencies = {
+  initializeGitRepository(rootPath) {
+    spawnSync('git', ['init'], {
+      cwd: rootPath,
+      windowsHide: true,
+      stdio: 'ignore'
+    })
+  }
+}
+
+export function createProject(
+  input: CreateProjectInput,
+  dependencies: CreateProjectDependencies = defaultCreateProjectDependencies
+): ProjectInfo {
   if (!input.rootPath || !input.name) {
     throw new BackendError('validation', 'rootPath と name は必須です', '')
   }
@@ -85,6 +105,7 @@ export function createProject(input: CreateProjectInput): ProjectInfo {
     title: input.name,
     createdBy: 'user'
   })
+  seedDefaultProjectSettings(db, projectUid)
 
   // マイグレーション適用後の実際の schema_version を反映する
   const schemaVersion = getProjectRow(db).schema_version
@@ -95,6 +116,14 @@ export function createProject(input: CreateProjectInput): ProjectInfo {
     created_at: new Date().toISOString()
   }
   writeProjectFile(rootPath, content)
+  if (input.initializeGit !== false) {
+    // CORE-047: Git未導入・権限不足等は新規プロジェクト作成を妨げない。
+    try {
+      dependencies.initializeGitRepository(rootPath)
+    } catch {
+      // best effort
+    }
+  }
 
   closeAndForget()
   current = {

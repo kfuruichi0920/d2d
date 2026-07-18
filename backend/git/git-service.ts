@@ -28,14 +28,21 @@ export interface GitCommitItem {
 
 /** コミット履歴（GIT-002）。新しい順 */
 export async function getGitLog(projectRoot: string, maxCount = 50): Promise<GitCommitItem[]> {
-  const log = await git(projectRoot).log({ maxCount })
-  return log.all.map((c) => ({
-    hash: c.hash,
-    shortHash: c.hash.slice(0, 8),
-    date: c.date,
-    message: c.message,
-    author: c.author_name
-  }))
+  try {
+    const log = await git(projectRoot).log({ maxCount })
+    return log.all.map((c) => ({
+      hash: c.hash,
+      shortHash: c.hash.slice(0, 8),
+      date: c.date,
+      message: c.message,
+      author: c.author_name
+    }))
+  } catch (error) {
+    // CORE-047: git init直後の未コミットRepositoryは正常な空履歴として扱う。
+    const message = error instanceof Error ? error.message : String(error)
+    if (/does not have any commits|bad default revision|unknown revision/i.test(message)) return []
+    throw error
+  }
 }
 
 export interface GitStatusItem {

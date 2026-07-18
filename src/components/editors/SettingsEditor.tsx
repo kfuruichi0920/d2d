@@ -1,5 +1,5 @@
 /**
- * Settings Editor（V-12、CORE-040〜046）。
+ * Settings Editor（V-12、CORE-040〜047）。
  * テーマ・表示モード、APIキー（機密）の登録状態を編集する。
  * LLM Provider 詳細設定は P6 で拡張する。
  */
@@ -24,6 +24,7 @@ export function SettingsEditor(): React.JSX.Element {
   const [newKeyName, setNewKeyName] = useState('openai_api_key')
   const [newKeyValue, setNewKeyValue] = useState('')
   const [revealedSecrets, setRevealedSecrets] = useState<Record<string, string>>({})
+  const [initializeGitOnCreate, setInitializeGitOnCreate] = useState(true)
 
   const loadSecrets = async (): Promise<void> => {
     const res = await invoke<string[]>('settings.listSecretKeys')
@@ -32,6 +33,9 @@ export function SettingsEditor(): React.JSX.Element {
 
   useEffect(() => {
     void loadSecrets()
+    void invoke<unknown>('settings.get', { key: 'project.initializeGitOnCreate' }).then((result) => {
+      if (result.ok) setInitializeGitOnCreate(result.result !== false)
+    })
   }, [])
 
   const saveSecret = async (): Promise<void> => {
@@ -123,6 +127,25 @@ export function SettingsEditor(): React.JSX.Element {
         />
         <output data-testid="setting-font-size-value">{theme.fontSize}px</output>
       </div>
+
+      <h2 style={{ fontSize: 14, marginTop: 20 }}>プロジェクト作成（CORE-047）</h2>
+      <label style={rowStyle} title="新規プロジェクトの作成後にgit initを実行します。失敗しても作成処理は継続します。">
+        <input
+          type="checkbox"
+          checked={initializeGitOnCreate}
+          onChange={async (event) => {
+            const value = event.target.checked
+            setInitializeGitOnCreate(value)
+            const result = await invoke('settings.set', { key: 'project.initializeGitOnCreate', value })
+            if (!result.ok) {
+              setInitializeGitOnCreate(!value)
+              notify('error', 'Git初期化設定を保存できませんでした', result.error.message)
+            }
+          }}
+          data-testid="setting-project-initialize-git"
+        />
+        新規プロジェクトでGitリポジトリを初期化する（既定: 有効、失敗時は継続）
+      </label>
 
       <AppSettingsStorageNotice />
       <PlantUmlSettingsSection />
