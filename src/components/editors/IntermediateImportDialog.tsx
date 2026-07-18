@@ -24,10 +24,12 @@ interface DevPhaseSetting {
 
 export function IntermediateImportDialog({
   onClose,
-  onSaved
+  onSaved,
+  initialArtifactUid
 }: {
   onClose: () => void
   onSaved: () => void | Promise<void>
+  initialArtifactUid?: string
 }): React.JSX.Element {
   const [artifacts, setArtifacts] = useState<ArtifactSetting[]>([])
   const [phases, setPhases] = useState<DevPhaseSetting[]>([])
@@ -50,8 +52,22 @@ export function IntermediateImportDialog({
       if (phaseResult.ok) setPhases(phaseResult.result)
       if (extractedResult.ok) setExtracted(extractedResult.result)
       if (intermediateResult.ok) setIntermediates(intermediateResult.result)
+      if (initialArtifactUid && artifactResult.ok && phaseResult.ok && intermediateResult.ok) {
+        const artifact = artifactResult.result.find((item) => item.uid === initialArtifactUid)
+        const phase = artifact
+          ? phaseResult.result.find((item) => item.dev_phase_id === artifact.dev_phase_id)
+          : undefined
+        const existing =
+          artifact && phase
+            ? intermediateResult.result.find(
+                (doc) => doc.dev_phase_id === phase.dev_phase_id && doc.artifact_type_id === artifact.artifact_type_id
+              )
+            : undefined
+        setSelectedArtifactUid(artifact?.uid ?? null)
+        setSelectedSources(new Set(existing?.sources?.map((source) => source.extracted_document_uid) ?? []))
+      }
     })
-  }, [])
+  }, [initialArtifactUid])
 
   const save = async (): Promise<void> => {
     const artifact = artifacts.find((item) => item.uid === selectedArtifactUid)

@@ -4,6 +4,7 @@
  */
 import { Fragment, useCallback, useEffect, useMemo, useState, type KeyboardEvent } from 'react'
 import { invoke, onBackendEvent } from '../../services/backend'
+import { importSourceDocuments } from '../../services/source-import'
 import { useEditorStore } from '../../stores/editor-store'
 import { useJobsStore } from '../../stores/jobs-store'
 import { useProjectStore } from '../../stores/project-store'
@@ -322,23 +323,7 @@ export function PipelineStageEditor({ stage }: { stage: PipelineStage }): React.
   }
 
   const importDocuments = async (): Promise<void> => {
-    const filePaths = await window.api.showOpenFilesDialog({
-      title: '取込む原本ファイルを選択（複数選択可）',
-      filters: [
-        {
-          name: '対象文書',
-          extensions: ['docx', 'xlsx', 'pptx', 'vsdx', 'pdf', 'txt', 'md', 'csv', 'tsv', 'json', 'jsonl', 'yaml']
-        }
-      ]
-    })
-    if (filePaths.length === 0) return
-    const results = await Promise.all(filePaths.map((filePath) => invoke('document.import', { filePath })))
-    const failed = results.filter((result) => !result.ok)
-    if (failed.length > 0) {
-      notify('error', `${failed.length}件の取込Jobを登録できませんでした`)
-      return
-    }
-    notify('info', `${filePaths.length}件の原本取込Jobを登録しました`)
+    await importSourceDocuments(notify)
   }
 
   const ensureArtifact = async (artifact: ArtifactSetting): Promise<void> => {

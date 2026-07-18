@@ -1492,34 +1492,74 @@ mark.d2d-term {
 }
 
 /* Explorerデータ階層の見出し・折りたたみ・名称編集（P4-2/P5-15、UI-044〜045） */
-.d2d-explorer-section {
-  margin-top: 4px;
+.d2d-explorer-root,
+.d2d-explorer-section,
+.d2d-explorer-phase {
+  margin: 0;
 }
-.d2d-explorer-section > summary {
+.d2d-explorer-root > summary,
+.d2d-explorer-section > summary,
+.d2d-explorer-phase > summary {
   list-style: none;
 }
-.d2d-explorer-section > summary::-webkit-details-marker {
+.d2d-explorer-root > summary::-webkit-details-marker,
+.d2d-explorer-section > summary::-webkit-details-marker,
+.d2d-explorer-phase > summary::-webkit-details-marker {
   display: none;
 }
+.d2d-explorer-root-header,
 .d2d-explorer-section-header {
   display: flex;
   align-items: center;
-  gap: 6px;
-  min-height: 30px;
-  padding: 3px 5px;
-  border-top: 1px solid var(--d2d-border);
-  border-bottom: 1px solid var(--d2d-border);
-  background: var(--d2d-surface-raised);
+  gap: 5px;
+  min-height: 26px;
+  padding: 2px 5px;
   cursor: pointer;
   user-select: none;
 }
-.d2d-explorer-section-header::before {
-  width: 12px;
+.d2d-explorer-root-header {
+  border-bottom: 1px solid var(--d2d-border);
+  background: var(--d2d-surface-raised);
+  font-weight: 750;
+}
+.d2d-explorer-root-header:hover,
+.d2d-explorer-section-header:hover,
+.d2d-explorer-phase-label:hover {
+  background: color-mix(in srgb, var(--d2d-selection) 58%, transparent);
+}
+.d2d-explorer-root-header::before,
+.d2d-explorer-section-header::before,
+.d2d-explorer-phase-label::before {
+  width: 11px;
+  flex: 0 0 auto;
   content: '▸';
   color: var(--d2d-fg-muted);
 }
-.d2d-explorer-section[open] > .d2d-explorer-section-header::before {
+.d2d-explorer-root[open] > .d2d-explorer-root-header::before,
+.d2d-explorer-section[open] > .d2d-explorer-section-header::before,
+.d2d-explorer-phase[open] > .d2d-explorer-phase-label::before {
   content: '▾';
+}
+.d2d-explorer-project-name {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 750;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.d2d-explorer-root-children {
+  padding: 2px 0 4px 8px;
+  border-left: 1px solid color-mix(in srgb, var(--d2d-border) 65%, transparent);
+}
+.d2d-explorer-section > .d2d-list-row,
+.d2d-explorer-section > .d2d-explorer-hint {
+  margin-left: 20px;
 }
 .d2d-explorer-section-title {
   font-size: calc(var(--d2d-font-size) + 1px);
@@ -1805,17 +1845,18 @@ mark.d2d-term {
   font-size: 11px;
 }
 .d2d-explorer-phase {
-  margin: 4px 3px 7px;
-  border-left: 3px solid var(--d2d-accent);
-  border-radius: 3px;
-  background: color-mix(in srgb, var(--d2d-accent) 7%, transparent);
+  margin-left: 19px;
+  border-left: 1px solid color-mix(in srgb, var(--d2d-accent) 45%, var(--d2d-border));
 }
 .d2d-explorer-phase-label {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 5px 5px 3px;
+  gap: 5px;
+  min-height: 25px;
+  padding: 2px 4px;
+  cursor: pointer;
   font-weight: 650;
+  user-select: none;
 }
 .d2d-hierarchy-kind {
   padding: 1px 4px;
