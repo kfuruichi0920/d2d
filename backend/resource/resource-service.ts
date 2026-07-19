@@ -6,9 +6,10 @@ import type { Database } from 'better-sqlite3'
 import { BackendError } from '../api/errors'
 import { eventBus } from '../events/event-bus'
 import { registerEntity } from '../store/entity-registry'
+import { newUid } from '../store/uid'
 import type { EntityType } from '../store/entity-types'
 
-export type ResourceFieldKind = 'text' | 'multiline' | 'number' | 'json' | 'enum'
+export type ResourceFieldKind = 'text' | 'multiline' | 'number' | 'json' | 'enum' | 'table'
 export interface ResourceFieldDefinition {
   name: string
   label: string
@@ -19,6 +20,7 @@ export interface ResourceFieldDefinition {
   description: string
   language?: 'markdown' | 'latex'
   preview?: 'markdown' | 'image' | 'formula'
+  hidden?: boolean
 }
 export interface ResourceTypeDefinition {
   type: string
@@ -98,6 +100,8 @@ export const RESOURCE_TYPE_DEFINITIONS: ResourceTypeDefinition[] = [
     fields: [
       f('image_uri', '画像URI', 'text', { required: true }),
       f('image_hash', '画像ハッシュ', 'text'),
+      f('figure_number', '図番号', 'text'),
+      f('caption', 'キャプション', 'multiline'),
       enumField('figure_kind', '図種別', ['architecture', 'flow', 'screen', 'state', 'layout', 'other'], 'other'),
       f('width', '幅', 'number'),
       f('height', '高さ', 'number'),
@@ -106,15 +110,14 @@ export const RESOURCE_TYPE_DEFINITIONS: ResourceTypeDefinition[] = [
       f('description', '説明', 'multiline', {
         description: '文書で図を説明する設計情報です。LLM支援の対象になります。',
         language: 'markdown'
-      }),
-      f('caption_uid', 'キャプションUID', 'text')
+      })
     ]
   },
   {
     type: 'resource_table',
     label: '表',
     fields: [
-      f('table_title', '表名', 'text'),
+      f('table_title', 'キャプション', 'multiline'),
       f('row_count', '行数', 'number', { defaultValue: 0 }),
       f('column_count', '列数', 'number', { defaultValue: 0 }),
       enumField(
@@ -123,10 +126,16 @@ export const RESOURCE_TYPE_DEFINITIONS: ResourceTypeDefinition[] = [
         ['data', 'interface', 'state_transition', 'function_list', 'matrix', 'other'],
         'other'
       ),
-      jsonField('header_rows_json', 'ヘッダ行JSON'),
-      jsonField('header_columns_json', 'ヘッダ列JSON'),
-      jsonField('cells_json', 'セルJSON'),
-      f('source_range', 'ソース範囲', 'text')
+      f('header_rows_json', 'ヘッダ行', 'json', { hidden: true }),
+      f('header_columns_json', 'ヘッダ列', 'json', { hidden: true }),
+      f('cells_json', '表セル', 'table', {
+        description: 'スプレッドシート形式で編集します。各セルはセマンティック編集に対応します。'
+      }),
+      f('source_range', 'ソース範囲', 'text'),
+      f('description', '説明', 'multiline', {
+        description: '文書で表を説明する設計情報です。表全体を含むLLM支援の対象になります。',
+        language: 'markdown'
+      })
     ]
   },
   {
@@ -165,9 +174,10 @@ export const RESOURCE_TYPE_DEFINITIONS: ResourceTypeDefinition[] = [
         'other'
       ),
       f('line_count', '行数', 'number'),
-      jsonField('symbols_json', 'シンボルJSON'),
-      jsonField('syntax_tree_json', '構文木JSON'),
-      enumField('parse_status', '解析状態', ['not_parsed', 'success', 'failed', 'partial'], 'not_parsed')
+      f('description', '説明', 'multiline', {
+        description: '文書で疑似コードを説明する設計情報です。コード本文を含むLLM支援の対象になります。',
+        language: 'markdown'
+      })
     ]
   },
   {
@@ -707,6 +717,45 @@ function addBasedOn(
   )
 }
 
+function syncTableCells(db: Database, tableUid: string, values: Record<string, string | number | null>): void {
+  let rows: Array<Array<string | { text?: unknown; colspan?: unknown }>>
+  let headerRows: number[]
+  let headerColumns: number[]
+  try {
+    const parsedRows = JSON.parse(String(values.cells_json ?? '[]')) as unknown
+    rows = Array.isArray(parsedRows) ? (parsedRows as typeof rows) : []
+    const parsedHeaderRows = JSON.parse(String(values.header_rows_json ?? '[]')) as unknown
+    const parsedHeaderColumns = JSON.parse(String(values.header_columns_json ?? '[]')) as unknown
+    headerRows = Array.isArray(parsedHeaderRows) ? parsedHeaderRows.map(Number) : []
+    headerColumns = Array.isArray(parsedHeaderColumns) ? parsedHeaderColumns.map(Number) : []
+  } catch {
+    throw new BackendError('validation', '表セルまたはヘッダ指定のJSONが正しくありません', '')
+  }
+  const existing = db
+    .prepare(`SELECT uid,row_no,col_no FROM resource_table_cell WHERE table_uid=?`)
+    .all(tableUid) as Array<{ uid: string; row_no: number; col_no: number }>
+  const uidByCoordinate = new Map(existing.map((cell) => [`${cell.row_no}:${cell.col_no}`, cell.uid]))
+  db.prepare(`DELETE FROM resource_table_cell WHERE table_uid=?`).run(tableUid)
+  const insert = db.prepare(
+    `INSERT INTO resource_table_cell (uid,table_uid,row_no,col_no,cell_text,colspan,is_header) VALUES (?,?,?,?,?,?,?)`
+  )
+  rows.forEach((row, rowNo) => {
+    if (!Array.isArray(row)) return
+    row.forEach((cell, colNo) => {
+      const objectCell = typeof cell === 'object' && cell !== null ? cell : undefined
+      insert.run(
+        uidByCoordinate.get(`${rowNo}:${colNo}`) ?? newUid(),
+        tableUid,
+        rowNo,
+        colNo,
+        typeof cell === 'string' ? cell : String(objectCell?.text ?? ''),
+        Math.max(1, Number(objectCell?.colspan) || 1),
+        headerRows.includes(rowNo) || headerColumns.includes(colNo) ? 1 : 0
+      )
+    })
+  })
+}
+
 export function summaryFor(
   type: string,
   values: Record<string, string | number | null>
@@ -783,6 +832,7 @@ export function createMergedResource(
     db.prepare(
       `INSERT INTO ${definition.type} (uid,${columns.join(',')}) VALUES (?${columns.map(() => ',?').join('')})`
     ).run(resource.uid, ...columns.map((column) => values[column]))
+    if (definition.type === 'resource_table') syncTableCells(db, resource.uid, values)
     for (const source of sources) addBasedOn(db, projectUid, resource.uid, source.uid, 'merge')
     return {
       uid: resource.uid,
@@ -881,6 +931,7 @@ export function reviseResource(
         ...columns.map((column) => values[column]),
         original.uid
       )
+      if (definition.type === 'resource_table') syncTableCells(db, original.uid, values)
       db.prepare(`UPDATE entity_registry SET administrative_notes=? WHERE uid=?`).run(
         input.administrativeNotes ?? '',
         original.uid
@@ -912,6 +963,7 @@ export function reviseResource(
       db.prepare(
         `INSERT INTO ${definition.type} (uid,${columns.join(',')}) VALUES (?${columns.map(() => ',?').join('')})`
       ).run(resource.uid, ...columns.map((column) => values[column]))
+      if (definition.type === 'resource_table') syncTableCells(db, resource.uid, values)
       const sourceUids = ownership.exclusiveIntermediate
         ? [...new Set(input.basedOnResourceUids ?? [])].filter((uid) => uid !== original.uid)
         : [...new Set([original.uid, ...(input.basedOnResourceUids ?? [])])]

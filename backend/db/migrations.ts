@@ -265,6 +265,20 @@ export const MIGRATIONS: Migration[] = [
       add('resource_figure', 'description', 'description TEXT')
       add('resource_formula', 'description', 'description TEXT')
     }
+  },
+  {
+    version: '1.10.0',
+    description: '図・表・コードResource編集情報の拡張（EDIT-087〜091）',
+    apply(db) {
+      const add = (table: string, column: string, ddl: string): void => {
+        const columns = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]
+        if (!columns.some((item) => item.name === column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl};`)
+      }
+      add('resource_figure', 'figure_number', 'figure_number TEXT')
+      add('resource_figure', 'caption', 'caption TEXT')
+      add('resource_table', 'description', 'description TEXT')
+      add('resource_code', 'description', 'description TEXT')
+    }
   }
 ]
 /** 最新の schema_version（新規 DB 作成時にもマイグレーションを適用して到達させる） */

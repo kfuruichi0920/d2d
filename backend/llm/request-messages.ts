@@ -6,10 +6,15 @@ import type { Database } from 'better-sqlite3'
 import { BackendError } from '../api/errors'
 import { getChunkText } from '../intermediate/intermediate-service'
 import { RESOURCE_TYPE_DEFINITIONS } from '../resource/resource-service'
-import type { ChatMessage } from './providers'
+import type { ChatAttachment, ChatMessage } from './providers'
 
 export type LlmRequestOperation =
-  'connection-test' | 'semantic-terms' | 'semantic-proofread' | 'design-candidates' | 'resource-merge'
+  | 'connection-test'
+  | 'semantic-terms'
+  | 'semantic-proofread'
+  | 'design-candidates'
+  | 'resource-merge'
+  | 'resource-description'
 
 export interface ResourceMergeSource {
   resourceUid?: string
@@ -75,6 +80,35 @@ export function buildDesignCandidateMessages(db: Database, chunkUid: string): Ch
   ]
 }
 
+export function buildResourceDescriptionMessages(
+  resourceType: string,
+  values: Record<string, unknown>,
+  outlineContext?: Record<string, unknown> | null,
+  attachment?: ChatAttachment
+): ChatMessage[] {
+  if (!['resource_figure', 'resource_table', 'resource_code', 'resource_formula'].includes(resourceType)) {
+    throw new BackendError('validation', `説明生成に未対応のResource種別です: ${resourceType}`, '')
+  }
+  const kind =
+    resourceType === 'resource_figure'
+      ? '図'
+      : resourceType === 'resource_table'
+        ? '表'
+        : resourceType === 'resource_code'
+          ? '疑似コード'
+          : '数式'
+  return [
+    {
+      role: 'system',
+      content: `あなたは設計文書の${kind}説明を作成するAIです。入力内容と文書アウトライン上の位置を正確に読み、推測で設計事実を追加せず、文書へそのまま記載できる説明文候補を{"description":"説明文"}形式のJSONだけで返してください。`
+    },
+    {
+      role: 'user',
+      content: JSON.stringify({ resourceType, values, outlineContext: outlineContext ?? null }),
+      ...(attachment ? { attachments: [attachment] } : {})
+    }
+  ]
+}
 export function buildResourceMergeMessages(targetType: string, sources: ResourceMergeSource[]): ChatMessage[] {
   const definition = RESOURCE_TYPE_DEFINITIONS.find((candidate) => candidate.type === targetType)
   if (!definition) throw new BackendError('validation', `未対応のResource種別です: ${targetType}`, '')

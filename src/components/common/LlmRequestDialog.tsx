@@ -9,10 +9,17 @@ import { useJobsStore } from '../../stores/jobs-store'
 export interface LlmRequestMessage {
   role: 'system' | 'user' | 'assistant'
   content: string
+  attachments?: Array<{ mediaType: string; data: string }>
 }
 
 export interface PreparedLlmRequest {
-  operation: 'connection-test' | 'semantic-terms' | 'semantic-proofread' | 'design-candidates' | 'resource-merge'
+  operation:
+    | 'connection-test'
+    | 'semantic-terms'
+    | 'semantic-proofread'
+    | 'design-candidates'
+    | 'resource-merge'
+    | 'resource-description'
   purpose: string
   processName: string
   jsonMode: boolean
@@ -51,7 +58,10 @@ export function composePromptMessages(messages: LlmRequestMessage[], promptText:
       .filter((message) => message.role === 'user')
       .map((message) => message.content)
       .join('\n\n')
-    return [{ role: 'user', content: prompt.replaceAll('{{body}}', body) }]
+    const attachments = nonSystem.flatMap((message) => message.attachments ?? [])
+    return [
+      { role: 'user', content: prompt.replaceAll('{{body}}', body), ...(attachments.length ? { attachments } : {}) }
+    ]
   }
   return [{ role: 'system', content: prompt }, ...nonSystem]
 }
@@ -229,7 +239,18 @@ export function LlmRequestDialog({
               <span>モデル: {preview.model}</span>
               <span>{preview.external ? '外部送信' : 'ローカル送信'}</span>
             </div>
-            <pre>{preview.maskedMessages.map((message) => `[${message.role}] ${message.content}`).join('\n\n')}</pre>
+            <pre>
+              {preview.maskedMessages
+                .map(
+                  (message) =>
+                    `[${message.role}] ${message.content}${
+                      message.attachments?.length
+                        ? `\n[添付画像: ${message.attachments.map((attachment) => attachment.mediaType).join(', ')}]`
+                        : ''
+                    }`
+                )
+                .join('\n\n')}
+            </pre>
             {preview.warnings.map((warning) => (
               <div key={warning} className="llm-request-warning">
                 ⚠ {warning}

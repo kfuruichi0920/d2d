@@ -668,16 +668,16 @@ function cloneElementResource(db: Database, projectUid: string, element: Interme
     case 'resource_table':
       changes = db
         .prepare(
-          `INSERT INTO resource_table (uid,table_title,row_count,column_count,table_kind,header_rows_json,header_columns_json,cells_json,source_range)
-           SELECT ?,table_title,row_count,column_count,table_kind,header_rows_json,header_columns_json,cells_json,source_range FROM resource_table WHERE uid=?`
+          `INSERT INTO resource_table (uid,table_title,row_count,column_count,table_kind,header_rows_json,header_columns_json,cells_json,source_range,description)
+           SELECT ?,table_title,row_count,column_count,table_kind,header_rows_json,header_columns_json,cells_json,source_range,description FROM resource_table WHERE uid=?`
         )
         .run(resource.uid, element.resource_uid).changes
       break
     case 'resource_figure':
       changes = db
         .prepare(
-          `INSERT INTO resource_figure (uid,image_uri,image_hash,figure_kind,width,height,ocr_texts_json,objects_json,caption_uid)
-           SELECT ?,image_uri,image_hash,figure_kind,width,height,ocr_texts_json,objects_json,caption_uid FROM resource_figure WHERE uid=?`
+          `INSERT INTO resource_figure (uid,image_uri,image_hash,figure_number,caption,figure_kind,width,height,ocr_texts_json,objects_json,caption_uid,byte_size,image_format,description)
+           SELECT ?,image_uri,image_hash,figure_number,caption,figure_kind,width,height,ocr_texts_json,objects_json,caption_uid,byte_size,image_format,description FROM resource_figure WHERE uid=?`
         )
         .run(resource.uid, element.resource_uid).changes
       break

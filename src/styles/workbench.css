@@ -3595,3 +3595,55 @@ mark.d2d-term {
     grid-template-columns: 1fr;
   }
 }
+/* セマンティック直接編集・Resource表グリッド（EDIT-087〜091） */
+.semantic-inline-editor {
+  min-width: 0;
+  flex: 1;
+  border: 1px solid var(--d2d-accent);
+  border-radius: var(--d2d-radius);
+  overflow: hidden;
+}
+.semantic-inline-editor > input {
+  width: 100%;
+}
+.resource-table-grid-field {
+  grid-column: 1 / -1;
+}
+.resource-table-header-controls {
+  display: flex;
+  gap: 12px;
+  margin: 4px 0 6px;
+}
+.resource-table-header-controls label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.resource-table-header-controls input {
+  width: 72px;
+}
+.resource-table-grid {
+  max-width: 100%;
+  overflow: auto;
+  border: 1px solid var(--d2d-border);
+}
+.resource-table-grid table {
+  min-width: 100%;
+  border-collapse: collapse;
+}
+.resource-table-grid th,
+.resource-table-grid td {
+  min-width: 150px;
+  padding: 3px;
+  border: 1px solid var(--d2d-border);
+  vertical-align: top;
+}
+.resource-table-grid th {
+  background: var(--d2d-surface-raised);
+}
+.resource-table-grid .semantic-preview-field {
+  min-height: 34px;
+}
+.resource-description-llm {
+  margin-left: 8px;
+}

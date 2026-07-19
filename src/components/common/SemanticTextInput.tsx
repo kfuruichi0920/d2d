@@ -112,11 +112,13 @@ export function SemanticTextInput({
       revisedText: string
       issues: Array<{ kind: string; message: string }>
     } | null>(null),
-    [editing, setEditing] = useState(false)
+    [editing, setEditing] = useState(false),
+    [selected, setSelected] = useState(false)
   const activeRefs = useMemo(() => document.references.filter((r) => r.status !== 'rejected'), [document.references])
   const editorTestId = testId ? `${testId}-editor` : undefined
   const openEditor = (): void => {
     setMode('preview')
+    setSelected(false)
     setEditing(true)
   }
   const closeEditor = (): void => {
@@ -411,34 +413,72 @@ export function SemanticTextInput({
   return (
     <div className="semantic-input" data-testid={`semantic-input-${document.fieldName}`}>
       <div className="semantic-preview-field">
-        <div
-          className="semantic-preview-focus"
-          data-testid={testId}
-          role="textbox"
-          aria-readonly="true"
-          aria-label={`${document.fieldName} プレビュー。EnterまたはF2で編集`}
-          tabIndex={0}
-          title="EnterまたはF2でセマンティック編集ダイアログを開きます"
-          onDoubleClick={openEditor}
-          onKeyDown={(event) => {
-            if (event.target === event.currentTarget && isSemanticEditShortcut(event.key)) {
-              event.preventDefault()
-              openEditor()
-            }
-          }}
-        >
-          {renderText(document, candidateMap, openResource)}
-        </div>
+        {selected ? (
+          <div className="semantic-inline-editor">
+            {multiline ? (
+              <CodeEditor
+                value={document.displayText}
+                language="markdown"
+                height={120}
+                autoFocus
+                testId={testId ? `${testId}-inline-editor` : 'semantic-inline-editor'}
+                onChange={updateText}
+                onBlur={() => setSelected(false)}
+                onCtrlSpace={(prefix) => void search(prefix)}
+              />
+            ) : (
+              <input
+                ref={inputRef as React.RefObject<HTMLInputElement>}
+                autoFocus
+                value={document.displayText}
+                data-testid={testId ? `${testId}-inline-editor` : undefined}
+                onChange={(event) => updateText(event.target.value)}
+                onBlur={() => setSelected(false)}
+                onKeyDown={(event) => {
+                  if (event.ctrlKey && event.code === 'Space') {
+                    event.preventDefault()
+                    void search()
+                  }
+                }}
+              />
+            )}
+          </div>
+        ) : (
+          <div
+            className="semantic-preview-focus"
+            data-testid={testId}
+            role="textbox"
+            aria-readonly="true"
+            aria-label={`${document.fieldName} プレビュー。選択すると直接編集`}
+            tabIndex={0}
+            title="選択すると直接編集できます。Ctrl+Spaceで入力補完、編集ボタンでセマンティック編集を開きます"
+            onClick={() => setSelected(true)}
+            onDoubleClick={openEditor}
+            onKeyDown={(event) => {
+              if (event.target !== event.currentTarget) return
+              if (event.key === 'Enter') {
+                event.preventDefault()
+                setSelected(true)
+              } else if (event.key === 'F2') {
+                event.preventDefault()
+                openEditor()
+              }
+            }}
+          >
+            {renderText(document, candidateMap, openResource)}
+          </div>
+        )}
         <button
           type="button"
           className="d2d-btn small semantic-edit-trigger"
-          title="セマンティック編集ダイアログを開きます（Enter / F2）"
+          title="セマンティック編集ダイアログを開きます（F2）"
           data-testid={`semantic-edit-${document.fieldName}`}
+          onMouseDown={(event) => event.preventDefault()}
           onClick={openEditor}
         >
           編集
         </button>
-      </div>
+      </div>{' '}
       {editing && (
         <div
           className="semantic-edit-dialog"
@@ -453,18 +493,7 @@ export function SemanticTextInput({
           <div className="semantic-edit-panel">
             <div className="semantic-edit-dialog-title">
               <b id={`semantic-edit-title-${document.fieldName}`}>{document.fieldName} のセマンティック編集</b>
-              <button
-                type="button"
-                className="d2d-btn small"
-                title="このテキスト欄を含むResourceをEditor Areaへ統合します"
-                data-testid={`semantic-integrate-${document.fieldName}`}
-                onClick={() => {
-                  openResource(`resource://${document.ownerUid}`, `${document.fieldName} 編集`, { preview: false })
-                  closeEditor()
-                }}
-              >
-                エディタへ統合
-              </button>
+
               <button
                 type="button"
                 className="d2d-btn small"
@@ -538,6 +567,8 @@ export function SemanticTextInput({
                       value={document.displayText}
                       language="markdown"
                       height={300}
+                      autoFocus
+                      testId={editorTestId}
                       onChange={updateText}
                       onCtrlSpace={(prefix) => void search(prefix)}
                     />

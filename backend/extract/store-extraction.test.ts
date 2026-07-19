@@ -24,7 +24,15 @@ const SAMPLE_EXTRACTION: ExtractionOutput = {
       column_count: 2,
       section_path: '1. 概要'
     },
-    { id: 'e5', type: 'figure', image: 'media/image1.png', section_path: '1. 概要' },
+    {
+      id: 'e5',
+      type: 'figure',
+      image: 'media/image1.png',
+      width: 640,
+      height: 480,
+      image_format: 'PNG',
+      section_path: '1. 概要'
+    },
     { id: 'e6', type: 'caption', text: '図1 構成図', section_path: '1. 概要' }
   ]
 }
@@ -154,11 +162,28 @@ describe('取込〜②抽出保存（P4-1 / P5-2）', () => {
     // 図は blobs/extracted へコピーされ blob_resource が指す
     const figure = db
       .prepare(
-        `SELECT f.image_uri FROM resource_figure f JOIN extracted_item i ON i.resource_uid = f.uid
+        `SELECT f.image_uri,f.image_hash,f.figure_number,f.caption,f.width,f.height,f.byte_size,f.image_format
+           FROM resource_figure f JOIN extracted_item i ON i.resource_uid = f.uid
           WHERE i.extracted_document_uid = ?`
       )
-      .get(stored.extractedDocumentUid) as { image_uri: string }
+      .get(stored.extractedDocumentUid) as {
+      image_uri: string
+      image_hash: string
+      figure_number: string
+      caption: string
+      width: number
+      height: number
+      byte_size: number
+      image_format: string
+    }
+    expect(figure).toMatchObject({
+      width: 640,
+      height: 480,
+      byte_size: 4,
+      image_format: 'PNG'
+    })
     expect(figure.image_uri).toMatch(/^blobs\/extracted\/.+\.png$/)
+    expect(figure.image_hash).toMatch(/^[0-9a-f]{64}$/)
 
     // 根拠リンク（②→① based_on / basis_kind=extracted）
     const link = db

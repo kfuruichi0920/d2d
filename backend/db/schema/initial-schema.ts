@@ -224,6 +224,8 @@ CREATE TABLE resource_figure (
     uid TEXT PRIMARY KEY,
     image_uri TEXT NOT NULL,
     image_hash TEXT,
+    figure_number TEXT,
+    caption TEXT,
     figure_kind TEXT CHECK (figure_kind IS NULL OR figure_kind IN ('architecture', 'flow', 'screen', 'state', 'layout', 'other')),
     width INTEGER CHECK (width IS NULL OR width > 0),
     height INTEGER CHECK (height IS NULL OR height > 0),
@@ -247,6 +249,7 @@ CREATE TABLE resource_table (
     header_columns_json TEXT,
     cells_json TEXT,
     source_range TEXT,
+    description TEXT,
     FOREIGN KEY (uid) REFERENCES entity_registry(uid) ON DELETE CASCADE
 );
 
@@ -271,6 +274,7 @@ CREATE TABLE resource_code (
     symbols_json TEXT,
     syntax_tree_json TEXT,
     parse_status TEXT NOT NULL DEFAULT 'not_parsed' CHECK (parse_status IN ('not_parsed', 'success', 'failed', 'partial')),
+    description TEXT,
     FOREIGN KEY (uid) REFERENCES entity_registry(uid) ON DELETE CASCADE
 );
 

@@ -26,6 +26,7 @@ export interface ExtractionElement {
   column_count?: number
   image?: string
   caption?: string | null
+  figure_number?: string | null
   width?: number
   height?: number
   byte_size?: number
@@ -104,7 +105,7 @@ export function storeExtractionResult(db: Database, input: StoreExtractionInput)
     const resourceUidByElementId = new Map<string, string>()
     let figureCount = 0
 
-    for (const element of extraction.elements) {
+    for (const [elementIndex, element] of extraction.elements.entries()) {
       const itemType = itemTypeOf(element)
 
       // 1) resource_* 登録
@@ -175,12 +176,25 @@ export function storeExtractionResult(db: Database, input: StoreExtractionInput)
             ).run(blobEntity.uid, relativePath, mimeTypeOf(imageRel), statSync(destPath).size, sha256OfFile(destPath))
             imageUri = relativePath
           }
+          const imageHash = imageRel && existsSync(srcPath) ? sha256OfFile(srcPath) : null
+          const nextElement = extraction.elements[elementIndex + 1]
+          const adjacentCaption =
+            nextElement?.type === 'caption' && /^図\s*[^\s　:：]+/.test(nextElement.text ?? '')
+              ? (nextElement.text ?? null)
+              : null
+          const captionText = element.caption ?? adjacentCaption
+          const figureNumber = element.figure_number ?? captionText?.match(/^図\s*[^\s　:：]+/)?.[0] ?? null
+          const figureCaption = captionText?.replace(figureNumber ?? '', '').trim() || null
           db.prepare(
-            `INSERT INTO resource_figure (uid,image_uri,figure_kind,width,height,byte_size,image_format)
-             VALUES (?,?,'other',?,?,?,?)`
+            `INSERT INTO resource_figure
+               (uid,image_uri,image_hash,figure_number,caption,figure_kind,width,height,byte_size,image_format)
+             VALUES (?,?,?,?,?,'other',?,?,?,?)`
           ).run(
             resource.uid,
             imageUri,
+            imageHash,
+            figureNumber,
+            figureCaption,
             element.width ?? null,
             element.height ?? null,
             element.byte_size ?? (imageRel && existsSync(srcPath) ? statSync(srcPath).size : null),

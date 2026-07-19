@@ -18,13 +18,14 @@ import { MathJaxPreview } from '../common/MathJaxPreview'
 interface FieldDefinition {
   name: string
   label: string
-  kind: 'text' | 'multiline' | 'number' | 'json' | 'enum'
+  kind: 'text' | 'multiline' | 'number' | 'json' | 'enum' | 'table'
   required?: boolean
   options?: string[]
   defaultValue?: string | number
   description: string
   language?: 'markdown' | 'latex'
   preview?: 'markdown' | 'image' | 'formula'
+  hidden?: boolean
 }
 interface TypeDefinition {
   type: string
@@ -95,6 +96,138 @@ function ResourceFigurePreview({ resourceUid }: { resourceUid: string }): React.
   return <img className="resource-figure-preview" src={src} alt="図Resource" data-testid="resource-figure-preview" />
 }
 
+function parseTableGrid(value: unknown, rowCount = 0, columnCount = 0): string[][] {
+  let parsed: unknown = []
+  try {
+    parsed = typeof value === 'string' ? JSON.parse(value || '[]') : value
+  } catch {
+    parsed = []
+  }
+  const source = Array.isArray(parsed) ? parsed : []
+  const rows = Math.max(rowCount, source.length)
+  const columns = Math.max(columnCount, ...source.map((row) => (Array.isArray(row) ? row.length : 0)), rows > 0 ? 1 : 0)
+  return Array.from({ length: rows }, (_, rowIndex) =>
+    Array.from({ length: columns }, (_, columnIndex) => {
+      const cell = Array.isArray(source[rowIndex]) ? source[rowIndex]![columnIndex] : undefined
+      if (typeof cell === 'string') return cell
+      if (cell && typeof cell === 'object' && 'text' in cell) return String((cell as { text?: unknown }).text ?? '')
+      return ''
+    })
+  )
+}
+
+function parseHeaderCount(value: unknown): number {
+  try {
+    const parsed = typeof value === 'string' ? JSON.parse(value || '[]') : value
+    if (Array.isArray(parsed)) return parsed.length
+    return Math.max(0, Number(parsed) || 0)
+  } catch {
+    return 0
+  }
+}
+
+function tableCellFieldName(row: number, column: number): string {
+  return `cells_json.${row}.${column}`
+}
+
+function ResourceTableGrid({
+  values,
+  readonly,
+  onChange,
+  semanticDocuments,
+  onSemanticChange
+}: {
+  values: Record<string, string | number>
+  readonly: boolean
+  onChange?: (values: Record<string, string | number>) => void
+  semanticDocuments: Record<string, SemanticDocument>
+  onSemanticChange?: (fieldName: string, document: SemanticDocument) => void
+}): React.JSX.Element {
+  const grid = parseTableGrid(values.cells_json, Number(values.row_count) || 0, Number(values.column_count) || 0)
+  const headerRows = parseHeaderCount(values.header_rows_json)
+  const headerColumns = parseHeaderCount(values.header_columns_json)
+  const updateCell = (row: number, column: number, text: string): void => {
+    const next = grid.map((cells) => [...cells])
+    next[row]![column] = text
+    onChange?.({
+      ...values,
+      row_count: next.length,
+      column_count: next[0]?.length ?? 0,
+      cells_json: JSON.stringify(next.map((cells) => cells.map((value) => ({ text: value }))))
+    })
+  }
+  const updateHeaders = (kind: 'row' | 'column', count: number): void => {
+    const normalized = Math.max(0, Math.floor(count))
+    onChange?.({
+      ...values,
+      [kind === 'row' ? 'header_rows_json' : 'header_columns_json']: JSON.stringify(
+        Array.from({ length: normalized }, (_, index) => index)
+      )
+    })
+  }
+  return (
+    <div className="wide resource-table-grid-field" title="スプレッドシート形式で各セルをセマンティック編集します">
+      <span>
+        表セル <code>cells_json</code>
+      </span>
+      <div className="resource-table-header-controls">
+        <label>
+          ヘッダ行数
+          <input
+            type="number"
+            min={0}
+            max={grid.length}
+            value={headerRows}
+            readOnly={readonly}
+            onChange={(event) => updateHeaders('row', Number(event.target.value))}
+          />
+        </label>
+        <label>
+          ヘッダ列数
+          <input
+            type="number"
+            min={0}
+            max={grid[0]?.length ?? 0}
+            value={headerColumns}
+            readOnly={readonly}
+            onChange={(event) => updateHeaders('column', Number(event.target.value))}
+          />
+        </label>
+      </div>
+      <div className="resource-table-grid" data-testid="resource-table-grid">
+        <table>
+          <tbody>
+            {grid.map((row, rowIndex) => (
+              <tr key={rowIndex}>
+                {row.map((cell, columnIndex) => {
+                  const fieldName = tableCellFieldName(rowIndex, columnIndex)
+                  const content = readonly ? (
+                    <span>{cell}</span>
+                  ) : semanticDocuments[fieldName] ? (
+                    <SemanticTextInput
+                      document={semanticDocuments[fieldName]!}
+                      multiline={false}
+                      testId={`resource-table-cell-${rowIndex}-${columnIndex}`}
+                      onChange={(value) => updateCell(rowIndex, columnIndex, value)}
+                      onDocumentChange={(document) => onSemanticChange?.(fieldName, document)}
+                    />
+                  ) : (
+                    <input value={cell} onChange={(event) => updateCell(rowIndex, columnIndex, event.target.value)} />
+                  )
+                  return rowIndex < headerRows || columnIndex < headerColumns ? (
+                    <th key={columnIndex}>{content}</th>
+                  ) : (
+                    <td key={columnIndex}>{content}</td>
+                  )
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
 function ResourceFields({
   definition,
   values,
@@ -102,7 +235,8 @@ function ResourceFields({
   onChange,
   ownerUid,
   semanticDocuments = {},
-  onSemanticChange
+  onSemanticChange,
+  onRequestDescription
 }: {
   definition: TypeDefinition
   values: Record<string, string | number>
@@ -111,73 +245,96 @@ function ResourceFields({
   ownerUid?: string
   semanticDocuments?: Record<string, SemanticDocument>
   onSemanticChange?: (fieldName: string, document: SemanticDocument) => void
+  onRequestDescription?: () => void
 }): React.JSX.Element {
   const update = (name: string, value: string): void => onChange?.({ ...values, [name]: value })
   return (
     <div className="resource-editor-fields">
-      {definition.fields.map((field) => (
-        <label
-          className={field.kind === 'multiline' || field.kind === 'json' ? 'wide' : ''}
-          key={field.name}
-          title={field.description}
-        >
-          <span title={field.description}>
-            {field.label}
-            {field.required && ' *'} <code>{field.name}</code>
-          </span>
-          {field.kind === 'enum' ? (
-            <select
-              value={values[field.name] ?? ''}
-              disabled={readonly}
-              onChange={(event) => update(field.name, event.target.value)}
-              data-testid={`resource-field-${field.name}`}
-            >
-              <option value="">（未設定）</option>
-              {field.options?.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ))}
-            </select>
-          ) : !readonly &&
-            ownerUid &&
-            (field.kind === 'text' || field.kind === 'multiline') &&
-            semanticDocuments[field.name] ? (
-            <SemanticTextInput
-              document={semanticDocuments[field.name]!}
-              multiline={field.kind === 'multiline'}
-              testId={`resource-field-${field.name}`}
-              onChange={(value) => update(field.name, value)}
-              onDocumentChange={(document) => onSemanticChange?.(field.name, document)}
-            />
-          ) : field.kind === 'multiline' || field.kind === 'json' ? (
-            <textarea
-              value={values[field.name] ?? ''}
-              readOnly={readonly}
-              onChange={(event) => update(field.name, event.target.value)}
-              spellCheck={field.kind !== 'json'}
-              data-testid={`resource-field-${field.name}`}
+      {definition.fields
+        .filter((field) => !field.hidden)
+        .map((field) =>
+          field.kind === 'table' ? (
+            <ResourceTableGrid
+              key={field.name}
+              values={values}
+              readonly={readonly}
+              onChange={onChange}
+              semanticDocuments={semanticDocuments}
+              onSemanticChange={onSemanticChange}
             />
           ) : (
-            <input
-              type={field.kind === 'number' ? 'number' : 'text'}
-              value={values[field.name] ?? ''}
-              readOnly={readonly}
-              onChange={(event) => update(field.name, event.target.value)}
-              data-testid={`resource-field-${field.name}`}
-            />
-          )}
-          {field.preview === 'markdown' && String(values[field.name] ?? '').trim() && (
-            <div className="resource-field-preview" title="Markdownプレビュー">
-              <MarkdownPreview markdown={String(values[field.name] ?? '')} />
-            </div>
-          )}
-        </label>
-      ))}
+            <label
+              className={field.kind === 'multiline' || field.kind === 'json' ? 'wide' : ''}
+              key={field.name}
+              title={field.description}
+            >
+              <span title={field.description}>
+                {field.label}
+                {field.required && ' *'} <code>{field.name}</code>
+                {field.name === 'description' && onRequestDescription && !readonly && (
+                  <button
+                    type="button"
+                    className="d2d-btn small resource-description-llm"
+                    data-testid="resource-description-llm"
+                    onClick={onRequestDescription}
+                  >
+                    LLMから説明文を取得
+                  </button>
+                )}
+              </span>
+              {field.kind === 'enum' ? (
+                <select
+                  value={values[field.name] ?? ''}
+                  disabled={readonly}
+                  onChange={(event) => update(field.name, event.target.value)}
+                  data-testid={`resource-field-${field.name}`}
+                >
+                  <option value="">（未設定）</option>
+                  {field.options?.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              ) : !readonly &&
+                ownerUid &&
+                (field.kind === 'text' || field.kind === 'multiline') &&
+                semanticDocuments[field.name] ? (
+                <SemanticTextInput
+                  document={semanticDocuments[field.name]!}
+                  multiline={field.kind === 'multiline'}
+                  testId={`resource-field-${field.name}`}
+                  onChange={(value) => update(field.name, value)}
+                  onDocumentChange={(document) => onSemanticChange?.(field.name, document)}
+                />
+              ) : field.kind === 'multiline' || field.kind === 'json' ? (
+                <textarea
+                  value={values[field.name] ?? ''}
+                  readOnly={readonly}
+                  onChange={(event) => update(field.name, event.target.value)}
+                  spellCheck={field.kind !== 'json'}
+                  data-testid={`resource-field-${field.name}`}
+                />
+              ) : (
+                <input
+                  type={field.kind === 'number' ? 'number' : 'text'}
+                  value={values[field.name] ?? ''}
+                  readOnly={readonly}
+                  onChange={(event) => update(field.name, event.target.value)}
+                  data-testid={`resource-field-${field.name}`}
+                />
+              )}
+              {field.preview === 'markdown' && String(values[field.name] ?? '').trim() && (
+                <div className="resource-field-preview" title="Markdownプレビュー">
+                  <MarkdownPreview markdown={String(values[field.name] ?? '')} />
+                </div>
+              )}
+            </label>
+          )
+        )}
     </div>
   )
 }
-
 export function ResourceEditor({
   resourceUid,
   context,
@@ -211,6 +368,7 @@ export function ResourceEditor({
   const [saving, setSaving] = useState(false)
   const [merging, setMerging] = useState(false)
   const [llmRequest, setLlmRequest] = useState<PreparedLlmRequest | null>(null)
+  const [llmOperation, setLlmOperation] = useState<'merge' | 'description'>('merge')
   const notify = useJobsStore((state) => state.notify)
   const openResource = useEditorStore((state) => state.openResource)
   // 種別変更の確認モーダルは Escape でキャンセルする（W10）
@@ -219,16 +377,26 @@ export function ResourceEditor({
   const clearSelectedItem = useSelectionStore((state) => state.clearSelectedItem)
   const loadSemanticDocuments = useCallback(
     async (ownerUid: string, definition: TypeDefinition, source: Record<string, unknown>) => {
-      const fields = definition.fields.filter((field) => field.kind === 'text' || field.kind === 'multiline')
+      const textEntries = definition.fields
+        .filter((field) => field.kind === 'text' || field.kind === 'multiline')
+        .map((field) => ({
+          fieldName: field.name,
+          fallbackText: String(source[field.name] ?? field.defaultValue ?? '')
+        }))
+      const cellEntries =
+        definition.type === 'resource_table'
+          ? parseTableGrid(source.cells_json, Number(source.row_count) || 0, Number(source.column_count) || 0).flatMap(
+              (row, rowIndex) =>
+                row.map((fallbackText, columnIndex) => ({
+                  fieldName: tableCellFieldName(rowIndex, columnIndex),
+                  fallbackText
+                }))
+            )
+          : []
       const results = await Promise.all(
-        fields.map(async (field) => {
-          const fallbackText = String(source[field.name] ?? field.defaultValue ?? '')
-          const result = await invoke<SemanticDocument>('semantic.get', {
-            ownerUid,
-            fieldName: field.name,
-            fallbackText
-          })
-          return [field.name, result.ok ? result.result : null] as const
+        [...textEntries, ...cellEntries].map(async ({ fieldName, fallbackText }) => {
+          const result = await invoke<SemanticDocument>('semantic.get', { ownerUid, fieldName, fallbackText })
+          return [fieldName, result.ok ? result.result : null] as const
         })
       )
       setSemanticDocuments(
@@ -375,8 +543,10 @@ export function ResourceEditor({
       operation: 'resource-merge',
       context: { targetType, sources: mergePayload() }
     })
-    if (result.ok) setLlmRequest(result.result)
-    else notify('error', 'LLMマージの確認画面を開けません', result.error.message)
+    if (result.ok) {
+      setLlmOperation('merge')
+      setLlmRequest(result.result)
+    } else notify('error', 'LLMマージの確認画面を開けません', result.error.message)
   }
   const llmMerge = async (messages: LlmRequestMessage[], promptTemplateUid?: string): Promise<void> => {
     setMerging(true)
@@ -406,6 +576,52 @@ export function ResourceEditor({
       setMerging(false)
     }
   }
+  const openDescriptionDialog = async (): Promise<void> => {
+    const result = await invoke<PreparedLlmRequest>('llm.prepareRequest', {
+      operation: 'resource-description',
+      context: { resourceUid: data?.uid, resourceType: targetType, values }
+    })
+    if (!result.ok) return notify('error', '説明文生成の確認画面を開けません', result.error.message)
+    setLlmOperation('description')
+    setLlmRequest(result.result)
+  }
+  const generateDescription = async (messages: LlmRequestMessage[], promptTemplateUid?: string): Promise<void> => {
+    const started = await invoke<{ jobId: string }>('llm.runConfirmed', {
+      operation: 'resource-description',
+      context: { resourceUid: data?.uid, resourceType: targetType, values },
+      messages,
+      promptTemplateUid
+    })
+    if (!started.ok) return notify('error', '説明文生成を開始できません', started.error.message)
+    for (let index = 0; index < 240; index++) {
+      const job = await invoke<{ status: string; output?: { content?: string }; error?: { message: string } }>(
+        'job.get',
+        { jobId: started.result.jobId }
+      )
+      if (job.ok && job.result.status === 'success') {
+        try {
+          const parsed = JSON.parse(job.result.output?.content ?? '{}') as { description?: unknown }
+          if (typeof parsed.description !== 'string') throw new Error('description missing')
+          setValues((current) => ({ ...current, description: parsed.description as string }))
+          setSemanticDocuments((current) =>
+            current.description
+              ? { ...current, description: { ...current.description, displayText: parsed.description as string } }
+              : current
+          )
+          notify('info', 'LLM説明文候補を編集欄へ反映しました。保存前に内容を確認してください')
+        } catch {
+          notify('error', 'LLM説明文候補のJSON形式を解釈できません')
+        }
+        return
+      }
+      if (job.ok && ['failed', 'aborted', 'partial'].includes(job.result.status)) {
+        notify('error', '説明文生成に失敗しました', job.result.error?.message)
+        return
+      }
+      await new Promise((resolve) => setTimeout(resolve, 500))
+    }
+    notify('error', '説明文生成がタイムアウトしました')
+  }
   const linkDerived = async (): Promise<void> => {
     if (!derivedValue.trim()) return notify('error', '派生Resourceの内容またはアドレスを入力してください')
     const result = await invoke<{ targetUid: string; created: boolean }>('resource.linkDerived', {
@@ -419,11 +635,16 @@ export function ResourceEditor({
   }
   const submit = async (): Promise<void> => {
     if (!data || !definition) return
-    const textFields = definition.fields.filter((field) => field.kind === 'text' || field.kind === 'multiline')
-    const documents = textFields
-      .map((field) => semanticDocuments[field.name])
-      .filter((document): document is SemanticDocument => document !== undefined)
-      .map((document) => ({ ...document, displayText: String(values[document.fieldName] ?? document.displayText) }))
+    const textFieldNames = new Set(
+      definition.fields
+        .filter((field) => field.kind === 'text' || field.kind === 'multiline')
+        .map((field) => field.name)
+    )
+    const documents = Object.values(semanticDocuments).map((document) =>
+      textFieldNames.has(document.fieldName)
+        ? { ...document, displayText: String(values[document.fieldName] ?? document.displayText) }
+        : document
+    )
     for (const document of documents) {
       const validation = await invoke('semantic.validateStructured', {
         ownerUid: data.uid,
@@ -622,8 +843,13 @@ export function ResourceEditor({
             onSemanticChange={(fieldName, document) =>
               setSemanticDocuments((current) => ({ ...current, [fieldName]: document }))
             }
+            onRequestDescription={
+              ['resource_figure', 'resource_table', 'resource_code', 'resource_formula'].includes(targetType)
+                ? () => void openDescriptionDialog()
+                : undefined
+            }
           />
-          {(targetType === 'resource_figure' || targetType === 'resource_formula') && (
+          {['resource_figure', 'resource_formula', 'resource_table', 'resource_code'].includes(targetType) && (
             <section className="resource-derived-panel" data-testid="resource-derived-panel">
               <b>派生Resource</b>
               <label>
@@ -684,10 +910,10 @@ export function ResourceEditor({
       {llmRequest && (
         <LlmRequestDialog
           request={llmRequest}
-          screenId="resource.merge"
-          title="Resource LLMマージ"
+          screenId={llmOperation === 'merge' ? 'resource.merge' : `resource.${targetType}.description`}
+          title={llmOperation === 'merge' ? 'Resource LLMマージ' : 'LLMから説明文を取得'}
           onClose={() => setLlmRequest(null)}
-          onConfirmed={llmMerge}
+          onConfirmed={llmOperation === 'merge' ? llmMerge : generateDescription}
         />
       )}
       {confirming && (

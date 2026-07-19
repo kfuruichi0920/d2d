@@ -7,7 +7,7 @@ import { closeDatabase, createDatabase, getProjectRow } from '../store/database'
 import { createProjectLayout } from '../project/layout'
 import { importSourceDocument } from '../import/import-service'
 import { storeExtractionResult } from '../extract/store-extraction'
-import { createIntermediateDocument } from '../intermediate/intermediate-service'
+import { createChunk, createIntermediateDocument } from '../intermediate/intermediate-service'
 import {
   adoptCandidates,
   checkRelationAllowed,
@@ -182,6 +182,21 @@ describe('④設計モデル（P8）', () => {
     expect(basedOn).toEqual({ basis_kind: 'inferred', evidence_span: '応答は100ms以内。', to_uid: intermediateUid })
   })
 
+  it('候補採用時は設計要素から生成元チャンクへbased_onを付与する', () => {
+    const chunk = createChunk(db, projectUid, intermediateUid, ['i1'])
+    const result = adoptCandidates(db, projectUid, {
+      intermediateDocumentUid: intermediateUid,
+      chunkUid: chunk.chunkUid,
+      candidateSet: {
+        elements: [{ temp_id: 't1', category: 'REQ', title: 'チャンク由来要求', evidence: '応答は100ms以内。' }],
+        relations: []
+      }
+    })
+    const link = db
+      .prepare(`SELECT to_uid FROM trace_link WHERE from_uid=? AND relation_type='based_on'`)
+      .get(result.elements[0]!.uid) as { to_uid: string }
+    expect(link.to_uid).toBe(chunk.chunkUid)
+  })
   it('採用トランザクション: 許容外関係が 1 件でもあれば全体を反映しない（MODEL-009 同一トランザクション）', () => {
     const before = listDesignElements(db, projectUid).length
     expect(() =>

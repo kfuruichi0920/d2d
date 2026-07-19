@@ -820,6 +820,7 @@ Search ActivityはMeCab検索が形態素解析と索引再構築により時間
 
 中間要素から開く共通Resource Editorは左右2ペインとする。左ペインは、②由来の要素では対応する `extracted_item` のResource情報を読取専用・コピー可能で表示し、画面追加した中間要素では現在のResource情報を編集可能なマージ元として表示する。resource種別変更時は、左ペインを変更前Resource、右ペインを変更後Resourceの編集フォームとする。`マージ` と `LLMマージ` は左ペイン上部へ配置し、左の値から右の保存候補を生成するだけで正本を更新せず、利用者が保存操作を実行した時点で反映する。LLMには各入力Resourceの種別・フィールド定義・値・アウトライン文脈と、出力Resourceのフィールド名・表示名・型・必須性・説明を渡す。ルール変換が安全に定義できないフィールドは警告し、LLMマージは既存のProvider・外部送信可否・マスキング設定を必ず経由する。Resourceヘッダは `resource://<uid>` とコピー操作を表示し、モーダル表示時はEditor Areaへの統合操作を表示する。全設定値は定義データの説明をTooltip表示し、全Resource共通の管理用「特記事項」は設計情報生成に利用しない。
 
+図Resourceは画像ハッシュの直後に図番号、キャプションを表示し、旧キャプションUIDは編集対象外とする。表Resourceは物理列 `table_title` をキャプションとして表示し、`header_rows_json`、`header_columns_json`、`cells_json` のJSON直接編集欄を隠してスプレッドシート形式で表示する。各セルは `cells_json.<row>.<column>` をfield nameとする `SemanticTextInput` を使用する。コードResourceは旧シンボルJSON、構文木JSON、解析状態を編集対象外とする。図・表・数式・コードは説明欄と、その直後の派生Resource（新規追加／既存参照／関係種別）を共通表示する。「LLMから説明文を取得」は対象Resource値、アウトライン文脈を送信前確認へ渡し、図では画像blobをProvider別の画像添付へ変換する。LLM応答は保存前候補として説明欄へ反映する。
 保存ボタンは所有判定に応じて `同じResourceへ上書き保存`、`旧Resourceを削除して新Resourceとして保存`、`元Resourceを保護して新Resourceとして保存` のいずれかを表示する。③で新規作成され現在の中間要素だけが参照するResourceは、同種なら同じUIDへ上書きし、種別変更なら現在の中間要素を新Resourceへ差し替えて旧Resourceを削除する。抽出由来または他要素・トレース・Resource・実行記録から参照されるResourceは旧Resourceを保護し、新Resourceを作成して現在の中間要素だけを差し替え、元Resourceへの `based_on (transform_note=edit-resource)` を保持する。resource種別を変更するとき、元種別の非空カラムを失われる固有情報として列挙し、利用者が確認操作を行った場合だけ保存する。
 ### P7-1/P7-7 中間データ統合操作の補足
 
@@ -837,7 +838,7 @@ Secondary Side BarのProperties、Relations、Review、Dictionaryは定義順で
 
 ### 14.1 セマンティック入力支援
 
-共通Resource Editorの text / multiline 欄は `SemanticTextInput` を利用する。通常時は背景色を他の入力部品と分けた表示文章のプレビューと編集ボタンだけを表示する。編集ボタン、またはフォーカス中のプレビューで `Enter`／`F2` を押すと編集ダイアログを開き、ダイアログの「エディタへ統合」で同じResourceのEditor Areaタブへ移動できる。編集画面は左右2ペインとし、左にMarkdown対応Monacoの「編集」、登録済み情報を解析する「用語候補」、LLMを使用する「用語候補(LLM)」、右に複数行の「プレビュー」、「構造化データ」、Monaco Diffで現在文と候補を比較する「校正・正規化(LLM)」を配置する。前方一致候補は `Ctrl+Space` だけで開き、専用ボタンは表示しない。LLM確認画面が開いている間のEscapeは最前面の確認画面だけを閉じる。LLM送信にはowner Resourceから復元した所属中間文書、アウトライン位置、親、前後要素を含める。
+共通Resource Editorの text / multiline 欄は `SemanticTextInput` を利用する。非選択時は背景色を他の入力部品と分けた表示文章のプレビューを表示し、選択またはEnterでその場の入力欄へ切り替える。選択状態にかかわらず「編集」ボタン（またはF2）でセマンティック編集ダイアログを開く。セマンティック編集にはEditor Area統合操作を設けない。編集画面は左右2ペインとし、左にMarkdown対応Monacoの「編集」、登録済み情報を解析する「用語候補」、LLMを使用する「用語候補(LLM)」、右に複数行の「プレビュー」、「構造化データ」、Monaco Diffで現在文と候補を比較する「校正・正規化(LLM)」を配置する。MonacoはEditContextを無効化した互換入力経路を使い、初期化時の最新値を設定して自動フォーカスし、日本語入力とコピー／切り取り／貼り付けを可能にする。前方一致候補は `Ctrl+Space` だけで開き、専用ボタンは表示しない。LLM確認画面が開いている間のEscapeは最前面の確認画面だけを閉じる。LLM送信にはowner Resourceから復元した所属中間文書、アウトライン位置、親、前後要素を含める。
 
 プレビューは承認済み参照と候補参照を実線／破線で識別し、hoverでUID、ID、名称、定義、関係種別、状態をTooltip表示する。クリックで用語集または参照Resourceへ遷移する。各参照の表示方法はリンクのみ、文字列、ID、UIDを選択できるが、内部の `target_uid` は表示方法から独立して保持する。
 
