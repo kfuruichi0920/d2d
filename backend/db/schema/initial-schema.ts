@@ -124,6 +124,7 @@ CREATE TABLE entity_registry (
     memo_json TEXT,
     created_by TEXT,
     updated_by TEXT,
+    administrative_notes TEXT,
     batch_operation_uid TEXT,
     source_hash TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -205,7 +206,9 @@ CREATE TABLE resource_text (
     language TEXT,
     sentences_json TEXT,
     context_json TEXT,
-    FOREIGN KEY (uid) REFERENCES entity_registry(uid) ON DELETE CASCADE
+    target_resource_uid TEXT,
+    FOREIGN KEY (uid) REFERENCES entity_registry(uid) ON DELETE CASCADE,
+    FOREIGN KEY (target_resource_uid) REFERENCES entity_registry(uid) ON DELETE SET NULL
 );
 
 CREATE TABLE resource_list (
@@ -227,6 +230,9 @@ CREATE TABLE resource_figure (
     ocr_texts_json TEXT,
     objects_json TEXT,
     caption_uid TEXT,
+    byte_size INTEGER CHECK (byte_size IS NULL OR byte_size >= 0),
+    image_format TEXT,
+    description TEXT,
     FOREIGN KEY (uid) REFERENCES entity_registry(uid) ON DELETE CASCADE,
     FOREIGN KEY (caption_uid) REFERENCES entity_registry(uid) ON DELETE SET NULL
 );
@@ -252,6 +258,7 @@ CREATE TABLE resource_formula (
     variables_json TEXT,
     units_json TEXT,
     references_json TEXT,
+    description TEXT,
     FOREIGN KEY (uid) REFERENCES entity_registry(uid) ON DELETE CASCADE
 );
 

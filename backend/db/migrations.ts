@@ -244,9 +244,29 @@ export const MIGRATIONS: Migration[] = [
       if (!columns.some((column) => column.name === 'raw_response_blob_uid'))
         db.exec('ALTER TABLE llm_run_ref ADD COLUMN raw_response_blob_uid TEXT;')
     }
+  },
+  {
+    // P7-2/P7-3/P10-7 / EDIT-074〜086: Resource編集情報と管理用特記事項を拡張する。
+    version: '1.9.0',
+    description: 'Resource編集・LLM文脈・管理情報の拡張（EDIT-074〜086）',
+    apply(db) {
+      const add = (table: string, column: string, ddl: string): void => {
+        const columns = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]
+        if (!columns.some((item) => item.name === column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl};`)
+      }
+      add('entity_registry', 'administrative_notes', 'administrative_notes TEXT')
+      add(
+        'resource_text',
+        'target_resource_uid',
+        'target_resource_uid TEXT REFERENCES entity_registry(uid) ON DELETE SET NULL'
+      )
+      add('resource_figure', 'byte_size', 'byte_size INTEGER CHECK (byte_size IS NULL OR byte_size >= 0)')
+      add('resource_figure', 'image_format', 'image_format TEXT')
+      add('resource_figure', 'description', 'description TEXT')
+      add('resource_formula', 'description', 'description TEXT')
+    }
   }
 ]
-
 /** 最新の schema_version（新規 DB 作成時にもマイグレーションを適用して到達させる） */
 export const LATEST_SCHEMA_VERSION = MIGRATIONS.at(-1)?.version ?? INITIAL_SCHEMA_VERSION
 

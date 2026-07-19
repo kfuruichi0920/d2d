@@ -33,6 +33,7 @@
     "better-sqlite3": "^12.11.1",
     "dompurify": "^3.4.11",
     "marked": "^18.0.6",
+    "mathjax-full": "^3.2.1",
     "monaco-editor": "^0.55.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

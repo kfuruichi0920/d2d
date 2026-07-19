@@ -627,7 +627,7 @@ function createBasicElementResource(
     case 'resource_list':
       db.prepare(
         `INSERT INTO resource_list (uid, list_kind, item_count, items_json, max_level) VALUES (?, 'unordered', 1, ?, 0)`
-      ).run(resource.uid, JSON.stringify([{ text, level: 0 }]))
+      ).run(resource.uid, `- ${text}`)
       break
     default:
       db.prepare(`INSERT INTO resource_text (uid, text_body, text_role, language) VALUES (?, ?, 'body', 'ja')`).run(
@@ -1146,8 +1146,12 @@ export function getChunkText(db: Database, chunkUid: string): string {
         const r = db.prepare(`SELECT items_json FROM resource_list WHERE uid = ?`).get(row.resource_uid) as
           { items_json: string | null } | undefined
         if (r?.items_json) {
-          const items = JSON.parse(r.items_json) as { text: string }[]
-          parts.push(items.map((i) => `- ${i.text}`).join('\n'))
+          try {
+            const items = JSON.parse(r.items_json) as { text: string }[]
+            parts.push(items.map((i) => `- ${i.text}`).join('\n'))
+          } catch {
+            parts.push(r.items_json)
+          }
         }
         break
       }

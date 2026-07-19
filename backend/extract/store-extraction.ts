@@ -26,6 +26,10 @@ export interface ExtractionElement {
   column_count?: number
   image?: string
   caption?: string | null
+  width?: number
+  height?: number
+  byte_size?: number
+  image_format?: string
 }
 
 export interface ExtractionOutput {
@@ -140,11 +144,7 @@ export function storeExtractionResult(db: Database, input: StoreExtractionInput)
         case 'resource_list':
           db.prepare(
             `INSERT INTO resource_list (uid, list_kind, item_count, items_json, max_level) VALUES (?, 'unordered', 1, ?, ?)`
-          ).run(
-            resource.uid,
-            JSON.stringify([{ text: element.text ?? '', level: element.level ?? 0 }]),
-            element.level ?? 0
-          )
+          ).run(resource.uid, `${'  '.repeat(element.level ?? 0)}- ${element.text ?? ''}`, element.level ?? 0)
           break
         case 'resource_table':
           db.prepare(`INSERT INTO resource_table (uid, row_count, column_count, cells_json) VALUES (?, ?, ?, ?)`).run(
@@ -175,9 +175,16 @@ export function storeExtractionResult(db: Database, input: StoreExtractionInput)
             ).run(blobEntity.uid, relativePath, mimeTypeOf(imageRel), statSync(destPath).size, sha256OfFile(destPath))
             imageUri = relativePath
           }
-          db.prepare(`INSERT INTO resource_figure (uid, image_uri, figure_kind) VALUES (?, ?, 'other')`).run(
+          db.prepare(
+            `INSERT INTO resource_figure (uid,image_uri,figure_kind,width,height,byte_size,image_format)
+             VALUES (?,?,'other',?,?,?,?)`
+          ).run(
             resource.uid,
-            imageUri
+            imageUri,
+            element.width ?? null,
+            element.height ?? null,
+            element.byte_size ?? (imageRel && existsSync(srcPath) ? statSync(srcPath).size : null),
+            element.image_format ?? (imageRel.slice(imageRel.lastIndexOf('.') + 1).toUpperCase() || null)
           )
           figureCount++
           break

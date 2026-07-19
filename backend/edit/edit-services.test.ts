@@ -52,18 +52,27 @@ describe('P10 編集機能', () => {
     rmSync(dir, { recursive: true, force: true })
   })
 
-  it('マイグレーション 1.8.0: 新規 DB は最新版の表セル・アーカイブ列・セマンティック表・LLM生ログ列を持つ', () => {
-    expect(LATEST_SCHEMA_VERSION).toBe('1.8.0')
-    expect(getSchemaVersion(db)).toBe('1.8.0')
+  it('マイグレーション 1.9.0: 新規 DB は最新版の表セル・アーカイブ列・セマンティック表・LLM生ログ列を持つ', () => {
+    expect(LATEST_SCHEMA_VERSION).toBe('1.9.0')
+    expect(getSchemaVersion(db)).toBe('1.9.0')
     const table = db
       .prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'resource_table_cell'`)
       .get()
     expect(table).toBeTruthy()
     const columns = db.prepare(`PRAGMA table_info(entity_registry)`).all() as { name: string }[]
     expect(columns.some((column) => column.name === 'is_archived')).toBe(true)
+    expect(columns.some((column) => column.name === 'administrative_notes')).toBe(true)
+    const textColumns = db.prepare('PRAGMA table_info(resource_text)').all() as { name: string }[]
+    expect(textColumns.some((column) => column.name === 'target_resource_uid')).toBe(true)
+    const figureColumns = db.prepare('PRAGMA table_info(resource_figure)').all() as { name: string }[]
+    expect(figureColumns.map((column) => column.name)).toEqual(
+      expect.arrayContaining(['byte_size', 'image_format', 'description'])
+    )
+    const formulaColumns = db.prepare('PRAGMA table_info(resource_formula)').all() as { name: string }[]
+    expect(formulaColumns.some((column) => column.name === 'description')).toBe(true)
   })
 
-  it('マイグレーション: 1.0.0 の既存 DB を開くと 1.8.0 へ移行しバックアップを作る', () => {
+  it('マイグレーション: 1.0.0 の既存 DB を開くと 1.9.0 へ移行しバックアップを作る', () => {
     // 1.0.0 状態を再現（テーブル削除 + 版数戻し）
     const path = join(dir, 'old.db')
     const oldDb = createDatabase(path, { projectName: 'old' })
@@ -74,7 +83,7 @@ describe('P10 編集機能', () => {
     closeDatabase(oldDb)
 
     const migrated = openDatabase(path)
-    expect(getSchemaVersion(migrated)).toBe('1.8.0')
+    expect(getSchemaVersion(migrated)).toBe('1.9.0')
     expect(migrated.prepare(`SELECT name FROM sqlite_master WHERE name = 'resource_table_cell'`).get()).toBeTruthy()
     const columns = migrated.prepare(`PRAGMA table_info(entity_registry)`).all() as { name: string }[]
     expect(columns.some((column) => column.name === 'is_archived')).toBe(true)
@@ -102,7 +111,7 @@ describe('P10 編集機能', () => {
     closeDatabase(db)
 
     db = openDatabase(join(root, 'project.db'))
-    expect(getSchemaVersion(db)).toBe('1.8.0')
+    expect(getSchemaVersion(db)).toBe('1.9.0')
     expect(listArtifactRelations(db, projectUid)).toEqual([
       expect.objectContaining({
         uid: relation.uid,

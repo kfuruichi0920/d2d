@@ -12,7 +12,7 @@ export interface LlmRequestMessage {
 }
 
 export interface PreparedLlmRequest {
-  operation: 'connection-test' | 'semantic-terms' | 'design-candidates' | 'resource-merge'
+  operation: 'connection-test' | 'semantic-terms' | 'semantic-proofread' | 'design-candidates' | 'resource-merge'
   purpose: string
   processName: string
   jsonMode: boolean

@@ -32,6 +32,7 @@ export interface CodeEditorProps {
   readOnly?: boolean
   onChange?: (value: string) => void
   height?: number | string
+  onCtrlSpace?: (prefix: string) => void
 }
 
 export function CodeEditor({
@@ -39,13 +40,16 @@ export function CodeEditor({
   language = 'markdown',
   readOnly = false,
   onChange,
-  height = '100%'
+  height = '100%',
+  onCtrlSpace
 }: CodeEditorProps): React.JSX.Element {
   const fontSize = useWorkbenchStore((state) => state.theme.fontSize)
   const containerRef = useRef<HTMLDivElement>(null)
   const editorRef = useRef<MonacoTypes.editor.IStandaloneCodeEditor | null>(null)
   const onChangeRef = useRef(onChange)
+  const onCtrlSpaceRef = useRef(onCtrlSpace)
   onChangeRef.current = onChange
+  onCtrlSpaceRef.current = onCtrlSpace
 
   useEffect(() => {
     let disposed = false
@@ -60,9 +64,22 @@ export function CodeEditor({
         minimap: { enabled: false },
         fontSize,
         automaticLayout: true,
+        editContext: false,
         scrollBeyondLastLine: false
       })
       editor.onDidChangeModelContent(() => onChangeRef.current?.(editor.getValue()))
+      editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Space, () => {
+        const position = editor.getPosition()
+        const model = editor.getModel()
+        if (!position || !model) return
+        const before = model.getValueInRange({
+          startLineNumber: position.lineNumber,
+          startColumn: 1,
+          endLineNumber: position.lineNumber,
+          endColumn: position.column
+        })
+        onCtrlSpaceRef.current?.(before.match(/[\\p{L}\\p{N}_./-]+$/u)?.[0] ?? '')
+      })
       editorRef.current = editor
     })
     return () => {

@@ -8,12 +8,14 @@ import { BackendError } from './errors'
 import type { JobManager } from '../jobs/job-manager'
 import type { SettingsService } from '../settings/settings-service'
 import { requireProject } from '../project/project-service'
+import { getResourceOutlineContext } from '../resource/resource-service'
 import { previewLlm, resolveLlmSettings } from '../llm/llm-service'
 import type { ChatMessage } from '../llm/providers'
 import {
   buildConnectionTestMessages,
   buildDesignCandidateMessages,
   buildResourceMergeMessages,
+  buildSemanticProofreadMessages,
   buildSemanticTermMessages,
   type LlmRequestOperation,
   type ResourceMergeSource
@@ -83,7 +85,22 @@ export function registerLlmApi(router: ApiRouter, jobs: JobManager, settings: Se
         purpose: 'glossary',
         processName: 'semantic-term-candidates',
         jsonMode: true,
-        messages: buildSemanticTermMessages(String(context.text ?? ''))
+        messages: buildSemanticTermMessages(
+          String(context.text ?? ''),
+          typeof context.ownerUid === 'string' ? getResourceOutlineContext(db, context.ownerUid) : null
+        )
+      }
+    }
+    if (operation === 'semantic-proofread') {
+      return {
+        operation,
+        purpose: 'normalize',
+        processName: 'semantic-proofread',
+        jsonMode: true,
+        messages: buildSemanticProofreadMessages(
+          String(context.text ?? ''),
+          typeof context.ownerUid === 'string' ? getResourceOutlineContext(db, context.ownerUid) : null
+        )
       }
     }
     if (operation === 'design-candidates') {
@@ -100,12 +117,16 @@ export function registerLlmApi(router: ApiRouter, jobs: JobManager, settings: Se
     if (operation === 'resource-merge') {
       const targetType = String(context.targetType ?? '')
       const sources = Array.isArray(context.sources) ? (context.sources as ResourceMergeSource[]) : []
+      const enrichedSources = sources.map((source) => ({
+        ...source,
+        outlineContext: source.resourceUid ? getResourceOutlineContext(db, source.resourceUid) : null
+      }))
       return {
         operation,
         purpose: 'other',
         processName: 'resource-merge',
         jsonMode: true,
-        messages: buildResourceMergeMessages(targetType, sources)
+        messages: buildResourceMergeMessages(targetType, enrichedSources)
       }
     }
     throw new BackendError('validation', `未対応のLLM問い合わせです: ${operation}`, '')
@@ -119,14 +140,20 @@ export function registerLlmApi(router: ApiRouter, jobs: JobManager, settings: Se
     const messages = asMessages(p.messages)
     const promptTemplateUid = typeof p.promptTemplateUid === 'string' ? p.promptTemplateUid : undefined
     requireProject()
-    if (operation === 'connection-test' || operation === 'semantic-terms') {
+    if (operation === 'connection-test' || operation === 'semantic-terms' || operation === 'semantic-proofread') {
       return jobs.enqueue('llm.run', {
         messages,
-        processName: operation === 'connection-test' ? 'connection-test' : 'semantic-term-candidates',
-        jsonMode: operation === 'semantic-terms',
+        processName:
+          operation === 'connection-test'
+            ? 'connection-test'
+            : operation === 'semantic-proofread'
+              ? 'semantic-proofread'
+              : 'semantic-term-candidates',
+        jsonMode: operation !== 'connection-test',
         promptTemplateUid
       })
     }
+
     if (operation === 'design-candidates') {
       const chunkUid = String(context.chunkUid ?? '')
       if (!chunkUid) throw new BackendError('validation', 'chunkUidは必須です', '')
@@ -136,6 +163,7 @@ export function registerLlmApi(router: ApiRouter, jobs: JobManager, settings: Se
       const targetType = String(context.targetType ?? '')
       const sources = Array.isArray(context.sources) ? (context.sources as ResourceMergeSource[]) : []
       buildResourceMergeMessages(targetType, sources)
+
       return jobs.enqueue('resource.mergeCandidate', { targetType, sources, messages, promptTemplateUid })
     }
     throw new BackendError('validation', `未対応のLLM問い合わせです: ${operation}`, '')

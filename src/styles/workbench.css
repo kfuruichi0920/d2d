@@ -3522,3 +3522,76 @@ mark.d2d-term {
     display: none !important;
   }
 }
+
+/* Resource／Semantic Editor拡張（EDIT-074〜086、UI-055） */
+.wb-tab .tab-pin {
+  border: 0;
+  background: transparent;
+  color: var(--d2d-fg-muted);
+  padding: 0 2px;
+  cursor: pointer;
+  font-size: 9px;
+}
+.wb-tab .tab-pin.pinned {
+  color: var(--d2d-accent);
+}
+.resource-editor-fields label > span {
+  cursor: help;
+}
+.resource-field-preview,
+.resource-formula-preview {
+  border: 1px solid var(--d2d-border);
+  padding: 8px;
+  min-height: 48px;
+  overflow: auto;
+}
+.resource-figure-preview {
+  display: block;
+  max-width: 100%;
+  max-height: 420px;
+  margin: 8px auto;
+  object-fit: contain;
+}
+.resource-administrative-notes {
+  display: grid;
+  gap: 4px;
+  margin: 12px 0;
+  color: var(--d2d-fg-muted);
+}
+.resource-administrative-notes textarea {
+  min-height: 72px;
+}
+.semantic-two-panel-controls,
+.semantic-two-panel-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+}
+.semantic-toolbar-left,
+.semantic-toolbar-right,
+.semantic-left-panel,
+.semantic-right-panel {
+  min-width: 0;
+  border: 1px solid var(--d2d-border);
+  padding: 6px;
+}
+.semantic-left-panel,
+.semantic-right-panel {
+  min-height: 320px;
+  overflow: auto;
+}
+.semantic-right-panel .d2d-markdown,
+.semantic-preview {
+  white-space: pre-wrap;
+  min-height: 6em;
+}
+.semantic-proofread-result {
+  display: grid;
+  gap: 6px;
+}
+@media (max-width: 900px) {
+  .semantic-two-panel-controls,
+  .semantic-two-panel-body {
+    grid-template-columns: 1fr;
+  }
+}

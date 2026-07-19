@@ -6,11 +6,14 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { invoke } from '../../services/backend'
 import { useJobsStore } from '../../stores/jobs-store'
 import { useSelectionStore } from '../../stores/selection-store'
+import { useEditorStore } from '../../stores/editor-store'
 import { ResizablePaneGroup } from '../workbench/ResizablePaneGroup'
 import { useEscapeToClose } from '../common/useEscapeToClose'
 import { SemanticTextInput } from '../common/SemanticTextInput'
 import { LlmRequestDialog, type LlmRequestMessage, type PreparedLlmRequest } from '../common/LlmRequestDialog'
 import type { SemanticDocument } from '../../types/semantic'
+import { MarkdownPreview } from '../common/MarkdownPreview'
+import { MathJaxPreview } from '../common/MathJaxPreview'
 
 interface FieldDefinition {
   name: string
@@ -19,6 +22,9 @@ interface FieldDefinition {
   required?: boolean
   options?: string[]
   defaultValue?: string | number
+  description: string
+  language?: 'markdown' | 'latex'
+  preview?: 'markdown' | 'image' | 'formula'
 }
 interface TypeDefinition {
   type: string
@@ -33,6 +39,7 @@ interface ResourceData {
   typeLabel: string
   values: Record<string, unknown>
   definitions: TypeDefinition[]
+  administrativeNotes: string
   ownership: {
     exclusiveIntermediate: boolean
     intermediateItemUid?: string
@@ -74,6 +81,20 @@ function initialValues(definition: TypeDefinition, source?: Record<string, unkno
   return Object.fromEntries(definition.fields.map((field) => [field.name, displayValue(field, source?.[field.name])]))
 }
 
+function ResourceFigurePreview({ resourceUid }: { resourceUid: string }): React.JSX.Element {
+  const [src, setSrc] = useState<string | null>(null)
+  const [failed, setFailed] = useState(false)
+  useEffect(() => {
+    void invoke<{ dataUrl: string }>('extracted.getFigurePreview', { resourceUid }).then((result) => {
+      if (result.ok) setSrc(result.result.dataUrl)
+      else setFailed(true)
+    })
+  }, [resourceUid])
+  if (failed) return <div className="d2d-empty">画像を表示できません</div>
+  if (!src) return <div className="d2d-empty">画像を読込中…</div>
+  return <img className="resource-figure-preview" src={src} alt="図Resource" data-testid="resource-figure-preview" />
+}
+
 function ResourceFields({
   definition,
   values,
@@ -95,8 +116,12 @@ function ResourceFields({
   return (
     <div className="resource-editor-fields">
       {definition.fields.map((field) => (
-        <label className={field.kind === 'multiline' || field.kind === 'json' ? 'wide' : ''} key={field.name}>
-          <span>
+        <label
+          className={field.kind === 'multiline' || field.kind === 'json' ? 'wide' : ''}
+          key={field.name}
+          title={field.description}
+        >
+          <span title={field.description}>
             {field.label}
             {field.required && ' *'} <code>{field.name}</code>
           </span>
@@ -142,6 +167,11 @@ function ResourceFields({
               data-testid={`resource-field-${field.name}`}
             />
           )}
+          {field.preview === 'markdown' && String(values[field.name] ?? '').trim() && (
+            <div className="resource-field-preview" title="Markdownプレビュー">
+              <MarkdownPreview markdown={String(values[field.name] ?? '')} />
+            </div>
+          )}
         </label>
       ))}
     </div>
@@ -152,28 +182,37 @@ export function ResourceEditor({
   resourceUid,
   context,
   onSaved,
-  embedded = false
+  embedded = false,
+  onIntegrated
 }: {
   resourceUid: string
   context?: ResourceContext
   onSaved?: (result: { uid: string; type: string }) => void
   embedded?: boolean
+  onIntegrated?: () => void
 }): React.JSX.Element {
   const [currentUid, setCurrentUid] = useState(resourceUid)
   const [data, setData] = useState<ResourceData | null>(null)
   const [targetType, setTargetType] = useState('')
   const [values, setValues] = useState<Record<string, string | number>>({})
   const [semanticDocuments, setSemanticDocuments] = useState<Record<string, SemanticDocument>>({})
+  const [administrativeNotes, setAdministrativeNotes] = useState('')
   const [sources, setSources] = useState<MergeSource[]>([])
   const [sourceValues, setSourceValues] = useState<Record<string, Record<string, string | number>>>({})
   const [warnings, setWarnings] = useState<string[]>([])
   const [mergeMode, setMergeMode] = useState<'edit-resource' | 'merge' | 'llm-merge'>('edit-resource')
   const [llmRunUid, setLlmRunUid] = useState<string | undefined>()
+  const [derivedMode, setDerivedMode] = useState<'new' | 'existing'>('new')
+  const [derivedValue, setDerivedValue] = useState('')
+  const [derivedRelation, setDerivedRelation] = useState<'contains' | 'decomposes' | 'uses' | 'relates_to'>(
+    'relates_to'
+  )
   const [confirming, setConfirming] = useState(false)
   const [saving, setSaving] = useState(false)
   const [merging, setMerging] = useState(false)
   const [llmRequest, setLlmRequest] = useState<PreparedLlmRequest | null>(null)
   const notify = useJobsStore((state) => state.notify)
+  const openResource = useEditorStore((state) => state.openResource)
   // 種別変更の確認モーダルは Escape でキャンセルする（W10）
   useEscapeToClose(confirming, () => setConfirming(false))
   const setSelectedItem = useSelectionStore((state) => state.setSelectedItem)
@@ -233,6 +272,7 @@ export function ResourceEditor({
     }
     const resource = resourceResult.result
     setData(resource)
+    setAdministrativeNotes(resource.administrativeNotes)
     setTargetType(resource.type)
     const definition = resource.definitions.find((candidate) => candidate.type === resource.type)!
     setValues(initialValues(definition, resource.values))
@@ -366,6 +406,17 @@ export function ResourceEditor({
       setMerging(false)
     }
   }
+  const linkDerived = async (): Promise<void> => {
+    if (!derivedValue.trim()) return notify('error', '派生Resourceの内容またはアドレスを入力してください')
+    const result = await invoke<{ targetUid: string; created: boolean }>('resource.linkDerived', {
+      sourceUid: currentUid,
+      relationType: derivedRelation,
+      ...(derivedMode === 'new' ? { newText: derivedValue } : { targetUid: derivedValue })
+    })
+    if (!result.ok) return notify('error', '派生Resourceを関連付けできません', result.error.message)
+    notify('info', result.result.created ? '派生Resourceを新規追加しました' : '既存Resourceを関連付けました')
+    setDerivedValue('')
+  }
   const submit = async (): Promise<void> => {
     if (!data || !definition) return
     const textFields = definition.fields.filter((field) => field.kind === 'text' || field.kind === 'multiline')
@@ -404,7 +455,8 @@ export function ResourceEditor({
       basedOnResourceUids:
         mergeMode === 'edit-resource' ? undefined : activeSources.map((source) => source.resourceUid),
       transformNote: mergeMode,
-      llmRunUid
+      llmRunUid,
+      administrativeNotes
     })
     setSaving(false)
     setConfirming(false)
@@ -446,7 +498,35 @@ export function ResourceEditor({
       <div className="resource-editor-header">
         <div>
           <b>{data.code}</b>
-          <span>{data.uid}</span>
+          <span>{`resource://${data.uid}`}</span>
+          <button
+            type="button"
+            className="d2d-btn small"
+            title="当該Resourceアドレスをクリップボードへコピーします"
+            data-testid="resource-copy-address"
+            onClick={() => {
+              void navigator.clipboard.writeText(`resource://${data.uid}`)
+              notify('info', 'Resourceアドレスをコピーしました')
+            }}
+          >
+            コピー
+          </button>
+          {embedded && (
+            <button
+              type="button"
+              className="d2d-btn small"
+              title="このResource編集画面をEditor Areaのタブとして開きます"
+              data-testid="resource-integrate-editor"
+              onClick={() => {
+                openResource(`resource://${data.uid}`, `${data.code} ${data.title ?? data.typeLabel}`, {
+                  preview: false
+                })
+                onIntegrated?.()
+              }}
+            >
+              エディタへ統合
+            </button>
+          )}
         </div>
         <label>
           Resource種別
@@ -477,23 +557,6 @@ export function ResourceEditor({
         {context && (
           <section className="resource-merge-source" data-testid="resource-merge-source">
             <h3>{targetType === data.type ? 'マージ元／抽出由来' : '変更前Resource'}</h3>
-            {activeSources.map((source) => {
-              const sourceDefinition = data.definitions.find((candidate) => candidate.type === source.type)!
-              return (
-                <details open key={`${source.sourceKind}-${source.resourceUid}`}>
-                  <summary>
-                    {source.sourceLabel} <span>{source.typeLabel}</span>
-                    {source.readonly && <small>読取専用</small>}
-                  </summary>
-                  <ResourceFields
-                    definition={sourceDefinition}
-                    values={sourceValues[source.resourceUid] ?? initialValues(sourceDefinition, source.values)}
-                    readonly={source.readonly}
-                    onChange={(next) => setSourceValues((current) => ({ ...current, [source.resourceUid]: next }))}
-                  />
-                </details>
-              )
-            })}
             <div className="resource-merge-actions">
               <button
                 type="button"
@@ -513,6 +576,23 @@ export function ResourceEditor({
                 {merging ? 'LLMマージ中…' : 'LLMマージ'}
               </button>
             </div>
+            {activeSources.map((source) => {
+              const sourceDefinition = data.definitions.find((candidate) => candidate.type === source.type)!
+              return (
+                <details open key={`${source.sourceKind}-${source.resourceUid}`}>
+                  <summary>
+                    {source.sourceLabel} <span>{source.typeLabel}</span>
+                    {source.readonly && <small>読取専用</small>}
+                  </summary>
+                  <ResourceFields
+                    definition={sourceDefinition}
+                    values={sourceValues[source.resourceUid] ?? initialValues(sourceDefinition, source.values)}
+                    readonly={source.readonly}
+                    onChange={(next) => setSourceValues((current) => ({ ...current, [source.resourceUid]: next }))}
+                  />
+                </details>
+              )
+            })}
           </section>
         )}
         <section className="resource-merge-target" data-testid="resource-merge-target">
@@ -522,6 +602,15 @@ export function ResourceEditor({
               {warnings.map((warning) => (
                 <div key={warning}>{warning}</div>
               ))}
+            </div>
+          )}
+          {targetType === 'resource_figure' && data.type === 'resource_figure' && (
+            <ResourceFigurePreview resourceUid={data.uid} />
+          )}
+          {targetType === 'resource_formula' && (
+            <div className="resource-formula-preview" data-testid="resource-formula-preview">
+              <b>TeXプレビュー</b>
+              <MathJaxPreview tex={String(values.formula_text ?? '')} />
             </div>
           )}
           <ResourceFields
@@ -534,6 +623,51 @@ export function ResourceEditor({
               setSemanticDocuments((current) => ({ ...current, [fieldName]: document }))
             }
           />
+          {(targetType === 'resource_figure' || targetType === 'resource_formula') && (
+            <section className="resource-derived-panel" data-testid="resource-derived-panel">
+              <b>派生Resource</b>
+              <label>
+                登録方法
+                <select
+                  value={derivedMode}
+                  onChange={(event) => setDerivedMode(event.target.value as 'new' | 'existing')}
+                >
+                  <option value="new">新規追加</option>
+                  <option value="existing">既存を参照</option>
+                </select>
+              </label>
+              <label>
+                {derivedMode === 'new' ? '新規Resource内容' : '既存Resourceアドレス'}
+                <input value={derivedValue} onChange={(event) => setDerivedValue(event.target.value)} />
+              </label>
+              <label>
+                当Resourceとの関係
+                <select
+                  value={derivedRelation}
+                  onChange={(event) => setDerivedRelation(event.target.value as typeof derivedRelation)}
+                >
+                  <option value="relates_to">relates_to</option>
+                  <option value="contains">contains</option>
+                  <option value="decomposes">decomposes</option>
+                  <option value="uses">uses</option>
+                </select>
+              </label>
+              <button type="button" className="d2d-btn" onClick={() => void linkDerived()}>
+                関係を登録
+              </button>
+            </section>
+          )}
+          <label
+            className="resource-administrative-notes"
+            title="設計情報には利用しない管理専用情報です。設計上の特記事項は設計情報の各フィールドへ記載してください。"
+          >
+            <span>特記事項（管理用）</span>
+            <textarea
+              value={administrativeNotes}
+              onChange={(event) => setAdministrativeNotes(event.target.value)}
+              data-testid="resource-administrative-notes"
+            />
+          </label>
           <div className="resource-editor-actions">
             <button
               type="button"

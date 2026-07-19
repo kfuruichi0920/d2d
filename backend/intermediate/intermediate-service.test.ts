@@ -442,7 +442,7 @@ describe('③中間データ（P7）', () => {
     expect(after.elements).toHaveLength(3)
     expect(after.elements[1]).toMatchObject({
       id: merged.newElementId,
-      text: '応答は速いこと。\n対象A',
+      text: '応答は速いこと。\n- 対象A',
       section_path: '1. 概要'
     })
     expect(after.elements[2]!.id).toBe('i3')

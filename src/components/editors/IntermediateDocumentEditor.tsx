@@ -675,6 +675,7 @@ export function IntermediateDocumentEditor({
           <ResourceEditor
             embedded
             resourceUid={resourceEditing.resource_uid}
+            onIntegrated={() => setResourceEditing(null)}
             context={{
               intermediateDocumentUid: uid,
               intermediateItemUid: resourceEditing.intermediate_item_uid,
