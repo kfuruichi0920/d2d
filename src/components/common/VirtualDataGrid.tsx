@@ -22,6 +22,8 @@ export interface VirtualDataGridProps<T> {
   height?: number | string
   onRowClick?: (row: T, event: React.MouseEvent<HTMLTableRowElement>) => void
   onRowKeyDown?: (row: T, event: React.KeyboardEvent<HTMLTableRowElement>) => void
+  /** 行の右クリック。コンテキストメニュー表示に使う（MID-004 UI改善） */
+  onRowContextMenu?: (row: T, event: React.MouseEvent<HTMLTableRowElement>) => void
   selectedRowIds?: ReadonlySet<string>
   activeRowId?: string | null
   scrollToRowId?: string | null
@@ -41,6 +43,7 @@ export function VirtualDataGrid<T>({
   height = '100%',
   onRowClick,
   onRowKeyDown,
+  onRowContextMenu,
   selectedRowIds,
   activeRowId,
   scrollToRowId,
@@ -130,6 +133,7 @@ export function VirtualDataGrid<T>({
               <tr
                 key={row.id}
                 onClick={(event) => onRowClick?.(row.original, event)}
+                onContextMenu={onRowContextMenu ? (event) => onRowContextMenu(row.original, event) : undefined}
                 onKeyDown={(event) => onRowKeyDown?.(row.original, event)}
                 tabIndex={onRowKeyDown ? 0 : undefined}
                 aria-selected={selectedRowIds?.has(row.id) ?? false}

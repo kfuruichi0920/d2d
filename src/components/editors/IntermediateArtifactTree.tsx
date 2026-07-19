@@ -19,7 +19,8 @@ export function IntermediateArtifactTree<T extends IntermediateTreeItem>({
   onToggle,
   onSelect,
   onOpen,
-  onMove
+  onMove,
+  onRowContextMenu
 }: {
   rows: HierarchyRow<T>[]
   selectedIds: ReadonlySet<string>
@@ -29,6 +30,8 @@ export function IntermediateArtifactTree<T extends IntermediateTreeItem>({
   onSelect(item: T, event: { ctrlKey: boolean; metaKey: boolean; shiftKey: boolean }): void
   onOpen(item: T): void
   onMove(item: T, direction: -1 | 1, extend: boolean): void
+  /** 行の右クリック。コンテキストメニュー表示に使う（MID-004 UI改善） */
+  onRowContextMenu?(item: T, event: React.MouseEvent<HTMLElement>): void
 }): React.JSX.Element {
   const refs = useRef(new Map<string, HTMLElement>())
   useEffect(() => {
@@ -54,6 +57,7 @@ export function IntermediateArtifactTree<T extends IntermediateTreeItem>({
           data-testid={`intermediate-tree-${item.id}`}
           onClick={(event) => onSelect(item, event)}
           onDoubleClick={() => onOpen(item)}
+          onContextMenu={onRowContextMenu ? (event) => onRowContextMenu(item, event) : undefined}
           onKeyDown={(event) => {
             if (event.key === 'ArrowLeft' && hasChildren && !collapsedIds.has(item.id)) {
               event.preventDefault()

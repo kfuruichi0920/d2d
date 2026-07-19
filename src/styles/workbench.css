@@ -925,6 +925,13 @@
 .d2d-list-row.selected {
   background: var(--d2d-selection-bg);
 }
+/* 中間編集ペイン見出しの操作ヒント（MID-004: 行操作は右クリックメニューへ集約） */
+.intermediate-context-hint {
+  color: var(--d2d-fg-muted);
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+
 /* 空状態・案内表示の共通意匠（UI点検対応: 各画面で独自実装しない） */
 .d2d-empty {
   color: var(--d2d-fg-muted);
