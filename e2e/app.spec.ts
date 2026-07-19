@@ -424,8 +424,8 @@ test('ジョブ実行が Jobs Panel と Status Bar に反映される（P3-5）'
     timeout: 30_000
   })
 
-  // ジョブログを開く（V-16）
-  await page.getByRole('button', { name: 'ログ' }).first().click()
+  // ジョブログを開く（V-16）。Panelタブ「LLMログ」等と部分一致しないよう一覧内へ限定する
+  await page.getByTestId('jobs-list').getByRole('button', { name: 'ログ' }).first().click()
   await expect(page.getByTestId('job-log-editor')).toBeVisible()
   await expect(page.getByTestId('job-log-editor')).toContainText('ジョブ開始')
 })
@@ -536,7 +536,8 @@ test('原本取込→Word抽出→レビュー→②正本確定の全経路（P
     [docxPath, secondDocxPath]
   )
   expect(imported).toHaveLength(2)
-  expect(imported.every((result) => result.ok)).toBe(true)
+  // 失敗時に error 内容が読めるよう、ok だけでなくエラー本文を比較する
+  expect(imported.map((result) => (result.ok ? 'ok' : JSON.stringify(result.error)))).toEqual(['ok', 'ok'])
 
   // Explorer ①原本ツリーへ出現（source.imported イベント）。
   // Activity 再クリックはトグルのため、非表示時のみクリックして Explorer を確実に開く
@@ -804,8 +805,9 @@ test('②→③統合・編集・確定（P7）', async () => {
   const phaseNode = page.getByTestId('phase-DD')
   await expect(phaseNode.getByText('フェーズ', { exact: true })).toBeVisible()
   await expect(artifactSlot).not.toContainText('成果物')
-  await expect(artifactSlot).toContainText('未確定 0')
-  await expect(artifactSlot).toContainText('0要素')
+  // 未取込（要素0件）の成果物はレビュー・未確定バッジを出さず「未取込」だけ表示する
+  await expect(artifactSlot).toContainText('未取込')
+  await expect(artifactSlot).not.toContainText('未確定')
   await expect(page.getByTestId('explorer-section-intermediate')).not.toContainText('統合元未選択')
   await expect(phaseNode).toHaveAttribute('open', '')
   await phaseNode.locator(':scope > summary').click()
@@ -860,7 +862,8 @@ test('②→③統合・編集・確定（P7）', async () => {
   await expect(page.getByTestId('intermediate-doc-IMDOC-000001')).toBeVisible({ timeout: 15_000 })
   await expect(page.getByTestId('intermediate-doc-IMDOC-000001')).toHaveAttribute('title', /成果物: 統合設計書/)
   await expect(page.getByTestId('stage-intermediate')).toContainText('③中間')
-  await expect(page.getByTestId('intermediate-unconfirmed-IMDOC-000001')).toContainText('未確定 0')
+  // 統合元選択直後は要素0件のため、バッジは「未取込」だけを表示する
+  await expect(page.getByTestId('intermediate-doc-IMDOC-000001')).toContainText('未取込')
 
   // Pipeline ③はフェーズ－成果物階層と独自プレビューを表示する。
   await page.getByTestId('stage-intermediate').click()
@@ -950,15 +953,10 @@ test('②→③統合・編集・確定（P7）', async () => {
     .getByRole('row')
     .last()
     .click({ modifiers: ['Shift'] })
-  await expect(page.getByTestId('source-add-above')).toHaveAttribute(
-    'title',
-    /選択中の統合元要素を、選択中の成果物要素の上に追加し、based_onで関連付けます/
-  )
-  await expect(page.getByTestId('source-add-below')).toHaveAttribute(
-    'title',
-    /選択中の統合元要素を、選択中の成果物要素の下に追加し、based_onで関連付けます/
-  )
-  await page.getByTestId('source-add-below').click()
+  // 統合元操作は行の右クリックメニューへ集約されている（複数選択にも適用される）
+  await firstSourceRow.click({ button: 'right' })
+  await expect(page.getByTestId('ctx-source-add-above')).toBeVisible()
+  await page.getByTestId('ctx-source-add-below').click()
   const middleGrid = page.getByTestId('intermediate-grid')
   await expect(middleGrid).toContainText('1. 概要')
   await expect(page.getByTestId('source-link-summary')).toContainText(
@@ -996,9 +994,11 @@ test('②→③統合・編集・確定（P7）', async () => {
   await middleGrid.getByRole('row').nth(1).click()
   await firstSourceRow.click()
   const artifactRowsBeforeReuse = await middleGrid.getByRole('row').count()
-  await page.getByTestId('source-add-below').click()
+  await firstSourceRow.click({ button: 'right' })
+  await page.getByTestId('ctx-source-add-below').click()
   await expect(middleGrid.getByRole('row')).toHaveCount(artifactRowsBeforeReuse + 1)
-  await page.getByTestId('source-delete').click()
+  await firstSourceRow.click({ button: 'right' })
+  await page.getByTestId('ctx-source-delete').click()
   await expect(firstSourceRow).not.toHaveAttribute('data-linked', 'true')
   await expect(page.getByTestId('source-link-summary')).toContainText(
     `紐付済 ${sourceItemCount - 1} / 全 ${sourceItemCount}`
@@ -1020,9 +1020,8 @@ test('②→③統合・編集・確定（P7）', async () => {
   await page.getByTestId('intermediate-preview-visual').click()
 
   // 中間編集だけに明示アイコンを付け、未知・重複アイコンを表示しない。
-  await expect(page.getByTestId('intermediate-operation-toolbar')).not.toContainText(
-    'Resource種別ラベル / ダブルクリック / Space / Enter で編集'
-  )
+  // 行操作は右クリックメニューへ集約され、上部の操作バーは表示しない（MID-004 UI改善）
+  await expect(page.getByTestId('intermediate-operation-toolbar')).toHaveCount(0)
   const intermediateActionIcons = await page
     .getByTestId('intermediate-editor')
     .locator('button[data-editor-icon]:visible')
@@ -1052,9 +1051,11 @@ test('②→③統合・編集・確定（P7）', async () => {
 
   // levelは表示順上の直前上位要素を親とする。Tree折畳は右プレビューにも連動する。
   await middleGrid.getByRole('row').nth(1).click()
-  await page.getByRole('button', { name: '階層を上げる' }).click()
+  await middleGrid.getByRole('row').nth(1).click({ button: 'right' })
+  await page.getByTestId('ctx-hierarchy-up').click()
   await middleGrid.getByRole('row').nth(2).click()
-  await page.getByRole('button', { name: '階層を下げる' }).click()
+  await middleGrid.getByRole('row').nth(2).click({ button: 'right' })
+  await page.getByTestId('ctx-hierarchy-down').click()
   await page.getByTestId('intermediate-list-outline').click()
   const artifactTree = page.getByTestId('intermediate-artifact-tree')
   const parentTreeItem = artifactTree.getByRole('treeitem').first()
@@ -1172,9 +1173,12 @@ test('②→③統合・編集・確定（P7）', async () => {
 
   const rowsBeforeDuplicate = await middleGrid.getByRole('row').count()
   await headingRow.click()
-  await page.getByTestId('element-duplicate').click()
+  await headingRow.click({ button: 'right' })
+  await page.getByTestId('ctx-element-duplicate').click()
   await expect(middleGrid.getByRole('row')).toHaveCount(rowsBeforeDuplicate + 1)
-  await page.getByTestId('element-delete').click()
+  // 複製で新しい行が選択されるため、選択行の右クリックから削除する
+  await middleGrid.locator('tr[aria-selected="true"]').first().click({ button: 'right' })
+  await page.getByTestId('ctx-element-delete').click()
   await expect(middleGrid.getByRole('row')).toHaveCount(rowsBeforeDuplicate)
   // 整理した②成果物操作から、選択行を直下行へ統合する。
   await middleGrid.getByRole('row').nth(1).click()
@@ -1185,7 +1189,8 @@ test('②→③統合・編集・確定（P7）', async () => {
   }
   const mergeRowA = middleGrid.getByRole('row').filter({ hasText: '下統合A' })
   await mergeRowA.click()
-  await page.getByTestId('merge-down').click()
+  await mergeRowA.click({ button: 'right' })
+  await page.getByTestId('ctx-merge-down').click()
   await expect(middleGrid).toContainText('下統合A')
   await expect(middleGrid).toContainText('下統合B')
   await expect(middleGrid).toContainText('統合しない中間行')
@@ -1193,10 +1198,15 @@ test('②→③統合・編集・確定（P7）', async () => {
   await expect(page.getByTestId('intermediate-import-layout')).toBeVisible()
   await expect(page.getByTestId('intermediate-source-grid')).toBeVisible()
 
-  // 操作バーは3群だけとし、旧編集・Resource固有・一括レビュー・④候補生成ボタンを表示しない。
-  await expect(page.getByTestId('source-link-actions')).toBeVisible()
-  await expect(page.getByTestId('artifact-compose-actions')).toBeVisible()
-  await expect(page.getByTestId('artifact-layout-actions')).toBeVisible()
+  // 操作バーは廃止し、統合元・成果物の行操作は右クリックメニューだけで提供する（複数選択対応）。
+  await expect(page.getByTestId('source-link-actions')).toHaveCount(0)
+  await expect(page.getByTestId('artifact-compose-actions')).toHaveCount(0)
+  await expect(page.getByTestId('artifact-layout-actions')).toHaveCount(0)
+  await page.getByTestId('intermediate-source-grid').getByRole('row').nth(1).click({ button: 'right' })
+  await expect(page.getByTestId('ctx-source-add-above')).toBeVisible()
+  await expect(page.getByTestId('ctx-source-add-below')).toBeVisible()
+  await expect(page.getByTestId('ctx-source-delete')).toBeVisible()
+  await page.keyboard.press('Escape')
   await expect(page.getByTestId('element-edit-open')).toHaveCount(0)
   await expect(page.getByTestId('element-toolbar')).toHaveCount(0)
   await expect(page.getByTestId('generate-design-candidates')).toHaveCount(0)
@@ -1290,7 +1300,10 @@ test('②→③統合・編集・確定（P7）', async () => {
   await secondChunkSourceRow.press('Shift+ArrowUp')
   await expect(secondChunkSourceRow).toHaveAttribute('aria-selected', 'false')
   await firstChunkSourceRow.click()
-  await page.getByRole('button', { name: 'チャンク作成' }).click()
+  // チャンク作成は成果物行の右クリックメニューから実行する（MID-004 UI改善）。
+  // 行のbounding box中央はPrimary境界のリサイズハンドルと重なり得るため、セルを右クリックする。
+  await firstChunkSourceRow.locator('td').nth(1).click({ button: 'right' })
+  await page.getByTestId('ctx-chunk-create').click()
   await expect(page.getByTestId('chunk-editor')).toContainText('1')
   await expect(
     page.getByTestId('chunk-editor').locator('.chunk-grid').nth(1).locator('tbody tr').first()
@@ -1301,7 +1314,9 @@ test('②→③統合・編集・確定（P7）', async () => {
   await page.getByTestId('chunk-source-i1').click()
   await expect(page.getByTestId('chunk-source-i1')).toHaveClass(/chunk-row-selected/)
   await expect(createdChunkRow).toHaveClass(/chunk-row-related/)
-  await page.getByTestId('chunk-prompt-edit').click()
+  // 追加プロンプト編集はチャンク行の右クリックメニューから開く
+  await createdChunkRow.click({ button: 'right' })
+  await page.getByTestId('ctx-chunk-prompt-edit').click()
   await page.getByLabel('追加プロンプト').fill('安全性の観点を優先すること')
   await page.getByTestId('chunk-prompt-editor').getByRole('button', { name: '保存' }).click()
   await expect(page.getByTestId('chunk-editor')).toContainText('安全性の観点を優先すること')

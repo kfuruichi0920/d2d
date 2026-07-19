@@ -482,14 +482,21 @@ export function DocumentsTree({ projectName }: { projectName: string }): React.J
                               <ExplorerResourceIcon kind="intermediate" />
                               <span className="d2d-explorer-resource-name">{artifact.artifact_name}</span>
                               <span className="d2d-explorer-tags">
-                                <ReviewStatusBadge status={reviewStateFromEntityStatus(doc?.status ?? 'draft')} />
-                                <span
-                                  className={`d2d-unconfirmed-badge ${!doc || doc.unconfirmed_count === 0 ? 'is-zero' : ''}`}
-                                  data-testid={doc ? `intermediate-unconfirmed-${doc.code}` : undefined}
-                                >
-                                  未確定 {doc?.unconfirmed_count ?? 0}
-                                </span>
-                                <span className="d2d-explorer-tag muted">{doc?.item_count ?? 0}要素</span>
+                                {/* 未取込（要素0件）の成果物はレビュー・未確定バッジを出さず、状態だけを静かに示す（視認性改善） */}
+                                {!doc || doc.item_count === 0 ? (
+                                  <span className="d2d-explorer-tag muted">未取込</span>
+                                ) : (
+                                  <>
+                                    <ReviewStatusBadge status={reviewStateFromEntityStatus(doc.status)} />
+                                    <span
+                                      className={`d2d-unconfirmed-badge ${doc.unconfirmed_count === 0 ? 'is-zero' : ''}`}
+                                      data-testid={`intermediate-unconfirmed-${doc.code}`}
+                                    >
+                                      未確定 {doc.unconfirmed_count}
+                                    </span>
+                                    <span className="d2d-explorer-tag muted">{doc.item_count}要素</span>
+                                  </>
+                                )}
                               </span>
                             </button>
                           </summary>

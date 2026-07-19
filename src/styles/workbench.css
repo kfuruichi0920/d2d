@@ -351,12 +351,21 @@
   border-color: var(--d2d-accent);
   background: var(--d2d-selection-bg);
 }
+/* 件数は「トグル風」に見えないよう、控えめな枠付き数値バッジにする（UI点検対応） */
 .wb-stage .count {
-  background: var(--d2d-accent-container);
-  color: var(--d2d-fg);
+  min-width: 18px;
+  text-align: center;
+  background: transparent;
+  color: var(--d2d-fg-muted);
+  border: 1px solid var(--d2d-border);
   border-radius: 8px;
-  padding: 0 6px;
-  font-size: 11px;
+  padding: 0 5px;
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+}
+.wb-stage.active .count {
+  color: var(--d2d-accent);
+  border-color: color-mix(in srgb, var(--d2d-accent) 55%, var(--d2d-border));
 }
 .wb-stage-arrow {
   flex: 0 0 auto;
@@ -604,6 +613,9 @@
   align-items: center;
   gap: 4px;
   cursor: default;
+}
+.wb-statusbar .item.status-failed {
+  color: color-mix(in srgb, var(--d2d-error) 60%, var(--d2d-fg));
 }
 .wb-statusbar .item.clickable {
   cursor: pointer;
@@ -913,10 +925,20 @@
 .d2d-list-row.selected {
   background: var(--d2d-selection-bg);
 }
+/* 中間編集ペイン見出しの操作ヒント（MID-004: 行操作は右クリックメニューへ集約） */
+.intermediate-context-hint {
+  color: var(--d2d-fg-muted);
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+
+/* 空状態・案内表示の共通意匠（UI点検対応: 各画面で独自実装しない） */
 .d2d-empty {
   color: var(--d2d-fg-muted);
-  padding: 16px 10px;
+  padding: 20px 12px;
   text-align: center;
+  font-size: 12px;
+  line-height: 1.7;
 }
 .d2d-btn {
   border: 1px solid var(--d2d-button-border, var(--d2d-border));
@@ -1557,11 +1579,12 @@ mark.d2d-term {
   color: var(--d2d-fg);
   background: var(--d2d-surface-hover);
 }
+/* 表示中トグルはベタ塗りにせず、アクセント枠+薄い下地で押下状態を示す（UI点検対応） */
 .wb-layout-controls > button.active,
 .wb-layout-controls > .wb-app-menu > .wb-menu-button.active {
   color: var(--d2d-accent);
-  border-color: var(--d2d-accent);
-  background: var(--d2d-selection-bg);
+  border-color: color-mix(in srgb, var(--d2d-accent) 60%, var(--d2d-border));
+  background: color-mix(in srgb, var(--d2d-accent) 12%, transparent);
 }
 .wb-activitybar-top,
 .wb-activitybar-bottom {
@@ -3524,6 +3547,16 @@ mark.d2d-term {
 }
 
 /* Resource／Semantic Editor拡張（EDIT-074〜086、UI-055） */
+.wb-tab .tab-icon {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  color: var(--d2d-fg-muted);
+}
+.wb-tab.active .tab-icon {
+  color: var(--d2d-accent);
+}
+/* ピンは常時表示せず、hover・フォーカス・固定時だけ見せる（VS Code同等の情報密度） */
 .wb-tab .tab-pin {
   border: 0;
   background: transparent;
@@ -3531,6 +3564,12 @@ mark.d2d-term {
   padding: 0 2px;
   cursor: pointer;
   font-size: 9px;
+  opacity: 0;
+}
+.wb-tab:hover .tab-pin,
+.wb-tab .tab-pin:focus-visible,
+.wb-tab .tab-pin.pinned {
+  opacity: 1;
 }
 .wb-tab .tab-pin.pinned {
   color: var(--d2d-accent);

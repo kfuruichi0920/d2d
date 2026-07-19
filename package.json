@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "D2D 設計情報デジタル化・トレーサビリティ支援ツール",
+  "author": "D2D Project",
   "main": "out/main/index.js",
   "engines": {
     "node": ">=22"
@@ -23,6 +24,11 @@
     "pretest:e2e": "node scripts/ensure-abi.mjs electron",
     "test:e2e": "playwright test",
     "rebuild:electron": "node scripts/ensure-abi.mjs electron --force",
+    "package:worker": "cd workers/python && python -m PyInstaller d2d-worker.spec --noconfirm",
+    "predist": "npm run build && node scripts/prepare-dist.mjs",
+    "dist": "electron-builder --win",
+    "predist:nocheck": "npm run build && node scripts/prepare-dist.mjs --allow-missing-worker",
+    "dist:nocheck": "electron-builder --win",
     "licenses:report": "node scripts/check-licenses.mjs",
     "postinstall": "npm run rebuild:electron"
   },

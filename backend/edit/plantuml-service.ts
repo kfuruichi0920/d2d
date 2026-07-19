@@ -1,25 +1,40 @@
 /**
  * PlantUML レンダリング（P10-3、FORM-001/002、EDIT-021）。
- * TBD-02 決定: GPL 版 PlantUML を利用し、Java ランタイム・Graphviz は P14-5 で同梱する。
- * 開発中は設定（plantuml.jarPath / plantuml.javaPath）で外部の jar / java を指定する。
+ * TBD-02 決定: GPL 版 PlantUML を利用し、Java ランタイム・Graphviz を同梱する（P14-5）。
+ * 解決順: 設定（plantuml.jarPath / plantuml.javaPath / plantuml.dotPath）→ 同梱
+ * third_party/（plantuml.jar・jre・graphviz）→ 既定 'java'（PATH 依存）。
  * jar 未設定・Java 未検出時は明確なエラー契約を返す（レンダリング以外の編集は可能）。
  */
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { BackendError } from '../api/errors'
 import type { SettingsService } from '../settings/settings-service'
+import {
+  bundledGraphvizDot,
+  bundledJava,
+  bundledPlantUmlJar,
+  currentRuntimeEnv,
+  type RuntimeEnv
+} from '../runtime-paths'
 
 export interface PlantUmlConfig {
   jarPath: string | null
   javaPath: string
+  /** Graphviz dot のパス。null なら PlantUML 既定（PATH / GRAPHVIZ_DOT）に任せる */
+  dotPath: string | null
 }
 
-export function resolvePlantUmlConfig(settings: SettingsService): PlantUmlConfig {
+export function resolvePlantUmlConfig(
+  settings: SettingsService,
+  env: RuntimeEnv = currentRuntimeEnv()
+): PlantUmlConfig {
   const jarPath = settings.get('plantuml.jarPath')
   const javaPath = settings.get('plantuml.javaPath')
+  const dotPath = settings.get('plantuml.dotPath')
   return {
-    jarPath: typeof jarPath === 'string' && jarPath ? jarPath : null,
-    javaPath: typeof javaPath === 'string' && javaPath ? javaPath : 'java'
+    jarPath: typeof jarPath === 'string' && jarPath ? jarPath : bundledPlantUmlJar(env),
+    javaPath: typeof javaPath === 'string' && javaPath ? javaPath : (bundledJava(env) ?? 'java'),
+    dotPath: typeof dotPath === 'string' && dotPath ? dotPath : bundledGraphvizDot(env)
   }
 }
 
@@ -30,7 +45,7 @@ export function renderPlantUml(config: PlantUmlConfig, umlText: string, timeoutM
       new BackendError(
         'validation',
         'PlantUML jar が未設定です',
-        '設定 plantuml.jarPath に plantuml.jar のパスを指定してください（同梱は P14-5 で対応。TBD-02）'
+        '設定 plantuml.jarPath を指定するか、third_party/plantuml/plantuml.jar を配置してください（TBD-02）'
       )
     )
   }
@@ -43,7 +58,9 @@ export function renderPlantUml(config: PlantUmlConfig, umlText: string, timeoutM
       config.javaPath,
       ['-Djava.awt.headless=true', '-jar', config.jarPath!, '-pipe', '-tsvg', '-charset', 'UTF-8'],
       {
-        stdio: ['pipe', 'pipe', 'pipe']
+        stdio: ['pipe', 'pipe', 'pipe'],
+        // 同梱 Graphviz を使う場合は GRAPHVIZ_DOT で PlantUML へ知らせる（P14-5）
+        env: config.dotPath ? { ...process.env, GRAPHVIZ_DOT: config.dotPath } : process.env
       }
     )
     let stdout = ''

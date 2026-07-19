@@ -7,14 +7,17 @@ export function PlantUmlSettingsSection(): React.JSX.Element {
   const notify = useJobsStore((state) => state.notify)
   const [jarPath, setJarPath] = useState('')
   const [javaPath, setJavaPath] = useState('')
+  const [dotPath, setDotPath] = useState('')
 
   useEffect(() => {
     void Promise.all([
-      invoke<unknown>('settings.get', { key: 'plantuml.jarPath' }),
-      invoke<unknown>('settings.get', { key: 'plantuml.javaPath' })
-    ]).then(([jarResult, javaResult]) => {
+      invoke('settings.get', { key: 'plantuml.jarPath' }),
+      invoke('settings.get', { key: 'plantuml.javaPath' }),
+      invoke('settings.get', { key: 'plantuml.dotPath' })
+    ]).then(([jarResult, javaResult, dotResult]) => {
       if (jarResult.ok && typeof jarResult.result === 'string') setJarPath(jarResult.result)
       if (javaResult.ok && typeof javaResult.result === 'string') setJavaPath(javaResult.result)
+      if (dotResult.ok && typeof dotResult.result === 'string') setDotPath(dotResult.result)
     })
   }, [])
 
@@ -33,8 +36,10 @@ export function PlantUmlSettingsSection(): React.JSX.Element {
   const save = async (): Promise<void> => {
     if (!(await savePath('plantuml.jarPath', jarPath))) return
     if (!(await savePath('plantuml.javaPath', javaPath))) return
+    if (!(await savePath('plantuml.dotPath', dotPath))) return
     setJarPath(jarPath.trim())
     setJavaPath(javaPath.trim())
+    setDotPath(dotPath.trim())
     notify('info', jarPath.trim() ? 'PlantUML レンダリング設定を保存しました' : 'PlantUML 設定を解除しました')
   }
 
@@ -44,8 +49,8 @@ export function PlantUmlSettingsSection(): React.JSX.Element {
     <section data-testid="setting-plantuml-section">
       <h2 style={{ fontSize: 14, marginTop: 20 }}>PlantUML レンダリング（FORM-001）</h2>
       <p style={{ color: 'var(--d2d-fg-muted)', fontSize: 11.5 }}>
-        開発環境で使用する PlantUML jar と Java 実行ファイルを指定します。Java を空欄にすると PATH 上の java
-        を使用します。 配布版への同梱は P14-5 で対応します。
+        PlantUML jar・Java・Graphviz dot のパスを上書きします。空欄時は同梱の third_party（plantuml / jre /
+        graphviz）を優先し、無ければ PATH 上の java を使用します。
       </p>
       <div style={rowStyle}>
         <label style={{ width: 120, color: 'var(--d2d-fg-muted)' }} htmlFor="setting-plantuml-jar-path">
@@ -71,6 +76,19 @@ export function PlantUmlSettingsSection(): React.JSX.Element {
           value={javaPath}
           onChange={(event) => setJavaPath(event.target.value)}
           placeholder="空欄時: java"
+        />
+      </div>
+      <div style={rowStyle}>
+        <label style={{ width: 120, color: 'var(--d2d-fg-muted)' }} htmlFor="setting-plantuml-dot-path">
+          Graphviz dot
+        </label>
+        <input
+          id="setting-plantuml-dot-path"
+          data-testid="setting-plantuml-dot-path"
+          style={{ flex: 1 }}
+          value={dotPath}
+          onChange={(event) => setDotPath(event.target.value)}
+          placeholder="空欄時: 同梱 third_party/graphviz または PATH"
         />
       </div>
       <button type="button" className="d2d-btn primary" onClick={() => void save()} data-testid="setting-plantuml-save">

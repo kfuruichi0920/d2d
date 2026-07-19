@@ -53,7 +53,10 @@ export class BackendProcessManager {
       env: {
         ...process.env,
         // Backend は Electron API を持たないため、設定保存先を環境変数で渡す
-        D2D_USER_DATA: app.getPath('userData')
+        D2D_USER_DATA: app.getPath('userData'),
+        // 同梱リソース（ワーカー・PlantUML・JRE・Graphviz・MeCab）の解決用（P14-5）
+        D2D_PACKAGED: app.isPackaged ? '1' : '0',
+        D2D_RESOURCES_PATH: process.resourcesPath ?? ''
       }
     })
     this.child = child

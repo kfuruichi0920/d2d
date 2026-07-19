@@ -11,6 +11,7 @@ import { reviewStateFromEntityStatus, ReviewStatusBadge } from '../common/review
 import { DocumentPreviewMetaControls, useDocumentPreviewMeta } from '../common/DocumentPreviewMeta'
 import { ResizablePaneGroup } from '../workbench/ResizablePaneGroup'
 import { confirmDialog } from '../common/ConfirmDialog'
+import { showContextMenu } from '../common/ContextMenu'
 import { LlmRequestDialog, type LlmRequestMessage, type PreparedLlmRequest } from '../common/LlmRequestDialog'
 
 interface ElementRow {
@@ -208,10 +209,10 @@ export function ChunkEditor({ uid }: { uid: string }): React.JSX.Element {
     previewRefs.current.get(next.activeId)?.scrollIntoView({ block: 'nearest' })
   }
 
-  const create = async (): Promise<void> => {
+  const create = async (itemUids: ReadonlySet<string>): Promise<void> => {
     if (!doc) return
     const elementIds = doc.elements
-      .filter((row) => row.intermediate_item_uid && selectedItems.has(row.intermediate_item_uid))
+      .filter((row) => row.intermediate_item_uid && itemUids.has(row.intermediate_item_uid))
       .map((row) => row.id)
     const result = await invoke<{ chunkUid: string }>('chunk.create', {
       intermediateDocumentUid: uid,
@@ -223,11 +224,11 @@ export function ChunkEditor({ uid }: { uid: string }): React.JSX.Element {
     await loadChunk(result.result.chunkUid)
   }
 
-  const save = async (additionalPrompt = prompt): Promise<void> => {
+  const save = async (additionalPrompt = prompt, itemUids: ReadonlySet<string> = selectedItems): Promise<void> => {
     if (!selectedChunk) return
     const result = await invoke('chunk.update', {
       uid: selectedChunk,
-      intermediateItemUids: [...selectedItems],
+      intermediateItemUids: [...itemUids],
       additionalPrompt
     })
     if (!result.ok) return notify('error', 'チャンクを更新できません', result.error.message)
@@ -238,9 +239,8 @@ export function ChunkEditor({ uid }: { uid: string }): React.JSX.Element {
     await loadChunk(selectedChunk)
   }
 
-  const moveChunk = async (delta: number): Promise<void> => {
-    if (!selectedChunk) return
-    const index = chunks.findIndex((chunk) => chunk.uid === selectedChunk)
+  const moveChunk = async (delta: number, chunkUid: string): Promise<void> => {
+    const index = chunks.findIndex((chunk) => chunk.uid === chunkUid)
     const target = index + delta
     if (index < 0 || target < 0 || target >= chunks.length) return
     const ordered = chunks.map((chunk) => chunk.uid)
@@ -249,15 +249,78 @@ export function ChunkEditor({ uid }: { uid: string }): React.JSX.Element {
     if (!result.ok) return notify('error', 'チャンク順を変更できません', result.error.message)
     await refresh()
   }
-  const remove = async (): Promise<void> => {
-    if (!selectedChunk) return
+  const remove = async (chunkUid: string): Promise<void> => {
     if (!(await confirmDialog({ message: '選択中のチャンクを削除しますか？', okLabel: '削除', danger: true }))) return
-    const result = await invoke('chunk.delete', { uid: selectedChunk })
+    const result = await invoke('chunk.delete', { uid: chunkUid })
     if (!result.ok) return notify('error', 'チャンクを削除できません', result.error.message)
-    setSelectedChunk(null)
-    setDetail(null)
-    setPrompt('')
+    if (selectedChunk === chunkUid) {
+      setSelectedChunk(null)
+      setDetail(null)
+      setPrompt('')
+    }
     await refresh()
+  }
+
+  /**
+   * 成果物行の右クリックメニュー（MID-004 UI改善、中間編集と同パターン）。
+   * 未選択行の右クリックはその行の単独選択へ切り替え、複数選択中は選択全体へ適用する。
+   */
+  const openSourceRowMenu = (row: ElementRow, index: number, event: React.MouseEvent): void => {
+    if (row.review?.status !== 'approved' || !row.intermediate_item_uid) return
+    const itemUid = row.intermediate_item_uid
+    const effective = selectedItems.has(itemUid) ? selectedItems : new Set([itemUid])
+    if (!selectedItems.has(itemUid)) {
+      setSelectedItems(effective)
+      anchor.current = index
+      keyboardAnchor.current = itemUid
+      setActiveItem(itemUid)
+      setActivePane('item')
+    }
+    showContextMenu(event, [
+      {
+        label: `選択${effective.size}件でチャンク作成`,
+        testId: 'ctx-chunk-create',
+        run: () => void create(effective)
+      },
+      {
+        label: `選択${effective.size}件でチャンクを更新`,
+        detail: selectedChunk ? undefined : '先にチャンク行を選択してください',
+        testId: 'ctx-chunk-update',
+        disabled: !selectedChunk,
+        run: () => void save(prompt, effective)
+      }
+    ])
+  }
+
+  /** チャンク行の右クリックメニュー。右クリックした行を選択してから操作を適用する */
+  const openChunkRowMenu = (chunk: ChunkRow, event: React.MouseEvent): void => {
+    if (selectedChunk !== chunk.uid) void loadChunk(chunk.uid)
+    const index = chunks.findIndex((item) => item.uid === chunk.uid)
+    showContextMenu(event, [
+      {
+        label: '上へ移動',
+        testId: 'ctx-chunk-move-up',
+        disabled: index <= 0,
+        run: () => void moveChunk(-1, chunk.uid)
+      },
+      {
+        label: '下へ移動',
+        testId: 'ctx-chunk-move-down',
+        disabled: index < 0 || index >= chunks.length - 1,
+        run: () => void moveChunk(1, chunk.uid)
+      },
+      { separator: true },
+      {
+        label: '追加プロンプトを編集…',
+        testId: 'ctx-chunk-prompt-edit',
+        run: () => {
+          setPromptDraft(chunk.additional_prompt)
+          setEditingPrompt(true)
+        }
+      },
+      { separator: true },
+      { label: 'チャンクを削除', testId: 'ctx-chunk-delete', run: () => void remove(chunk.uid) }
+    ])
   }
 
   const openGenerateDialog = async (): Promise<void> => {
@@ -325,41 +388,8 @@ export function ChunkEditor({ uid }: { uid: string }): React.JSX.Element {
         }}
       >
         <strong>{doc.title ?? doc.code} — チャンク編集</strong>
+        <span className="intermediate-context-hint">成果物行・チャンク行の右クリックで作成・更新・移動・削除</span>
         <span style={{ flex: 1 }} />
-        <button className="d2d-btn" onClick={() => void create()} disabled={selectedItems.size === 0}>
-          チャンク作成
-        </button>
-        <button className="d2d-btn" onClick={() => void save()} disabled={!selectedChunk || selectedItems.size === 0}>
-          選択行で更新
-        </button>
-        <button
-          className="d2d-btn"
-          onClick={() => void moveChunk(-1)}
-          disabled={!selectedChunk || chunks[0]?.uid === selectedChunk}
-        >
-          ↑
-        </button>
-        <button
-          className="d2d-btn"
-          onClick={() => void moveChunk(1)}
-          disabled={!selectedChunk || chunks.at(-1)?.uid === selectedChunk}
-        >
-          ↓
-        </button>
-        <button
-          className="d2d-btn"
-          data-testid="chunk-prompt-edit"
-          onClick={() => {
-            setPromptDraft(prompt)
-            setEditingPrompt(true)
-          }}
-          disabled={!selectedChunk}
-        >
-          編集
-        </button>
-        <button className="d2d-btn" onClick={() => void remove()} disabled={!selectedChunk}>
-          削除
-        </button>
         <button
           className="d2d-btn primary"
           onClick={() => void openGenerateDialog()}
@@ -428,6 +458,7 @@ export function ChunkEditor({ uid }: { uid: string }): React.JSX.Element {
                     aria-selected={selected}
                     tabIndex={row.review?.status === 'approved' ? 0 : -1}
                     onClick={(event) => chooseItem(row, index, event)}
+                    onContextMenu={(event) => openSourceRowMenu(row, index, event)}
                     onKeyDown={(event) => {
                       if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return
                       event.preventDefault()
@@ -497,6 +528,7 @@ export function ChunkEditor({ uid }: { uid: string }): React.JSX.Element {
                   data-testid={`chunk-row-${chunk.code}`}
                   aria-selected={activePane === 'chunk' && chunk.uid === selectedChunk}
                   onClick={() => void loadChunk(chunk.uid)}
+                  onContextMenu={(event) => openChunkRowMenu(chunk, event)}
                   className={
                     activePane === 'chunk' && chunk.uid === selectedChunk
                       ? 'chunk-row-selected'

@@ -21,6 +21,7 @@ import { ResizablePaneGroup } from '../workbench/ResizablePaneGroup'
 import { ChunkEditor } from './ChunkEditor'
 import { pushUndo } from '../../services/undo-service'
 import { useEscapeToClose } from '../common/useEscapeToClose'
+import { showContextMenu } from '../common/ContextMenu'
 import { visibleHierarchyRows } from '../../utils/intermediate-hierarchy'
 import { IntermediateArtifactTree } from './IntermediateArtifactTree'
 
@@ -243,8 +244,6 @@ export function IntermediateDocumentEditor({
 
   useEffect(() => () => clearSelectedItem(`intermediate://${uid}`), [clearSelectedItem, uid])
 
-  const selected = doc?.elements.find((e) => e.id === activeId) ?? null
-
   const selectRows = <T extends { id: string }>(
     items: T[],
     item: T,
@@ -297,9 +296,10 @@ export function IntermediateDocumentEditor({
     requestAnimationFrame(() => previewRefs.current.get(next.activeId)?.focus())
   }
 
-  const integrate = async (position: 'above' | 'below'): Promise<void> => {
+  // 操作対象はコンテキストメニュー表示時点の有効選択を明示的に受け取る（複数選択対応、MID-004）
+  const integrate = async (position: 'above' | 'below', sourceRowIds: ReadonlySet<string>): Promise<void> => {
     const extractedItemUids = sourceItems
-      .filter((item) => sourceSelectedIds.has(item.id))
+      .filter((item) => sourceRowIds.has(item.id))
       .map((item) => item.extracted_item_uid)
       .filter((itemUid): itemUid is string => Boolean(itemUid))
     await call(
@@ -308,9 +308,9 @@ export function IntermediateDocumentEditor({
       `${extractedItemUids.length}要素を成果物へ追加しました`
     )
   }
-  const deleteSourceLinks = async (): Promise<void> => {
+  const deleteSourceLinks = async (sourceRowIds: ReadonlySet<string>): Promise<void> => {
     const extractedItemUids = sourceItems
-      .filter((item) => sourceSelectedIds.has(item.id))
+      .filter((item) => sourceRowIds.has(item.id))
       .map((item) => item.extracted_item_uid)
       .filter((itemUid): itemUid is string => Boolean(itemUid))
     await call(
@@ -321,11 +321,11 @@ export function IntermediateDocumentEditor({
     setSourceSelectedIds(new Set())
     setSourceActiveId(null)
   }
-  const move = async (direction: 'up' | 'down'): Promise<void> => {
-    await call('intermediate.reorderItems', { elementIds: [...selectedIds], direction }, '表示順を更新しました')
+  const move = async (direction: 'up' | 'down', elementIds: ReadonlySet<string>): Promise<void> => {
+    await call('intermediate.reorderItems', { elementIds: [...elementIds], direction }, '表示順を更新しました')
   }
-  const hierarchy = async (delta: number): Promise<void> => {
-    await call('intermediate.changeHierarchy', { elementIds: [...selectedIds], delta }, '階層を更新しました')
+  const hierarchy = async (delta: number, elementIds: ReadonlySet<string>): Promise<void> => {
+    await call('intermediate.changeHierarchy', { elementIds: [...elementIds], delta }, '階層を更新しました')
   }
 
   const call = async (
@@ -351,10 +351,10 @@ export function IntermediateDocumentEditor({
     setResourceEditing(element)
   }
 
-  const openAddEditor = (position: 'above' | 'below'): void => {
+  const openAddEditor = (position: 'above' | 'below', targetElementId?: string): void => {
     setElementEditor({
       action: 'add',
-      elementId: activeId ?? undefined,
+      elementId: targetElementId ?? activeId ?? undefined,
       position,
       type: 'paragraph',
       text: ''
@@ -389,11 +389,10 @@ export function IntermediateDocumentEditor({
     notify('info', elementEditor.action === 'add' ? '中間要素を追加しました' : '中間要素を編集しました')
   }
 
-  const duplicateSelected = async (): Promise<void> => {
-    if (!selected || selectedIds.size !== 1) return
+  const duplicateElement = async (elementId: string): Promise<void> => {
     const result = await invoke<{ elementId: string }>('intermediate.duplicateElement', {
       uid,
-      elementId: selected.id
+      elementId
     })
     if (!result.ok) {
       notify('error', '要素を複製できませんでした', result.error.message)
@@ -406,14 +405,14 @@ export function IntermediateDocumentEditor({
     notify('info', '中間要素を複製しました')
   }
 
-  const mergeAdjacent = async (direction: 'up' | 'down'): Promise<void> => {
-    if (!doc || !activeId || selectedIds.size !== 1) return
-    const index = doc.elements.findIndex((element) => element.id === activeId)
+  const mergeAdjacent = async (direction: 'up' | 'down', elementId: string): Promise<void> => {
+    if (!doc) return
+    const index = doc.elements.findIndex((element) => element.id === elementId)
     const adjacent = doc.elements[index + (direction === 'up' ? -1 : 1)]
     if (!adjacent) return
     const result = await invoke<{ newElementId: string; warnings: string[] }>('intermediate.mergeElements', {
       uid,
-      elementIds: direction === 'up' ? [adjacent.id, activeId] : [activeId, adjacent.id]
+      elementIds: direction === 'up' ? [adjacent.id, elementId] : [elementId, adjacent.id]
     })
     if (!result.ok) {
       notify('error', '要素を統合できませんでした', result.error.message)
@@ -425,6 +424,107 @@ export function IntermediateDocumentEditor({
     setLastSelectedPane('intermediate')
     notify('info', direction === 'up' ? '上の成果物要素へ統合しました' : '下の成果物要素と統合しました')
   }
+  /**
+   * 統合元行の右クリックメニュー（MID-004 UI改善）。
+   * 未選択行の右クリックはその行の単独選択に切り替え、複数選択中は選択全体へ適用する。
+   */
+  const openSourceRowMenu = (row: IntermediateElement, event: React.MouseEvent<HTMLElement>): void => {
+    const effective = sourceSelectedIds.has(row.id) ? sourceSelectedIds : new Set([row.id])
+    if (!sourceSelectedIds.has(row.id)) {
+      setSourceSelectedIds(effective)
+      setSourceActiveId(row.id)
+      setSourceAnchorId(row.id)
+      setLastSelectedPane('source')
+    }
+    const count = sourceItems.filter((item) => effective.has(item.id) && item.extracted_item_uid).length
+    const targetInvalid = (doc?.elements.length ?? 0) > 0 && selectedIds.size !== 1
+    const targetHint = targetInvalid ? '成果物側で挿入位置の行を1件選択してください' : undefined
+    showContextMenu(event, [
+      {
+        label: `成果物の上に追加（${count}件）`,
+        detail: targetHint,
+        testId: 'ctx-source-add-above',
+        disabled: count === 0 || targetInvalid,
+        run: () => void integrate('above', effective)
+      },
+      {
+        label: `成果物の下に追加（${count}件）`,
+        detail: targetHint,
+        testId: 'ctx-source-add-below',
+        disabled: count === 0 || targetInvalid,
+        run: () => void integrate('below', effective)
+      },
+      { separator: true },
+      {
+        label: `成果物対応を削除（${count}件）`,
+        detail: '抽出データ自体は削除しません',
+        testId: 'ctx-source-delete',
+        disabled: count === 0,
+        run: () => void deleteSourceLinks(effective)
+      }
+    ])
+  }
+
+  /** 成果物行の右クリックメニュー（MID-004 UI改善）。単一選択限定の操作は複数選択時に無効化する */
+  const openArtifactRowMenu = (row: IntermediateElement, event: React.MouseEvent<HTMLElement>): void => {
+    if (!doc) return
+    const effective = selectedIds.has(row.id) ? selectedIds : new Set([row.id])
+    if (!selectedIds.has(row.id)) {
+      setSelectedIds(effective)
+      setActiveId(row.id)
+      setItemAnchorId(row.id)
+      setLastSelectedPane('intermediate')
+    }
+    const single = effective.size === 1
+    const index = doc.elements.findIndex((element) => element.id === row.id)
+    const count = effective.size
+    showContextMenu(event, [
+      { label: '編集…', testId: 'ctx-element-edit', disabled: !single, run: () => openElementEditor(row) },
+      { label: '複製', testId: 'ctx-element-duplicate', disabled: !single, run: () => void duplicateElement(row.id) },
+      ...(editorMode === 'standalone'
+        ? [
+            { separator: true as const },
+            {
+              label: '上に要素を追加…',
+              testId: 'ctx-element-add-above',
+              disabled: !single,
+              run: () => openAddEditor('above', row.id)
+            },
+            {
+              label: '下に要素を追加…',
+              testId: 'ctx-element-add-below',
+              disabled: !single,
+              run: () => openAddEditor('below', row.id)
+            }
+          ]
+        : []),
+      { separator: true },
+      {
+        label: '上の要素へ統合',
+        testId: 'ctx-merge-up',
+        disabled: !single || index <= 0,
+        run: () => void mergeAdjacent('up', row.id)
+      },
+      {
+        label: '下の要素と統合',
+        testId: 'ctx-merge-down',
+        disabled: !single || index < 0 || index >= doc.elements.length - 1,
+        run: () => void mergeAdjacent('down', row.id)
+      },
+      { separator: true },
+      { label: `上へ移動（${count}件）`, testId: 'ctx-move-up', run: () => void move('up', effective) },
+      { label: `下へ移動（${count}件）`, testId: 'ctx-move-down', run: () => void move('down', effective) },
+      { label: `階層を上げる（${count}件）`, testId: 'ctx-hierarchy-up', run: () => void hierarchy(-1, effective) },
+      { label: `階層を下げる（${count}件）`, testId: 'ctx-hierarchy-down', run: () => void hierarchy(1, effective) },
+      { separator: true },
+      {
+        label: `成果物から削除（${count}件）`,
+        testId: 'ctx-element-delete',
+        run: () => void removeElements(effective)
+      }
+    ])
+  }
+
   const approve = async (): Promise<void> => {
     if (await call('intermediate.approve', {}, '③中間データを正本確定しました')) {
       void useProjectStore.getState().refreshStats()
@@ -501,9 +601,9 @@ export function IntermediateDocumentEditor({
       })
     }
   }
-  const removeSelected = async (): Promise<void> => {
-    if (selectedIds.size === 0) return
-    await call('intermediate.deleteItems', { elementIds: [...selectedIds] }, '成果物から要素を削除しました')
+  const removeElements = async (elementIds: ReadonlySet<string>): Promise<void> => {
+    if (elementIds.size === 0) return
+    await call('intermediate.deleteItems', { elementIds: [...elementIds] }, '成果物から要素を削除しました')
     setSelectedIds(new Set())
     setActiveId(null)
   }
@@ -634,7 +734,6 @@ export function IntermediateDocumentEditor({
       </div>
     )
   }
-  const selectedIndex = activeId ? doc.elements.findIndex((element) => element.id === activeId) : -1
   const allItemsApproved =
     doc.status === 'approved' && doc.elements.every((element) => element.review?.status === 'approved')
 
@@ -761,153 +860,6 @@ export function IntermediateDocumentEditor({
         </div>
       )}
 
-      <div className="intermediate-operation-toolbar" data-testid="intermediate-operation-toolbar">
-        <div className="intermediate-operation-group" data-testid="source-link-actions">
-          <b>①統合元→成果物 操作</b>
-          {editorMode === 'import' ? (
-            <>
-              <button
-                type="button"
-                className="d2d-btn small"
-                data-editor-icon="↥+"
-                data-testid="source-add-above"
-                disabled={sourceSelectedIds.size === 0 || (doc.elements.length > 0 && selectedIds.size !== 1)}
-                onClick={() => void integrate('above')}
-                title="選択中の統合元要素を、選択中の成果物要素の上に追加し、based_onで関連付けます"
-              >
-                上に追加
-              </button>
-              <button
-                type="button"
-                className="d2d-btn small"
-                data-editor-icon="↧+"
-                data-testid="source-add-below"
-                disabled={sourceSelectedIds.size === 0 || (doc.elements.length > 0 && selectedIds.size !== 1)}
-                onClick={() => void integrate('below')}
-                title="選択中の統合元要素を、選択中の成果物要素の下に追加し、based_onで関連付けます"
-              >
-                下に追加
-              </button>
-              <button
-                type="button"
-                className="d2d-btn small"
-                data-editor-icon="⊘"
-                data-testid="source-delete"
-                disabled={sourceSelectedIds.size === 0}
-                onClick={() => void deleteSourceLinks()}
-                title="選択中の統合元要素と成果物要素のbased_on対応を削除します。抽出データ自体は削除しません"
-              >
-                削除
-              </button>
-            </>
-          ) : (
-            <>
-              <button
-                type="button"
-                className="d2d-btn small"
-                data-editor-icon="↥+"
-                data-testid="element-add-above"
-                disabled={doc.elements.length > 0 && selectedIds.size !== 1}
-                onClick={() => openAddEditor('above')}
-              >
-                上に追加
-              </button>
-              <button
-                type="button"
-                className="d2d-btn small"
-                data-editor-icon="↧+"
-                data-testid="element-add-below"
-                disabled={doc.elements.length > 0 && selectedIds.size !== 1}
-                onClick={() => openAddEditor('below')}
-              >
-                下に追加
-              </button>
-            </>
-          )}
-        </div>
-        <div className="intermediate-operation-group" data-testid="artifact-compose-actions">
-          <b>②成果物 操作</b>
-          <button
-            type="button"
-            className="d2d-btn small"
-            data-editor-icon="↥∪"
-            data-testid="merge-up"
-            disabled={selectedIds.size !== 1 || selectedIndex <= 0}
-            onClick={() => void mergeAdjacent('up')}
-          >
-            ↑統合
-          </button>
-          <button
-            type="button"
-            className="d2d-btn small"
-            data-editor-icon="↧∪"
-            data-testid="merge-down"
-            disabled={selectedIds.size !== 1 || selectedIndex < 0 || selectedIndex >= doc.elements.length - 1}
-            onClick={() => void mergeAdjacent('down')}
-          >
-            ↓統合
-          </button>
-          <button
-            type="button"
-            className="d2d-btn small"
-            data-editor-icon="⧉"
-            data-testid="element-duplicate"
-            disabled={selectedIds.size !== 1}
-            onClick={() => void duplicateSelected()}
-          >
-            複製
-          </button>
-          <button
-            type="button"
-            className="d2d-btn small danger"
-            data-editor-icon="⌫"
-            data-testid="element-delete"
-            disabled={selectedIds.size === 0}
-            onClick={() => void removeSelected()}
-          >
-            削除
-          </button>
-        </div>
-        <div className="intermediate-operation-group" data-testid="artifact-layout-actions">
-          <b>③成果物 操作</b>
-          <button
-            type="button"
-            className="d2d-btn small"
-            data-editor-icon="↑"
-            disabled={selectedIds.size === 0}
-            onClick={() => void move('up')}
-          >
-            ↑移動
-          </button>
-          <button
-            type="button"
-            className="d2d-btn small"
-            data-editor-icon="↓"
-            disabled={selectedIds.size === 0}
-            onClick={() => void move('down')}
-          >
-            ↓移動
-          </button>
-          <button
-            type="button"
-            className="d2d-btn small"
-            data-editor-icon="⇤"
-            disabled={selectedIds.size === 0}
-            onClick={() => void hierarchy(-1)}
-          >
-            階層を上げる
-          </button>
-          <button
-            type="button"
-            className="d2d-btn small"
-            data-editor-icon="⇥"
-            disabled={selectedIds.size === 0}
-            onClick={() => void hierarchy(1)}
-          >
-            階層を下げる
-          </button>
-        </div>
-      </div>
       <ResizablePaneGroup
         key={editorMode}
         initialSizes={editorMode === 'import' ? [1, 1, 1.2] : [1, 1.25]}
@@ -918,6 +870,7 @@ export function IntermediateDocumentEditor({
             <div className="intermediate-source-heading">
               <b>統合元 extracted_item</b>
               <span className="intermediate-source-linked-legend">青字: 取込済み（成果物とbased_onで紐付済み）</span>
+              <span className="intermediate-context-hint">右クリックで追加・対応削除</span>
               <span data-testid="source-link-summary">
                 紐付済 {linkedSourceItemCount} / 全 {sourceItems.length}
               </span>
@@ -979,6 +932,7 @@ export function IntermediateDocumentEditor({
                   setLastSelectedPane('source')
                 }
               }}
+              onRowContextMenu={(e, event) => openSourceRowMenu(e, event)}
               testId="intermediate-source-grid"
             />
           </div>
@@ -994,7 +948,20 @@ export function IntermediateDocumentEditor({
         >
           <div className="intermediate-artifact-heading">
             <b>成果物 intermediate_item</b>
+            <span className="intermediate-context-hint">右クリックで要素操作</span>
             <span className="intermediate-artifact-view-actions">
+              {editorMode === 'standalone' && (
+                <button
+                  type="button"
+                  className="d2d-btn small"
+                  data-editor-icon="＋"
+                  data-testid="element-add-below"
+                  onClick={() => openAddEditor('below')}
+                  title="選択行の下（未選択時は末尾）へ中間要素を追加します"
+                >
+                  ＋追加
+                </button>
+              )}
               <button
                 type="button"
                 className={`d2d-btn small${artifactListMode === 'table' ? ' active' : ''}`}
@@ -1062,6 +1029,7 @@ export function IntermediateDocumentEditor({
                   openElementEditor(e)
                 }
               }}
+              onRowContextMenu={(e, event) => openArtifactRowMenu(e, event)}
               testId="intermediate-grid"
             />
           ) : (
@@ -1069,6 +1037,7 @@ export function IntermediateDocumentEditor({
               rows={hierarchyRows}
               selectedIds={selectedIds}
               activeId={activeId}
+              onRowContextMenu={(item, event) => openArtifactRowMenu(item, event)}
               collapsedIds={collapsedElementIds}
               onToggle={(id) =>
                 setCollapsedElementIds((current) => {

@@ -1,5 +1,7 @@
 # D2D ディレクトリ・ファイル構成設計書
 
+> **実装準拠状態（2026-07-20 整理）**: 本書は現在の実装を正として整理済み。実装が存在しない記述には【未適用】を付す。無印の記述は実装済み・実装準拠。
+
 ## 1. 目的
 
 本書は、D2D プロジェクトの実行時フォルダ構成、ファイル命名規則、Git 管理対象と管理外の区別、および実装時のソースコードディレクトリ構成を定義する。
@@ -38,11 +40,13 @@
 │   └── manifest/                  # ZIPアーカイブ生成時・export時に作成（派生成果物）
 │       └── blob_manifest.json
 │
-├── logs/                          # ジョブログ・LLMログ（Git 管理外推奨）
+├── logs/                          # ジョブログ・LLM・デバッグログ（Git 管理外推奨）
 │   ├── jobs/
 │   │   └── <job_uid>.jsonl
-│   └── llm/
-│       └── <llm_run_ref_uid>.jsonl
+│   ├── llm/
+│   │   └── <llm_run_ref_uid>.jsonl
+│   └── debug/                     # 動作デバッグログ（日付毎・レベルはプロジェクト設定 logging.debugLevel）
+│       └── <frontend|backend>-YYYY-MM-DD.log
 │
 └── archives/                      # ZIP アーカイブ（Git 管理外）
     └── <artifact_name>_<yyyymmdd_hhmmss>.zip
@@ -185,69 +189,80 @@ SQLite バイナリは diff が読みにくいため、`.gitattributes` で `*.d
 
 ## 8. アプリ側ソースコードディレクトリ構成
 
-Electron + Vite + TypeScript 構成での実際のソース構成。
+Electron + electron-vite + TypeScript 構成での実装済みソース構成（2026-07-20 時点の実態）。
 
-> **設計方針**: `src/` はUIのWorkbench / Resource / Editor構成を中心にし、業務ロジックは別プロセスの `backend/` に配置する。Electron Main は Gateway / Shell として `backend/` の起動・停止・接続監視と Renderer IPC 中継に限定する。Rust ワーカーは予定していたが機能要件の変化により不採用。
+> **設計方針**: `src/` はUIのWorkbench / Resource / Editor構成を中心にし、業務ロジックは別プロセスの `backend/` に配置する。Electron Main は Gateway / Shell として `backend/` の起動・停止・接続監視と Renderer IPC 中継に限定する。
 
 ```
 d2d/                               # リポジトリルート
 ├── electron/
 │   ├── main/                      # Electron main process (Gateway / Shell)
 │   │   ├── index.ts               # エントリポイント
-│   │   ├── ipc/                   # Renderer IPC受付とBackend API中継
-│   │   │   └── handlers/          # project / resource / job 等の薄い中継ハンドラ
-│   │   ├── backend/               # Local Backendプロセス起動・停止・監視
-│   │   ├── system/                # ファイル選択、OS統合、システム情報
-│   │   └── utils/                 # Gateway用ユーティリティ
+│   │   ├── ipc/handlers/          # Renderer IPC受付とBackend API中継（薄い中継のみ）
+│   │   ├── backend/               # Local Backendプロセス起動・停止・監視（backend-process.ts）
+│   │   └── system/                # セキュリティ設定、ファイル選択、OS統合
 │   └── preload/
-│       └── index.ts               # contextBridge 公開（window.api.* の全ブリッジ定義）
+│       └── index.ts               # contextBridge 公開（window.api.* の全ブリッジ定義。CommonJS必須）
 │
-├── backend/                       # Local Backend（別プロセス / Node.js）
-│   ├── index.ts                   # Backendエントリポイント
-│   ├── api/                       # Main向け操作単位API
-│   ├── db/                        # DBスキーマ定義・マイグレーション
-│   │   └── schema/
+├── backend/                       # Local Backend（utilityProcess / Node.js）
+│   ├── index.ts                   # Backendエントリポイント（API登録・ジョブexecutor登録の配線）
+│   ├── main-bridge.ts             # Main専用機能（safeStorage等）への逆方向RPC
+│   ├── runtime-paths.ts           # 同梱リソース（ワーカー・PlantUML・JRE・Graphviz・MeCab）のパス解決
+│   ├── api/                       # 操作単位API（router.ts + 機能領域別登録。メソッド名はsrc/types/api-methods.tsと同期）
+│   ├── db/                        # スキーマ定義・マイグレーション（migrations.ts が正本）・seed
 │   ├── schemas/                   # JSON Schema定義（ワーカーI/O・LLM構造化出力・候補セット検証）
 │   ├── store/                     # SQLite アクセス層（better-sqlite3 / entity-registry）
 │   ├── jobs/                      # ジョブ管理（キュー・進捗・再実行）
-│   ├── workers/                   # 外部ワーカー起動・JSONL 通信管理
-│   ├── settings/                  # 設定管理（Electron safeStorage によるAPIキー保護）
+│   ├── workers/                   # 外部ワーカー起動・JSONL 通信管理（worker-runner.ts）
+│   ├── settings/                  # 設定管理（safeStorage によるAPIキー保護）
 │   ├── import/                    # ①原本インポート
 │   ├── extract/                   # ②抽出データ管理
-│   ├── intermediate/              # ③中間データ処理
-│   ├── design/                    # ④設計モデル管理
-│   ├── traceability/              # トレーサビリティ機能
-│   ├── llm/                       # LLMプロバイダ機能（fetch による HTTP 通信）
-│   ├── reports/                   # レポート出力機能
-│   ├── git/                       # Git操作（simple-git）
-│   ├── plantuml/                  # PlantUML実行
+│   ├── intermediate/              # ③中間データ処理・チャンク
+│   ├── design/                    # ④設計モデル・候補セット管理
+│   ├── edit/                      # 編集機能（PlantUML・状態遷移・用語集・表編集・セマンティック入力）
+│   ├── resource/                  # Resource種別定義・共通Resource編集・マージ
+│   ├── secondary/                 # Secondary（Properties/Relations/Review）向け集約
+│   ├── traceability/              # トレースクエリ・マトリクス・インパクト分析・整合性検査
 │   ├── search/                    # MeCab前処理、FTS5検索索引
-│   ├── project/                   # プロジェクト管理
-│   ├── artifacts/                 # 成果物管理
-│   ├── events/                    # イベント通知
-│   └── utils/                     # Backend用ユーティリティ
+│   ├── llm/                       # LLMプロバイダ（fetch）・マスキング・実行ログ
+│   ├── report/                    # レポート出力
+│   ├── export/                    # DB to Text / SQLite dump / ZIPアーカイブ・差分
+│   ├── git/                       # Git操作（simple-git）
+│   ├── logging/                   # デバッグログ（日付毎ファイル・レベル制御）
+│   ├── project/                   # プロジェクト管理・成果物/フェーズ設定
+│   ├── features/                  # 機能登録
+│   └── events/                    # イベントバス
 │
 ├── src/                           # React / TypeScript (renderer process)
-│   ├── pages/                     # 機能別ページコンポーネント
-│   │   │                          # （SourcePage / ExtractedPage / IntermediatePage 等）
 │   ├── components/
-│   │   ├── workbench/             # Workbench Shell・ペイン管理・アクティビティバー
-│   │   │   └── views/             # 各ビューコンポーネント
-│   │   └── design/                # 設計リソース編集コンポーネント
-│   ├── providers/                 # React Context Provider
-│   ├── stores/                    # クライアント状態管理（Zustand）
-│   └── types/                     # TypeScript 型定義（IPC API 型・DBスキーマ型）
+│   │   ├── workbench/             # Workbench Shell・Title/Activity/Side/Panel・タブ・メニュー・パレット
+│   │   ├── editors/               # Resource URI別Editor（ステージ一覧・抽出/中間/チャンク/Resource/トレース等）
+│   │   ├── views/                 # サイドバー・Panel内ビュー（Explorer/Search/History/Jobs/Logs等）
+│   │   └── common/                # 共通部品（グリッド・確認/コンテキストメニュー・Monaco・プレビュー）
+│   ├── services/                  # backend呼出・Command/キーバインド・ナビゲーション履歴・Undo
+│   ├── stores/                    # クライアント状態管理（Zustand: workbench/editor/project/jobs/selection等）
+│   ├── theme/                     # テーマ・表示モード・カラー
+│   ├── styles/                    # global/tokens/workbench CSS
+│   ├── utils/                     # UIユーティリティ（階層計算・範囲選択）
+│   └── types/                     # 型定義（IPC契約・APIメソッドunion・API契約マップ・Resource種別）
 │
 ├── workers/                       # 外部ワーカー（サブプロセス）
-│   └── python/                    # Python ワーカー（文書抽出・各種コマンド）
-│       ├── commands/              # コマンドハンドラ（word.py / excel.py / powerpoint.py / pdf.py 等）
+│   └── python/                    # Python ワーカー（文書抽出）
 │       ├── main.py                # stdin/stdout JSONL エントリポイント
-│       ├── requirements.txt
-│       └── dist/                  # PyInstaller ビルド出力（d2d-worker.exe 等）
+│       ├── commands/              # コマンドハンドラ（word.py / word_ooxml*.py。他形式は【未適用】）
+│       ├── tests/                 # pytest（検証用docx生成スクリプト含む）
+│       ├── d2d-worker.spec        # PyInstaller ビルド定義（P14-5）
+│       └── dist/                  # PyInstaller ビルド出力（Git管理外）
 │
-├── docs/                          # 設計文書
-├── package.json
+├── e2e/                           # Playwright E2E（app.spec.ts: 逐次・状態共有）
+├── scripts/                       # ビルド支援（ensure-abi / prepare-dist / check-licenses）
+├── third_party/                   # 配布同梱物の配置場所（バイナリはGit管理外。README.mdが配置規約）
+├── dev-process/                   # 開発プロセス（PROCESS.md / STATE.md / verify.mjs）
+├── tasks/                         # 計画（task_breakdown.md）
+├── docs/                          # 要求・設計文書
+├── electron-builder.yml           # パッケージング設定（P14-5）
 ├── electron.vite.config.ts
+├── package.json
 └── .gitattributes                 # *.db binary 指定
 ```
 

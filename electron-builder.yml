@@ -1,0 +1,48 @@
+# D2D パッケージング設定（P14-5、APP-001/002、sdd_tech_stack §5.4）。
+#   npm run dist  … ビルド → 同梱物検査 → Windows インストーラ生成（release/）
+# 同梱物（ワーカー・PlantUML・JRE・Graphviz・MeCab）の配置は third_party/README.md を参照。
+appId: jp.d2d.app
+productName: D2D
+copyright: © 2026 D2D Project
+
+directories:
+  output: release
+  buildResources: build-resources
+
+# electron-vite の出力（out/）だけをアプリ本体（asar）へ含める
+files:
+  - out/**
+  - package.json
+  - '!**/*.map'
+
+# 同梱リソース。アプリからは resources/ 直下として参照する（backend/runtime-paths.ts）
+extraResources:
+  # PyInstaller 済み Python ワーカー（npm run package:worker の出力）
+  - from: workers/python/dist/d2d-worker
+    to: workers/python
+  # PlantUML jar・Java ランタイム・Graphviz・MeCab + UniDic（third_party/README.md の配置規約）
+  - from: third_party
+    to: third_party
+    filter:
+      - '**/*'
+      - '!README.md'
+      - '!.gitkeep'
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  artifactName: ${productName}-Setup-${version}.${ext}
+
+# macOS / Linux を妨げない構成（APP-002）。ビルドは Windows を優先し、他OSは同じ配置規約で追加する
+mac:
+  target: [dmg]
+  category: public.app-category.developer-tools
+linux:
+  target: [AppImage]
+  category: Development

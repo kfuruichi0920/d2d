@@ -10,10 +10,11 @@ import { useSelectionStore, type SelectedItem } from '../../stores/selection-sto
 import { SECONDARY_SECTION_ORDER, useWorkbenchStore, type SecondaryTab } from '../../stores/workbench-store'
 
 const SECTION_LABELS: Record<SecondaryTab, string> = {
-  properties: 'Properties',
-  relations: 'Relations',
-  review: 'Review',
-  dictionary: 'Dictionary'
+  // 表示名は他UIと同じ日本語へ統一する（UI点検対応。セクションID・開閉順は従来どおり）
+  properties: 'プロパティ',
+  relations: '関係',
+  review: 'レビュー',
+  dictionary: '辞書'
 }
 const SECTIONS = SECONDARY_SECTION_ORDER.map((id) => ({ id, label: SECTION_LABELS[id] }))
 
