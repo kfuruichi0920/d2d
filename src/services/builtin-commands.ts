@@ -46,6 +46,14 @@ export function getCommandContext(): CommandContext {
 export function registerBuiltinCommands(): void {
   const wb = (): ReturnType<typeof useWorkbenchStore.getState> => useWorkbenchStore.getState()
   const editor = (): ReturnType<typeof useEditorStore.getState> => useEditorStore.getState()
+  const activateAdjacentWorkbenchTab = (offset: -1 | 1): void => {
+    const active = document.activeElement
+    if (active instanceof HTMLElement && active.closest('[data-workbench-tab-region="panel"]')) {
+      wb().activateAdjacentPanelTab(offset)
+    } else {
+      editor().activateAdjacentTab(offset)
+    }
+  }
 
   registerCommand({
     id: 'commandPalette.open',
@@ -133,25 +141,25 @@ export function registerBuiltinCommands(): void {
     id: 'editor.tab.previous',
     title: 'Editorタブ: 前へ',
     category: '表示',
-    run: () => editor().activateAdjacentTab(-1)
+    run: () => activateAdjacentWorkbenchTab(-1)
   })
   registerCommand({
     id: 'editor.tab.next',
     title: 'Editorタブ: 後へ',
     category: '表示',
-    run: () => editor().activateAdjacentTab(1)
+    run: () => activateAdjacentWorkbenchTab(1)
   })
   registerCommand({
     id: 'panel.tab.previous',
     title: '下Panelタブ: 前へ',
     category: '表示',
-    run: () => wb().activateAdjacentPanelTab(-1)
+    run: () => activateAdjacentWorkbenchTab(-1)
   })
   registerCommand({
     id: 'panel.tab.next',
     title: '下Panelタブ: 後へ',
     category: '表示',
-    run: () => wb().activateAdjacentPanelTab(1)
+    run: () => activateAdjacentWorkbenchTab(1)
   })
 
   // Activity Bar の各アクティビティを開く（W10、ショートカット割り当て可能）
@@ -406,6 +414,29 @@ export function registerBuiltinCommands(): void {
     title: '文字サイズを標準に戻す',
     category: 'テーマ',
     run: () => wb().setTheme({ fontSize: 13 })
+  })
+
+  // Workbench全体のブラウザ相当ズーム（UI-054）。Ctrl+wheelも同じsetZoomへ接続する。
+  registerCommand({
+    id: 'view.zoomIn',
+    title: '画面表示を拡大',
+    category: '表示',
+    keybinding: 'Ctrl+=',
+    run: () => wb().setZoom(wb().zoom + 10)
+  })
+  registerCommand({
+    id: 'view.zoomOut',
+    title: '画面表示を縮小',
+    category: '表示',
+    keybinding: 'Ctrl+-',
+    run: () => wb().setZoom(wb().zoom - 10)
+  })
+  registerCommand({
+    id: 'view.zoomReset',
+    title: '画面表示を100%へ戻す',
+    category: '表示',
+    keybinding: 'Ctrl+0',
+    run: () => wb().setZoom(100)
   })
 
   // ジョブ（UI-009）

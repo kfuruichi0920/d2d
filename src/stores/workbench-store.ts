@@ -78,6 +78,7 @@ interface WorkbenchState extends ModeLayout {
   workMode: WorkMode
   layouts: Record<WorkMode, ModeLayout>
   theme: ThemeState
+  zoom: number
   activityOrder: Activity[]
   paletteOpen: boolean
   menuOpen: boolean
@@ -98,6 +99,7 @@ interface WorkbenchState extends ModeLayout {
   setSecondarySize(size: number): void
   setPanelSize(size: number): void
   setTheme(theme: Partial<ThemeState>): void
+  setZoom(zoom: number): void
   setPaletteOpen(open: boolean): void
   setMenuOpen(open: boolean): void
   loadPersisted(persistKey: string): void
@@ -147,6 +149,7 @@ export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
   workMode: 'M0',
   layouts: structuredClone(MODE_DEFAULT_LAYOUTS),
   theme: DEFAULT_THEME,
+  zoom: 100,
   activityOrder: [...DEFAULT_ACTIVITY_ORDER],
   paletteOpen: false,
   menuOpen: false,
@@ -268,6 +271,16 @@ export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
     void invoke('settings.set', { key: 'theme.customColors', value: theme.customColors })
   },
 
+  setZoom: (zoom) => {
+    const next = clamp(zoom, 50, 200)
+    set({ zoom: next })
+    try {
+      localStorage.setItem('d2d.workbench.zoom', String(next))
+    } catch {
+      // 保存失敗は現在の表示操作を妨げない。
+    }
+  },
+
   setPaletteOpen: (open) => set({ paletteOpen: open }),
 
   setMenuOpen: (open) => set({ menuOpen: open }),
@@ -318,6 +331,12 @@ export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
         activityOrder: [...DEFAULT_ACTIVITY_ORDER],
         ...layout
       })
+    }
+    try {
+      const zoom = Number(localStorage.getItem('d2d.workbench.zoom') ?? 100)
+      set({ zoom: Number.isFinite(zoom) ? clamp(zoom, 50, 200) : 100 })
+    } catch {
+      set({ zoom: 100 })
     }
     applyTheme(get().theme)
   }

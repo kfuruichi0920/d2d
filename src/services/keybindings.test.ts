@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { registerCommand, resolveKeybinding } from './command-registry'
 import {
   KEYBINDING_STORAGE_KEY,
+  canShareKeybinding,
   effectiveKeybinding,
   findKeybindingConflict,
   getKeybindingOverrides,
@@ -69,6 +70,12 @@ describe('keybindings（W1、UI-003/023）', () => {
     expect(findKeybindingConflict('Ctrl+Alt+X', 'test.kb.conflict')).toBeNull()
     expect(findKeybindingConflict('Ctrl+Alt+Y', 'other.command')).toBeNull()
     off()
+  })
+
+  it('Editorと下Panelの同方向タブ移動は同じショートカットを共有できる', () => {
+    expect(canShareKeybinding('editor.tab.previous', 'panel.tab.previous')).toBe(true)
+    expect(canShareKeybinding('editor.tab.next', 'panel.tab.next')).toBe(true)
+    expect(canShareKeybinding('editor.tab.previous', 'panel.tab.next')).toBe(false)
   })
 
   it('normalizeKeybindingEvent はイベントをバインド文字列へ正規化する', () => {

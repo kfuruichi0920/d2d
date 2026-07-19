@@ -82,6 +82,7 @@ export function matchKeybinding(binding: string, e: KeyboardEvent): boolean {
   if (e.ctrlKey !== needCtrl || e.shiftKey !== needShift || e.altKey !== needAlt) return false
   const eventKey = e.key.toLowerCase()
   if (key === '\\') return eventKey === '\\'
+  if (key === '=') return eventKey === '=' || eventKey === '+'
   return eventKey === key
 }
 

@@ -18,7 +18,13 @@ export function PanelArea(): React.JSX.Element {
   const setTab = useWorkbenchStore((state) => state.setPanelTab)
   const togglePanel = useWorkbenchStore((state) => state.togglePanel)
   return (
-    <section className="wb-panel" data-testid="panel">
+    <section
+      className="wb-panel"
+      data-testid="panel"
+      data-workbench-tab-region="panel"
+      tabIndex={-1}
+      onPointerDown={(event) => event.currentTarget.focus({ preventScroll: true })}
+    >
       <div className="wb-tabstrip">
         {PANEL_TAB_ORDER.map((id) => (
           <button

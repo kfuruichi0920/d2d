@@ -2,7 +2,7 @@
  * Intermediate Document Editor（P7-7、V-03、UI-012、EDIT-002〜008）。
  * ③中間データの文書風表示 + 要素編集（編集/マージ/分割/LLM候補）+ 正本確定。
  */
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ColumnDef } from '@tanstack/react-table'
 import { invoke, onBackendEvent } from '../../services/backend'
 import { moveKeyboardRangeSelection } from '../../utils/keyboard-range-selection'
@@ -11,6 +11,7 @@ import { useProjectStore } from '../../stores/project-store'
 import { useSelectionStore } from '../../stores/selection-store'
 import { useResourceNavigationStore } from '../../stores/resource-navigation-store'
 import { VirtualDataGrid } from '../common/VirtualDataGrid'
+import { StructuredJsonView } from '../common/StructuredJsonView'
 import { DocumentPreviewMetaControls, useDocumentPreviewMeta } from '../common/DocumentPreviewMeta'
 import { ResourceEditor } from './ResourceEditor'
 import { resourceTypeLabel } from '../../types/resource'
@@ -19,6 +20,8 @@ import { ResizablePaneGroup } from '../workbench/ResizablePaneGroup'
 import { ChunkEditor } from './ChunkEditor'
 import { pushUndo } from '../../services/undo-service'
 import { useEscapeToClose } from '../common/useEscapeToClose'
+import { visibleHierarchyRows } from '../../utils/intermediate-hierarchy'
+import { IntermediateArtifactTree } from './IntermediateArtifactTree'
 
 interface IntermediateElement {
   id: string
@@ -83,40 +86,6 @@ function HighlightTerms({ text, terms }: { text: string; terms: string[] }): Rea
   )
 }
 
-function IntermediateStructureOutline({
-  elements,
-  activeId,
-  onSelect
-}: {
-  elements: IntermediateElement[]
-  activeId: string | null
-  onSelect: (element: IntermediateElement) => void
-}): React.JSX.Element {
-  return (
-    <div className="intermediate-structure-outline" data-testid="intermediate-structure-outline" role="tree">
-      {elements.map((element) => (
-        <button
-          key={element.id}
-          data-testid={`intermediate-outline-${element.id}`}
-          type="button"
-          role="treeitem"
-          aria-level={Math.max(1, (element.level ?? 0) + 1)}
-          aria-current={activeId === element.id ? 'true' : undefined}
-          className={activeId === element.id ? 'active' : ''}
-          style={{ paddingInlineStart: 8 + (element.level ?? 0) * 14 }}
-          onClick={() => onSelect(element)}
-          title={element.text ?? element.section_path ?? element.id}
-        >
-          <span className="intermediate-outline-kind">{resourceTypeLabel(element.item_type ?? element.type)}</span>
-          <code>{element.id}</code>
-          <span>{element.text ?? element.section_path ?? element.image ?? '（内容なし）'}</span>
-        </button>
-      ))}
-      {elements.length === 0 && <div className="d2d-empty">構成要素がありません</div>}
-    </div>
-  )
-}
-
 function FigureElement({ element }: { element: IntermediateElement }): React.JSX.Element {
   const [src, setSrc] = useState<string | null>(null)
   useEffect(() => {
@@ -145,6 +114,7 @@ export function IntermediateDocumentEditor({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [itemAnchorId, setItemAnchorId] = useState<string | null>(null)
   const [activeId, setActiveId] = useState<string | null>(null)
+  const [artifactScrollVersion, setArtifactScrollVersion] = useState(0)
   const [sourceItems, setSourceItems] = useState<(IntermediateElement & { source_title?: string })[]>([])
   const [sourceSelectedIds, setSourceSelectedIds] = useState<Set<string>>(new Set())
   const [sourceActiveId, setSourceActiveId] = useState<string | null>(null)
@@ -152,6 +122,8 @@ export function IntermediateDocumentEditor({
   const [lastSelectedPane, setLastSelectedPane] = useState<'source' | 'intermediate'>('intermediate')
   const [editorMode, setEditorMode] = useState<IntermediateEditorMode>(initialMode)
   const [previewMode, setPreviewMode] = useState<'visual' | 'structure'>('visual')
+  const [artifactListMode, setArtifactListMode] = useState<'table' | 'outline'>('table')
+  const [collapsedElementIds, setCollapsedElementIds] = useState<Set<string>>(new Set())
   const [previewMeta, setPreviewMeta] = useDocumentPreviewMeta()
   const previewRefs = useRef(new Map<string, HTMLElement>())
   const [elementEditor, setElementEditor] = useState<ElementEditorState | null>(null)
@@ -296,6 +268,12 @@ export function IntermediateDocumentEditor({
   useEffect(() => {
     if (activeId) previewRefs.current.get(activeId)?.scrollIntoView({ block: 'center', behavior: 'smooth' })
   }, [activeId])
+
+  const hierarchyRows = useMemo(
+    () => visibleHierarchyRows(doc?.elements ?? [], collapsedElementIds),
+    [collapsedElementIds, doc?.elements]
+  )
+  const visibleArtifactElements = useMemo(() => hierarchyRows.map((row) => row.item), [hierarchyRows])
 
   const integrate = async (position: 'above' | 'below'): Promise<void> => {
     const extractedItemUids = sourceItems
@@ -971,58 +949,115 @@ export function IntermediateDocumentEditor({
             borderLeft: editorMode === 'import' ? '1px solid var(--d2d-border)' : undefined
           }}
         >
-          <b>成果物 intermediate_item</b>
-          <VirtualDataGrid
-            columns={columns}
-            data={doc.elements}
-            getRowId={(e) => e.id}
-            selectedRowIds={selectedIds}
-            activeRowId={activeId}
-            scrollToRowId={activeId}
-            relatedRowIds={relatedCenterIds}
-            height="calc(100% - 22px)"
-            onRowClick={(e, event) => {
-              setSelectedIds(selectRows(doc.elements, e, event, selectedIds, itemAnchorId))
-              setActiveId(e.id)
-              if (!event.shiftKey) setItemAnchorId(e.id)
-              setLastSelectedPane('intermediate')
-              if (event.detail >= 2) openElementEditor(e)
-            }}
-            onRowKeyDown={(e, event) => {
-              if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
-                event.preventDefault()
+          <div className="intermediate-artifact-heading">
+            <b>成果物 intermediate_item</b>
+            <span className="intermediate-artifact-view-actions">
+              <button
+                type="button"
+                className={`d2d-btn small${artifactListMode === 'table' ? ' active' : ''}`}
+                onClick={() => setArtifactListMode('table')}
+                data-testid="intermediate-list-table"
+                title="成果物を表形式で表示します"
+              >
+                ▦ 一覧
+              </button>
+              <button
+                type="button"
+                className={`d2d-btn small${artifactListMode === 'outline' ? ' active' : ''}`}
+                onClick={() => setArtifactListMode('outline')}
+                data-testid="intermediate-list-outline"
+                title="levelに基づく親子Treeとして表示し、折畳／展開します"
+              >
+                ☷ アウトライン
+              </button>
+            </span>
+          </div>
+          {artifactListMode === 'table' ? (
+            <VirtualDataGrid
+              columns={columns}
+              data={doc.elements}
+              getRowId={(e) => e.id}
+              selectedRowIds={selectedIds}
+              activeRowId={activeId}
+              scrollToRowId={activeId}
+              scrollToRowVersion={artifactScrollVersion}
+              relatedRowIds={relatedCenterIds}
+              height="calc(100% - 28px)"
+              onRowClick={(e, event) => {
+                setSelectedIds(selectRows(doc.elements, e, event, selectedIds, itemAnchorId))
+                setActiveId(e.id)
+                if (!event.shiftKey) setItemAnchorId(e.id)
+                setLastSelectedPane('intermediate')
+                if (event.detail >= 2) openElementEditor(e)
+              }}
+              onRowKeyDown={(e, event) => {
+                if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+                  event.preventDefault()
+                  const next = moveKeyboardRangeSelection(
+                    doc.elements,
+                    activeId ?? e.id,
+                    itemAnchorId,
+                    event.key === 'ArrowUp' ? -1 : 1,
+                    event.shiftKey,
+                    (item) => item.id
+                  )
+                  if (next) {
+                    setSelectedIds(next.selectedIds)
+                    setActiveId(next.activeId)
+                    setItemAnchorId(next.anchorId)
+                    setLastSelectedPane('intermediate')
+                  }
+                } else if (event.key === ' ' || event.key === 'Enter') {
+                  event.preventDefault()
+                  setSelectedIds(new Set([e.id]))
+                  setActiveId(e.id)
+                  setItemAnchorId(e.id)
+                  setLastSelectedPane('intermediate')
+                  openElementEditor(e)
+                }
+              }}
+              testId="intermediate-grid"
+            />
+          ) : (
+            <IntermediateArtifactTree
+              rows={hierarchyRows}
+              selectedIds={selectedIds}
+              activeId={activeId}
+              collapsedIds={collapsedElementIds}
+              onToggle={(id) =>
+                setCollapsedElementIds((current) => {
+                  const next = new Set(current)
+                  if (next.has(id)) next.delete(id)
+                  else next.add(id)
+                  return next
+                })
+              }
+              onSelect={(item, event) => {
+                setSelectedIds(selectRows(visibleArtifactElements, item, event, selectedIds, itemAnchorId))
+                setActiveId(item.id)
+                if (!event.shiftKey) setItemAnchorId(item.id)
+                setLastSelectedPane('intermediate')
+                setArtifactScrollVersion((version) => version + 1)
+              }}
+              onOpen={openElementEditor}
+              onMove={(item, direction, extend) => {
                 const next = moveKeyboardRangeSelection(
-                  doc.elements,
-                  activeId ?? e.id,
+                  visibleArtifactElements,
+                  activeId ?? item.id,
                   itemAnchorId,
-                  event.key === 'ArrowUp' ? -1 : 1,
-                  event.shiftKey,
-                  (item) => item.id
+                  direction,
+                  extend,
+                  (candidate) => candidate.id
                 )
                 if (next) {
                   setSelectedIds(next.selectedIds)
                   setActiveId(next.activeId)
                   setItemAnchorId(next.anchorId)
                   setLastSelectedPane('intermediate')
-                  requestAnimationFrame(() => {
-                    const row = document.querySelector<HTMLTableRowElement>(
-                      `[data-testid="intermediate-grid"] tr[data-row-id="${next.activeId}"]`
-                    )
-                    row?.focus()
-                    row?.scrollIntoView({ block: 'nearest' })
-                  })
                 }
-              } else if (event.key === ' ' || event.key === 'Enter') {
-                event.preventDefault()
-                setSelectedIds(new Set([e.id]))
-                setActiveId(e.id)
-                setItemAnchorId(e.id)
-                setLastSelectedPane('intermediate')
-                openElementEditor(e)
-              }
-            }}
-            testId="intermediate-grid"
-          />
+              }}
+            />
+          )}
         </div>
         <div
           style={{ minWidth: 0, overflow: 'auto', padding: 8, borderLeft: '1px solid var(--d2d-border)' }}
@@ -1045,25 +1080,17 @@ export function IntermediateDocumentEditor({
               onClick={() => setPreviewMode('structure')}
               data-testid="intermediate-preview-structure"
             >
-              構成アウトライン
+              structure_json
             </button>
           </div>
           {previewMode === 'visual' && <DocumentPreviewMetaControls options={previewMeta} onChange={setPreviewMeta} />}
           {previewMode === 'structure' ? (
-            <IntermediateStructureOutline
-              elements={doc.elements}
-              activeId={activeId}
-              onSelect={(element) => {
-                setSelectedIds(new Set([element.id]))
-                setActiveId(element.id)
-                setItemAnchorId(element.id)
-                setLastSelectedPane('intermediate')
-              }}
-            />
+            <StructuredJsonView value={doc.structure} testId="intermediate-structure-json" />
           ) : (
-            doc.elements.map((e) => (
+            (artifactListMode === 'outline' ? visibleArtifactElements : doc.elements).map((e) => (
               <article
                 key={e.id}
+                data-testid={`intermediate-preview-item-${e.id}`}
                 ref={(node) => {
                   if (node) previewRefs.current.set(e.id, node)
                   else previewRefs.current.delete(e.id)
@@ -1074,6 +1101,7 @@ export function IntermediateDocumentEditor({
                   setActiveId(e.id)
                   setItemAnchorId(e.id)
                   setLastSelectedPane('intermediate')
+                  setArtifactScrollVersion((version) => version + 1)
                 }}
                 onDoubleClick={() => openElementEditor(e)}
                 style={{ marginLeft: (e.level ?? 0) * 14 }}

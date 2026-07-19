@@ -69,6 +69,7 @@ export function ActivityBar(): React.JSX.Element {
         onClick={() => setActivity(id)}
       >
         <Icon width={20} height={20} />
+        <span className="responsive-button-label">{label}</span>
       </button>
     )
   }

@@ -25,6 +25,7 @@ export interface VirtualDataGridProps<T> {
   selectedRowIds?: ReadonlySet<string>
   activeRowId?: string | null
   scrollToRowId?: string | null
+  scrollToRowVersion?: number
   relatedRowIds?: ReadonlySet<string>
   accentRowIds?: ReadonlySet<string>
   isRowDisabled?: (row: T) => boolean
@@ -42,6 +43,7 @@ export function VirtualDataGrid<T>({
   selectedRowIds,
   activeRowId,
   scrollToRowId,
+  scrollToRowVersion,
   relatedRowIds,
   accentRowIds,
   isRowDisabled,
@@ -73,7 +75,7 @@ export function VirtualDataGrid<T>({
     if (!scrollToRowId) return
     const index = rows.findIndex((row) => row.id === scrollToRowId)
     if (index >= 0) virtualizer.scrollToIndex(index, { align: 'auto' })
-  }, [rows, scrollToRowId, virtualizer])
+  }, [rows, scrollToRowId, scrollToRowVersion, virtualizer])
 
   return (
     <div

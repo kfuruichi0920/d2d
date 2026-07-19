@@ -88,11 +88,22 @@ export function resetAllKeybindingOverrides(): void {
   notifyListeners()
 }
 
+const SHARED_TAB_BINDING_GROUPS = [
+  new Set(['editor.tab.previous', 'panel.tab.previous']),
+  new Set(['editor.tab.next', 'panel.tab.next'])
+]
+
+/** Editor/下Panelの同方向タブ移動だけは、フォーカス領域で振り分けるため同じキーを許可する。 */
+export function canShareKeybinding(firstCommandId: string, secondCommandId: string): boolean {
+  return SHARED_TAB_BINDING_GROUPS.some((group) => group.has(firstCommandId) && group.has(secondCommandId))
+}
+
 /** 同じ実効キーバインドを持つ別 Command を返す（衝突検出） */
 export function findKeybindingConflict(binding: string, excludeCommandId: string): CommandDefinition | null {
   const normalized = binding.toLowerCase()
   for (const def of listCommands()) {
     if (def.id === excludeCommandId) continue
+    if (canShareKeybinding(def.id, excludeCommandId)) continue
     const effective = effectiveKeybinding(def)
     if (effective && effective.toLowerCase() === normalized) return def
   }

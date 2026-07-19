@@ -45,6 +45,7 @@ export function WorkbenchShell(): React.JSX.Element {
   const primarySize = useWorkbenchStore((state) => state.primarySize)
   const secondarySize = useWorkbenchStore((state) => state.secondarySize)
   const panelSize = useWorkbenchStore((state) => state.panelSize)
+  const zoom = useWorkbenchStore((state) => state.zoom)
   const loadPersisted = useWorkbenchStore((state) => state.loadPersisted)
   const loadEditorPersisted = useEditorStore((state) => state.loadPersisted)
 
@@ -104,6 +105,13 @@ export function WorkbenchShell(): React.JSX.Element {
       }
     }
     window.addEventListener('pointerdown', handleMouseNavigation)
+    const handleZoomWheel = (event: WheelEvent): void => {
+      if (!event.ctrlKey) return
+      event.preventDefault()
+      const state = useWorkbenchStore.getState()
+      state.setZoom(state.zoom + (event.deltaY < 0 ? 10 : -10))
+    }
+    window.addEventListener('wheel', handleZoomWheel, { passive: false })
     const unwatchTheme = watchSystemTheme(() => useWorkbenchStore.getState().theme)
     const offEvents = onBackendEvent((event, payload) => {
       if (event === 'job.updated') {
@@ -145,13 +153,19 @@ export function WorkbenchShell(): React.JSX.Element {
       uninstallKeys()
       uninstallNav()
       window.removeEventListener('pointerdown', handleMouseNavigation)
+      window.removeEventListener('wheel', handleZoomWheel)
       unwatchTheme()
       offEvents()
     }
   }, [loadEditorPersisted, loadPersisted])
 
   return (
-    <div className="wb-root" data-testid="workbench">
+    <div
+      className="wb-root"
+      data-testid="workbench"
+      data-zoom={zoom}
+      style={{ zoom: zoom / 100, width: `${10000 / zoom}%`, height: `${10000 / zoom}%` }}
+    >
       <TitleBar />
       <GlobalButtonTooltips />
       <ScreenTextSearch />

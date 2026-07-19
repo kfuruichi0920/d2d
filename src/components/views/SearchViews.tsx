@@ -76,6 +76,7 @@ function SearchResultsTree({ response }: { response: SearchResponse }): React.JS
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [selectedUid, setSelectedUid] = useState<string | null>(null)
   const rootRef = useRef<HTMLDivElement>(null)
+  const resultRefs = useRef(new Map<string, HTMLButtonElement>())
   const groups = useMemo(() => {
     const result = new Map<string, SearchResultRow[]>()
     for (const row of response.results) result.set(row.entityType, [...(result.get(row.entityType) ?? []), row])
@@ -86,6 +87,10 @@ function SearchResultsTree({ response }: { response: SearchResponse }): React.JS
     setCollapsed(Object.fromEntries(groups.map(([type, rows]) => [type, rows.length > 10])))
     setSelectedUid(response.results[0]?.uid ?? null)
   }, [groups, response.results])
+
+  useEffect(() => {
+    if (selectedUid) resultRefs.current.get(selectedUid)?.scrollIntoView({ block: 'nearest' })
+  }, [collapsed, selectedUid])
 
   const visible = groups.flatMap(([type, rows]) => (collapsed[type] ? [] : rows))
   const open = (row: SearchResultRow): void => {
@@ -140,6 +145,10 @@ function SearchResultsTree({ response }: { response: SearchResponse }): React.JS
               <button
                 type="button"
                 key={row.uid}
+                ref={(node) => {
+                  if (node) resultRefs.current.set(row.uid, node)
+                  else resultRefs.current.delete(row.uid)
+                }}
                 className={`d2d-search-result ${selectedUid === row.uid ? 'selected' : ''}`}
                 data-testid={`search-result-${row.code}`}
                 onClick={() => open(row)}

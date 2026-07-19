@@ -18,6 +18,7 @@ function reset(): void {
     secondarySize: 280,
     panelSize: 200,
     theme: DEFAULT_THEME,
+    zoom: 100,
     activityOrder: [...DEFAULT_ACTIVITY_ORDER],
     persistKey: 'test'
   })
@@ -55,6 +56,15 @@ describe('workbench-store（P3-1、UI-038/040）', () => {
       secondarySize: 180,
       panelSize: 350
     })
+  })
+
+  it('Workbench表示倍率をブラウザ相当の50〜200%へ制限する（UI-054）', () => {
+    useWorkbenchStore.getState().setZoom(240)
+    expect(useWorkbenchStore.getState().zoom).toBe(200)
+    useWorkbenchStore.getState().setZoom(20)
+    expect(useWorkbenchStore.getState().zoom).toBe(50)
+    useWorkbenchStore.getState().setZoom(100)
+    expect(useWorkbenchStore.getState().zoom).toBe(100)
   })
 
   it('作業モードを切り替えてもWorkbench外周パネル状態を維持する（UI-041）', () => {

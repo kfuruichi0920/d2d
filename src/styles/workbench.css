@@ -235,7 +235,7 @@
 /* Title Bar */
 .wb-titlebar {
   display: grid;
-  grid-template-columns: auto minmax(240px, 480px) auto;
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 480px) minmax(0, 1fr);
   align-items: center;
   justify-content: space-between;
   gap: 10px;
@@ -299,12 +299,11 @@
 }
 .wb-menu-buttons {
   display: flex;
-  flex: 0 1 auto;
+  flex: 0 0 auto;
   align-items: center;
   gap: 3px;
   min-width: 0;
-  overflow-x: auto;
-  scrollbar-width: thin;
+  overflow: hidden;
 }
 .wb-navigation-buttons,
 .wb-stage-segment {
@@ -379,7 +378,7 @@
   flex: 1 1 320px;
   align-items: center;
   gap: 3px;
-  min-width: 100px;
+  min-width: 40px;
 }
 .wb-resource-address input {
   box-sizing: border-box;
@@ -426,10 +425,13 @@
   border-right: 1px solid var(--d2d-border);
 }
 .wb-activity-btn {
-  width: 36px;
-  height: 36px;
-  display: grid;
-  place-items: center;
+  width: 80px;
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 5px;
+  padding: 0 7px;
   border: none;
   border-left: 2px solid transparent;
   background: transparent;
@@ -1116,6 +1118,9 @@ mark.d2d-term {
   padding: 4px 0;
   background: var(--d2d-surface);
 }
+.document-preview-switch > button:first-of-type {
+  margin-left: auto;
+}
 .document-preview-switch .d2d-btn.active {
   color: var(--d2d-accent);
   border-color: var(--d2d-accent);
@@ -1532,13 +1537,15 @@ mark.d2d-term {
   justify-self: end;
   -webkit-app-region: no-drag;
 }
-.wb-layout-controls button {
-  display: inline-grid;
-  width: 27px;
+.wb-layout-controls > button,
+.wb-layout-controls > .wb-app-menu > .wb-menu-button {
+  display: inline-flex;
   min-width: 27px;
   height: 25px;
-  padding: 0;
-  place-items: center;
+  padding: 0 6px;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
   border: 1px solid var(--d2d-border);
   border-radius: var(--d2d-radius);
   background: var(--d2d-bg);
@@ -1546,11 +1553,13 @@ mark.d2d-term {
   cursor: pointer;
   white-space: nowrap;
 }
-.wb-layout-controls button:hover {
+.wb-layout-controls > button:hover,
+.wb-layout-controls > .wb-app-menu > .wb-menu-button:hover {
   color: var(--d2d-fg);
   background: var(--d2d-surface-hover);
 }
-.wb-layout-controls button.active {
+.wb-layout-controls > button.active,
+.wb-layout-controls > .wb-app-menu > .wb-menu-button.active {
   color: var(--d2d-accent);
   border-color: var(--d2d-accent);
   background: var(--d2d-selection-bg);
@@ -1595,7 +1604,8 @@ mark.d2d-term {
   color: var(--d2d-fg-muted);
 }
 @media (max-width: 900px) {
-  .wb-layout-controls button {
+  .wb-layout-controls > button,
+  .wb-layout-controls > .wb-app-menu > .wb-menu-button {
     width: 27px;
     min-width: 27px;
   }
@@ -3305,43 +3315,65 @@ mark.d2d-term {
   width: 100%;
 }
 
-/* ③中間データのstructure_json構成アウトライン（MID-003、UI-012）。 */
-.intermediate-structure-outline {
+/* ③中間成果物の階層Tree（MID-003、UI-012）。 */
+.intermediate-artifact-heading {
   display: flex;
-  flex-direction: column;
-  gap: 1px;
-  padding: 4px 0;
-}
-.intermediate-structure-outline > button {
-  display: grid;
-  grid-template-columns: auto auto minmax(0, 1fr);
+  min-height: 28px;
   align-items: center;
   gap: 6px;
-  min-height: 25px;
-  border: 0;
-  background: transparent;
-  color: var(--d2d-fg);
-  text-align: left;
-  cursor: pointer;
 }
-.intermediate-structure-outline > button:hover {
+.intermediate-artifact-view-actions {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+}
+.intermediate-artifact-view-actions .active {
+  border-color: var(--d2d-accent);
+  background: var(--d2d-selection-bg);
+}
+.intermediate-artifact-tree {
+  height: calc(100% - 28px);
+  overflow: auto;
+  border: 1px solid var(--d2d-border);
+  border-radius: var(--d2d-radius);
+}
+.intermediate-artifact-tree-row {
+  display: grid;
+  grid-template-columns: 18px auto auto minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+  min-height: 26px;
+  cursor: pointer;
+  outline: none;
+}
+.intermediate-artifact-tree-row:hover {
   background: var(--d2d-surface-hover);
 }
-.intermediate-structure-outline > button.active {
+.intermediate-artifact-tree-row.selected {
   background: var(--d2d-selection-bg);
   outline: 1px solid var(--d2d-accent);
   outline-offset: -1px;
 }
-.intermediate-structure-outline > button > span:last-child {
+.intermediate-artifact-tree-row > span:last-child {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.intermediate-tree-toggle {
+  width: 18px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--d2d-fg-muted);
+}
+.intermediate-tree-toggle:disabled {
+  opacity: 0.55;
 }
 .intermediate-outline-kind {
   color: var(--d2d-fg-muted);
   font-size: 10px;
 }
-
 /* Git作業ツリー／履歴のMonaco差分と項目単位表示（GIT-005/006）。 */
 .git-file-diff-link {
   min-width: 0;
@@ -3464,4 +3496,66 @@ mark.d2d-term {
 .git-semantic-diff main > header span {
   color: var(--d2d-fg-muted);
   font-size: 11px;
+}
+
+/* 全ボタンは通常時アイコン＋文字、狭幅時はアイコン中心へ遷移する（UI-053）。 */
+button[data-responsive-icon]::before {
+  flex: 0 0 auto;
+  content: attr(data-responsive-icon) / '';
+  font-size: 12px;
+  line-height: 1;
+}
+@media (max-width: 1180px) {
+  :root {
+    --d2d-activitybar-width: 44px;
+  }
+  .responsive-button-label {
+    display: none !important;
+  }
+  .wb-activity-btn {
+    width: 36px;
+    justify-content: center;
+    padding: 0;
+  }
+  .wb-layout-controls > button,
+  .wb-layout-controls > .wb-app-menu > .wb-menu-button {
+    width: 27px;
+    padding: 0;
+  }
+  button[data-responsive-icon] {
+    min-width: 24px;
+    gap: 0;
+    padding-inline: 5px;
+    font-size: 0 !important;
+  }
+  button[data-responsive-icon]::before {
+    font-size: 12px;
+  }
+  button[data-responsive-native-icon] {
+    min-width: 24px;
+    padding-inline: 5px;
+    font-size: 0 !important;
+  }
+  button[data-responsive-native-icon]::before {
+    content: attr(data-responsive-native-icon) / '';
+    font-size: 12px;
+  }
+  button[data-responsive-icon] > * {
+    display: none !important;
+  }
+  .wb-stage .count {
+    display: none;
+  }
+  .wb-resource-address {
+    flex-basis: 120px;
+  }
+  .wb-menu-dropdown button[data-responsive-icon] {
+    width: 100%;
+    gap: 8px;
+    padding: 4px 10px;
+    font-size: var(--d2d-font-size) !important;
+  }
+  .wb-menu-dropdown button[data-responsive-icon] > * {
+    display: initial !important;
+  }
 }

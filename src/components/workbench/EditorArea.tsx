@@ -157,6 +157,9 @@ function GroupView({ group }: { group: EditorGroup }): React.JSX.Element {
   return (
     <div
       className="wb-editor-group"
+      data-workbench-tab-region="editor"
+      tabIndex={-1}
+      onPointerDown={(event) => event.currentTarget.focus({ preventScroll: true })}
       data-testid={'editor-group-' + group.id}
       onDragOver={(event) => event.preventDefault()}
       onDrop={acceptDrop}
