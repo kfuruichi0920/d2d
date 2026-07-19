@@ -12,6 +12,7 @@ import { performRedo, performUndo } from './undo-service'
 import { navigateBack, navigateForward } from './navigation-history'
 import { OPEN_SCREEN_TEXT_SEARCH } from '../components/workbench/ScreenTextSearch'
 import { DEFAULT_ACTIVITY_ORDER, type Activity } from '../stores/workbench-store'
+import { openEmptyTab } from './empty-tab'
 
 /** サイドバー等の遅延マウントを待ってフォーカスする（W10） */
 function focusWhenVisible(selector: string): void {
@@ -283,6 +284,14 @@ export function registerBuiltinCommands(): void {
       const { uri, title, preview } = arg as { uri: string; title: string; preview?: boolean }
       editor().openResource(uri, title, { preview })
     }
+  })
+
+  registerCommand({
+    id: 'editor.newTab',
+    title: '新しい空のタブを開く',
+    category: '表示',
+    keybinding: 'Ctrl+T',
+    run: () => openEmptyTab()
   })
 
   registerCommand({

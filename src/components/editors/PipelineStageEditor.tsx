@@ -1,5 +1,5 @@
 /**
- * Pipeline Stage Overview（P3-7、UI-046/047）。
+ * Pipeline Stage Overview（P3-7、UI-046/047/056）。
  * ①〜④をソート可能な一覧として開き、①②のアーカイブ／論理削除と②③の読取プレビューを提供する。
  */
 import { Fragment, useCallback, useEffect, useMemo, useState, type KeyboardEvent } from 'react'
@@ -28,6 +28,7 @@ import {
   useDocumentPreviewMeta,
   type PreviewMetaOptions
 } from '../common/DocumentPreviewMeta'
+import { showContextMenu } from '../common/ContextMenu'
 
 export type PipelineStage = 'source' | 'extracted' | 'intermediate' | 'design'
 type SortDirection = 'asc' | 'desc'
@@ -455,7 +456,7 @@ export function PipelineStageEditor({ stage }: { stage: PipelineStage }): React.
                 取込…
               </button>
             )}
-            {stage === 'extracted' && <span>編集する場合は、EXPLOREから対象の抽出データを選択してください。</span>}
+            {stage === 'extracted' && <span>文書を右クリックすると抽出データを編集できます。</span>}
             {stage === 'intermediate' && (
               <button
                 type="button"
@@ -584,6 +585,19 @@ export function PipelineStageEditor({ stage }: { stage: PipelineStage }): React.
                     onDoubleClick={() =>
                       openResource(`extracted://${row.uid}`, `抽出: ${row.title ?? row.code}`, { preview: true })
                     }
+                    onContextMenu={(event) => {
+                      setSelectedUid(row.uid)
+                      showContextMenu(event, [
+                        {
+                          label: '抽出データを編集',
+                          testId: 'ctx-stage-edit-extracted',
+                          run: () =>
+                            openResource(`extracted://${row.uid}`, `抽出: ${row.title ?? row.code}`, {
+                              preview: false
+                            })
+                        }
+                      ])
+                    }}
                     data-testid={`stage-extracted-row-${row.code}`}
                   >
                     <td>
@@ -640,6 +654,9 @@ export function PipelineStageEditor({ stage }: { stage: PipelineStage }): React.
               selectedUid={selectedUid}
               orderedUids={intermediateOrderedUids}
               onSelect={setSelectedUid}
+              onEdit={(row) =>
+                openResource(`intermediate://${row.uid}`, `中間: ${row.title ?? row.code}`, { preview: false })
+              }
               onOpenArtifact={(artifact) => void ensureArtifact(artifact)}
               onRemoveSource={(row, sourceUid) => void removeIntermediateSource(row, sourceUid)}
               onArchive={(row) =>
@@ -741,6 +758,7 @@ function IntermediateHierarchy({
   selectedUid,
   orderedUids,
   onSelect,
+  onEdit,
   onOpenArtifact,
   onRemoveSource,
   onArchive,
@@ -755,6 +773,7 @@ function IntermediateHierarchy({
   selectedUid: string | null
   orderedUids: string[]
   onSelect: (uid: string) => void
+  onEdit: (row: IntermediateDocumentItem) => void
   onOpenArtifact: (artifact: ArtifactSetting) => void
   onRemoveSource: (row: IntermediateDocumentItem, sourceUid: string) => void
   onArchive: (row: IntermediateDocumentItem) => void
@@ -812,6 +831,17 @@ function IntermediateHierarchy({
                           tabIndex={0}
                           data-stage-row-uid={row?.uid ?? artifact.uid}
                           onClick={activate}
+                          onContextMenu={(event) => {
+                            if (!row) return
+                            onSelect(row.uid)
+                            showContextMenu(event, [
+                              {
+                                label: '中間データを編集',
+                                testId: 'ctx-stage-edit-intermediate',
+                                run: () => onEdit(row)
+                              }
+                            ])
+                          }}
                           onKeyDown={(event) => {
                             if (row) handleStageRowKey(event, row.uid, orderedUids, onSelect)
                             else if (event.key === 'Enter' || event.key === ' ') {

@@ -1,5 +1,5 @@
 /**
- * 汎用インパクト分析Editor（P9-5、TRACE-030〜039、UI-015）。
+ * 汎用インパクト分析Editor（P9-5、TRACE-030〜040、UI-015）。
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { invoke, onBackendEvent } from '../../services/backend'
@@ -9,7 +9,7 @@ import { useSelectionStore } from '../../stores/selection-store'
 
 interface ImpactScope {
   id: string
-  kind: 'design' | 'extracted' | 'intermediate' | 'resource_type'
+  kind: 'design' | 'extracted' | 'intermediate' | 'chunk' | 'resource_type'
   label: string
   description: string
   count: number

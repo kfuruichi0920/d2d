@@ -34,10 +34,16 @@ import { ReportPreviewEditor } from '../views/ReportViews'
 import { ResourceEditorPage } from '../editors/ResourceEditor'
 import { PipelineStageEditor, type PipelineStage } from '../editors/PipelineStageEditor'
 import { ResizeHandle } from './ResizeHandle'
+import { ResourceAddressListEditor, type ListableResourceScheme } from '../editors/ResourceAddressListEditor'
+import { EmptyEditor } from '../editors/EmptyEditor'
+import { openEmptyTab } from '../../services/empty-tab'
 
 const TAB_DRAG_TYPE = 'application/x-d2d-editor-tab'
 
 function resolveEditor(uri: string): React.JSX.Element {
+  if (uri.startsWith('empty://')) return <EmptyEditor />
+  const addressList = /^(original|extracted|intermediate|chunk|candidate|design|resource):\/\/$/.exec(uri)
+  if (addressList) return <ResourceAddressListEditor scheme={addressList[1] as ListableResourceScheme} />
   if (uri.startsWith('help://')) return <HelpEditor topic={uri.slice('help://'.length) as HelpTopic} />
   if (uri === 'project://current') return <DashboardEditor />
   if (uri.startsWith('stage://')) return <PipelineStageEditor stage={uri.slice('stage://'.length) as PipelineStage} />
@@ -236,6 +242,15 @@ function GroupView({ group }: { group: EditorGroup }): React.JSX.Element {
           </span>
         ))}
         <span className="wb-tab-actions">
+          <button
+            type="button"
+            title="新しいタブ (Ctrl+T)"
+            aria-label="新しいタブ"
+            data-testid={'editor-new-tab-' + group.id}
+            onClick={() => openEmptyTab(group.id)}
+          >
+            ＋
+          </button>
           <button
             type="button"
             title="左右に分割"

@@ -144,6 +144,7 @@ export const API_METHODS = [
   'resource.get',
   'resource.getMergeContext',
   'resource.linkDerived',
+  'resource.listAddresses',
   'resource.mergePreview',
   'resource.revise',
   'resource.types',

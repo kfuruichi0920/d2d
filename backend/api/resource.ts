@@ -3,6 +3,7 @@ import type { ApiRouter } from './router'
 import type { JobManager } from '../jobs/job-manager'
 import { BackendError } from './errors'
 import { requireProject } from '../project/project-service'
+import { listResourceAddresses } from '../navigation/resource-address-service'
 import {
   getResource,
   getResourceMergeContext,
@@ -21,6 +22,12 @@ function stringValue(value: Record<string, unknown>, key: string): string {
   return value[key] as string
 }
 export function registerResourceApi(router: ApiRouter, jobs: JobManager): void {
+  /** scheme:// の全UIDリンク一覧（P3-7、UI-057）。 */
+  router.register('resource.listAddresses', (params) => {
+    const p = record(params)
+    const { db, info } = requireProject()
+    return listResourceAddresses(db, info.projectUid, stringValue(p, 'scheme'))
+  })
   router.register('resource.types', () => RESOURCE_TYPE_DEFINITIONS)
   router.register('resource.get', (params) => {
     const p = record(params)

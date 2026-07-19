@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { resolveResourceAddress } from './resource-address'
 
-describe('resolveResourceAddress（UI-046）', () => {
+describe('resolveResourceAddress（UI-046/057）', () => {
   it('既知のEditor URIを受理する', () => {
     expect(resolveResourceAddress(' resource://019f-resource ')).toEqual({
       uri: 'resource://019f-resource',
@@ -19,7 +19,8 @@ describe('resolveResourceAddress（UI-046）', () => {
 
   it('不明なscheme・空識別子・空文字を拒否する', () => {
     expect(resolveResourceAddress('https://example.com')).toBeNull()
-    expect(resolveResourceAddress('resource://')).toBeNull()
+    expect(resolveResourceAddress('resource://')).toEqual({ uri: 'resource://', title: 'Resource一覧' })
+    expect(resolveResourceAddress('help')).toEqual({ uri: 'help://addresses', title: 'アドレスの使い方' })
     expect(resolveResourceAddress('')).toBeNull()
   })
 })

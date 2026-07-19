@@ -1,5 +1,5 @@
 /**
- * 汎用トレースマトリクス（P9-4、TRACE-026〜029、UI-014）。
+ * 汎用トレースマトリクス（P9-4、TRACE-026〜029/040、UI-014）。
  * Resource集合の行列表示とtrace_linkの一括追加・論理削除を提供する。
  */
 import type { Database } from 'better-sqlite3'
@@ -10,7 +10,7 @@ import { updateEntityStatus } from '../store/entity-registry'
 
 export interface TraceMatrixScope {
   id: string
-  kind: 'design' | 'extracted' | 'intermediate' | 'resource_type'
+  kind: 'design' | 'extracted' | 'intermediate' | 'chunk' | 'resource_type'
   label: string
   description: string
   count: number
@@ -59,7 +59,7 @@ const MATRIX_CATEGORIES = [
   'IMPL'
 ]
 
-/** 行・列へ配置可能なResource集合を列挙する。③文書は複数Resourceの表示グループとして返す。 */
+/** 行・列へ配置可能なResource集合を列挙する。③文書とチャンクは成果物単位の表示グループも返す。 */
 export function listTraceMatrixScopes(db: Database, projectUid: string): TraceMatrixScope[] {
   const scopes: TraceMatrixScope[] = []
   const aggregateCounts = db
@@ -67,9 +67,15 @@ export function listTraceMatrixScopes(db: Database, projectUid: string): TraceMa
       `SELECT
         (SELECT COUNT(*) FROM extracted_item i JOIN entity_registry e ON e.uid=i.uid WHERE e.project_uid=? AND e.status <> 'deleted') AS extracted,
         (SELECT COUNT(*) FROM intermediate_item i JOIN entity_registry e ON e.uid=i.uid WHERE e.project_uid=? AND e.status <> 'deleted') AS intermediate,
+        (SELECT COUNT(*) FROM chunk c JOIN entity_registry e ON e.uid=c.uid WHERE e.project_uid=? AND e.status <> 'deleted') AS chunk,
         (SELECT COUNT(*) FROM entity_registry e WHERE e.project_uid=? AND e.design_category IS NOT NULL AND e.status <> 'deleted') AS design`
     )
-    .get(projectUid, projectUid, projectUid) as { extracted: number; intermediate: number; design: number }
+    .get(projectUid, projectUid, projectUid, projectUid) as {
+    extracted: number
+    intermediate: number
+    chunk: number
+    design: number
+  }
   scopes.push(
     {
       id: 'all:extracted',
@@ -84,6 +90,13 @@ export function listTraceMatrixScopes(db: Database, projectUid: string): TraceMa
       label: '③ 全中間データ',
       description: '全中間文書のintermediate_item',
       count: aggregateCounts.intermediate
+    },
+    {
+      id: 'all:chunk',
+      kind: 'chunk',
+      label: 'チャンク 全件',
+      description: '全中間成果物のチャンク',
+      count: aggregateCounts.chunk
     },
     {
       id: 'all:design',
@@ -164,6 +177,34 @@ export function listTraceMatrixScopes(db: Database, projectUid: string): TraceMa
     })
   }
 
+  const chunkGroups = db
+    .prepare(
+      `SELECT d.uid, e.code, e.title, d.dev_phase_id, d.artifact_type_id, COUNT(ce.uid) AS count
+         FROM intermediate_document d
+         JOIN entity_registry e ON e.uid=d.uid AND e.project_uid=? AND e.status <> 'deleted'
+         JOIN chunk c ON c.intermediate_document_uid=d.uid
+         JOIN entity_registry ce ON ce.uid=c.uid AND ce.status <> 'deleted'
+        GROUP BY d.uid, e.code, e.title, d.dev_phase_id, d.artifact_type_id
+        ORDER BY d.dev_phase_id, d.artifact_type_id, e.code`
+    )
+    .all(projectUid) as {
+    uid: string
+    code: string
+    title: string | null
+    dev_phase_id: string
+    artifact_type_id: string
+    count: number
+  }[]
+  for (const doc of chunkGroups) {
+    scopes.push({
+      id: `chunk:${doc.uid}`,
+      kind: 'chunk',
+      label: `チャンク ${doc.dev_phase_id} / ${doc.artifact_type_id}: ${doc.title ?? doc.code}`,
+      description: '中間成果物配下のチャンク',
+      count: doc.count
+    })
+  }
+
   const resourceTypes = db
     .prepare(
       `SELECT entity_type AS type, COUNT(*) AS count FROM entity_registry
@@ -204,7 +245,7 @@ export function resolveMatrixResources(
     if (separator < 1) continue
     const kind = scopeId.slice(0, separator)
     const value = scopeId.slice(separator + 1)
-    if (kind === 'all' && ['extracted', 'intermediate', 'design'].includes(value)) {
+    if (kind === 'all' && ['extracted', 'intermediate', 'chunk', 'design'].includes(value)) {
       const sql =
         value === 'extracted'
           ? `SELECT i.uid, e.code, COALESCE(e.title, r.title) AS title, e.entity_type AS entityType,
@@ -216,7 +257,12 @@ export function resolveMatrixResources(
                       e.design_category AS designCategory, e.status, i.item_type AS itemType
                  FROM intermediate_item i JOIN entity_registry e ON e.uid=i.uid AND e.project_uid=? AND e.status <> 'deleted'
                  LEFT JOIN entity_registry r ON r.uid=i.resource_uid ORDER BY e.code`
-            : `SELECT uid, code, title, entity_type AS entityType, design_category AS designCategory,
+            : value === 'chunk'
+              ? `SELECT c.uid, e.code, e.title, e.entity_type AS entityType,
+                        e.design_category AS designCategory, e.status, NULL AS itemType
+                   FROM chunk c JOIN entity_registry e ON e.uid=c.uid AND e.project_uid=? AND e.status <> 'deleted'
+                  ORDER BY c.sort_order, e.code`
+              : `SELECT uid, code, title, entity_type AS entityType, design_category AS designCategory,
                       status, NULL AS itemType FROM entity_registry
                  WHERE project_uid=? AND design_category IS NOT NULL AND status <> 'deleted' ORDER BY code`
       add(db.prepare(sql).all(projectUid) as Omit<TraceMatrixResource, 'scopes'>[], scopeId)
@@ -268,6 +314,19 @@ export function resolveMatrixResources(
                JOIN entity_registry e ON e.uid=i.uid AND e.project_uid=? AND e.status <> 'deleted'
                LEFT JOIN entity_registry r ON r.uid=i.resource_uid
               WHERE i.intermediate_document_uid=? ORDER BY e.code`
+          )
+          .all(projectUid, value) as Omit<TraceMatrixResource, 'scopes'>[],
+        scopeId
+      )
+    } else if (kind === 'chunk') {
+      add(
+        db
+          .prepare(
+            `SELECT c.uid, e.code, e.title, e.entity_type AS entityType,
+                    e.design_category AS designCategory, e.status, NULL AS itemType
+               FROM chunk c
+               JOIN entity_registry e ON e.uid=c.uid AND e.project_uid=? AND e.status <> 'deleted'
+              WHERE c.intermediate_document_uid=? ORDER BY c.sort_order, e.code`
           )
           .all(projectUid, value) as Omit<TraceMatrixResource, 'scopes'>[],
         scopeId
