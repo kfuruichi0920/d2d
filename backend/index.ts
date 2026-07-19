@@ -112,7 +112,7 @@ function main(): void {
     return { status: 'success', output: result }
   })
 
-  // ②Word 抽出ジョブ（P5、EXT-001〜018）
+  // ②Word 抽出ジョブ（P5-4/P5-17、EXT-001〜019/042〜047）
   jobs.registerExecutor('extract.word', async (params, ctx) => {
     const { sourceDocumentUid } = params as { sourceDocumentUid: string }
     const { db, info, paths } = requireProject()

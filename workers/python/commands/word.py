@@ -1,101 +1,95 @@
-"""Word (.docx) 抽出コマンド（P5-4、EXT-001〜008/016〜018、sdd_function_architecture §11.3）。
+"""Word (.docx) 高度抽出コマンド（P5-4/P5-17、EXT-001〜008/016〜018/042〜048）。
 
-OpenXML を zipfile + xml.etree.ElementTree で直接解析し、原本忠実な文書構造を返す。
-- 見出し階層（pStyle / outlineLvl）、段落、箇条書き（numPr）、表（結合セル）、
-  図・画像（work_dir へ切り出し）、キャプション、文書メタデータ
-- 出力は work_dir/extract.json（output_ref）。正本反映は Local Backend が行う。
-
-未対応（P5 後続で拡張）: 脚注・コメント・変更履歴・ブックマーク・文書内参照・
-テキストボックス・数式。structure_json の粒度は sdd_data_structure §2.7 に従う。
+後方互換の ``elements`` を維持しながら、Word が DOCX に保存した構造・書式・
+描画要素・Story・Part・Relationship・Raw XML・未対応要素を保持する。
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import zipfile
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
+from commands.word_ooxml import (
+    FEATURE_DEFAULTS,
+    NS,
+    drawing_elements,
+    extract_auxiliary,
+    package_inventory,
+    paragraph_data,
+    parse_numbering,
+    qn,
+    read_xml,
+    unsupported_report,
+    validate_package,
+)
+
 EXTRACTOR_NAME = "d2d-word-extractor"
-EXTRACTOR_VERSION = "0.1.0"
-
-NS = {
-    "w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main",
-    "r": "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
-    "a": "http://schemas.openxmlformats.org/drawingml/2006/main",
-    "rel": "http://schemas.openxmlformats.org/package/2006/relationships",
-    "cp": "http://schemas.openxmlformats.org/package/2006/metadata/core-properties",
-    "dc": "http://purl.org/dc/elements/1.1/",
-}
-
-
-def _qn(tag: str) -> str:
-    prefix, local = tag.split(":")
-    return f"{{{NS[prefix]}}}{local}"
-
-
-def _para_text(p: ET.Element) -> str:
-    parts: list[str] = []
-    for t in p.iter(_qn("w:t")):
-        parts.append(t.text or "")
-    for _ in p.iter(_qn("w:tab")):
-        pass
-    return "".join(parts)
+EXTRACTOR_VERSION = "0.2.0"
 
 
 def _style_outline_levels(zf: zipfile.ZipFile) -> dict[str, int]:
-    """styles.xml から styleId → 見出しレベル（1始まり）の対応を得る。"""
     levels: dict[str, int] = {}
     try:
-        root = ET.fromstring(zf.read("word/styles.xml"))
+        root, _ = read_xml(zf, "word/styles.xml")
     except KeyError:
         return levels
-    for style in root.iter(_qn("w:style")):
-        style_id = style.get(_qn("w:styleId")) or ""
-        outline = style.find(f"{_qn('w:pPr')}/{_qn('w:outlineLvl')}")
+    for style in root.iter(qn("w:style")):
+        style_id = style.get(qn("w:styleId")) or ""
+        outline = style.find(f"{qn('w:pPr')}/{qn('w:outlineLvl')}")
         if outline is not None:
-            levels[style_id] = int(outline.get(_qn("w:val"), "0")) + 1
+            levels[style_id] = int(outline.get(qn("w:val"), "0")) + 1
         else:
-            m = re.fullmatch(r"[Hh]eading\s*(\d)|見出し\s*(\d)", style_id)
-            if m:
-                levels[style_id] = int(m.group(1) or m.group(2))
+            match = re.fullmatch(r"[Hh]eading\s*(\d)|見出し\s*(\d)", style_id)
+            if match:
+                levels[style_id] = int(match.group(1) or match.group(2))
     return levels
 
 
-def _relationships(zf: zipfile.ZipFile) -> dict[str, str]:
-    """document.xml.rels の rId → ターゲットパス。"""
-    rels: dict[str, str] = {}
+def _document_relationships(zf: zipfile.ZipFile) -> dict[str, dict]:
     try:
-        root = ET.fromstring(zf.read("word/_rels/document.xml.rels"))
+        root, _ = read_xml(zf, "word/_rels/document.xml.rels")
     except KeyError:
-        return rels
-    for rel in root.iter(_qn("rel:Relationship")):
-        rels[rel.get("Id", "")] = rel.get("Target", "")
-    return rels
+        return {}
+    return {
+        rel.get("Id", ""): {
+            "target": rel.get("Target", ""),
+            "type": rel.get("Type", "").rsplit("/", 1)[-1],
+            "external": rel.get("TargetMode") == "External",
+        }
+        for rel in root.iter(qn("rel:Relationship"))
+    }
 
 
 def _core_metadata(zf: zipfile.ZipFile) -> dict:
-    meta: dict = {}
     try:
-        root = ET.fromstring(zf.read("docProps/core.xml"))
+        root, _ = read_xml(zf, "docProps/core.xml")
     except KeyError:
-        return meta
-    for tag, key in [
+        return {}
+    result = {}
+    for name, key in [
         ("dc:title", "title"),
         ("dc:creator", "creator"),
         ("cp:lastModifiedBy", "last_modified_by"),
+        ("dcterms:created", "created"),
+        ("dcterms:modified", "modified"),
     ]:
-        el = root.find(_qn(tag))
-        if el is not None and el.text:
-            meta[key] = el.text
-    return meta
+        item = root.find(qn(name))
+        if item is not None and item.text:
+            result[key] = item.text
+    return result
 
 
 def _image_metadata(data: bytes, file_name: str) -> dict:
-    """stdlibだけで抽出画像の形式・ピクセル寸法・サイズを取得する（EDIT-086）。"""
     suffix = Path(file_name).suffix.lower().lstrip(".")
-    result = {"byte_size": len(data), "image_format": suffix.upper() or "UNKNOWN"}
+    result = {
+        "byte_size": len(data),
+        "image_format": suffix.upper() or "UNKNOWN",
+        "sha256": hashlib.sha256(data).hexdigest(),
+    }
     if data.startswith(b"\x89PNG\r\n\x1a\n") and len(data) >= 24:
         result.update({"width": int.from_bytes(data[16:20], "big"), "height": int.from_bytes(data[20:24], "big")})
     elif data.startswith(b"\xff\xd8"):
@@ -106,202 +100,246 @@ def _image_metadata(data: bytes, file_name: str) -> dict:
                 continue
             marker = data[offset + 1]
             if marker in {0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7, 0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF}:
-                result.update({"height": int.from_bytes(data[offset + 5 : offset + 7], "big"), "width": int.from_bytes(data[offset + 7 : offset + 9], "big")})
-                break
-            if offset + 4 > len(data):
+                result.update({
+                    "height": int.from_bytes(data[offset + 5 : offset + 7], "big"),
+                    "width": int.from_bytes(data[offset + 7 : offset + 9], "big"),
+                })
                 break
             length = int.from_bytes(data[offset + 2 : offset + 4], "big")
             offset += max(length + 2, 2)
     return result
 
 
-def _extract_images(p: ET.Element, rels: dict[str, str], zf: zipfile.ZipFile, media_dir: Path) -> list[dict]:
-    """段落内の画像（a:blip r:embed）を work_dir へ切り出し、参照情報を返す。"""
-    images: list[dict] = []
-    for blip in p.iter(_qn("a:blip")):
-        rid = blip.get(_qn("r:embed"))
-        target = rels.get(rid or "")
-        if not target:
+def _extract_images(
+    paragraph: ET.Element,
+    relationships: dict[str, dict],
+    zf: zipfile.ZipFile,
+    media_dir: Path,
+) -> list[dict]:
+    images = []
+    for blip in paragraph.iter(qn("a:blip")):
+        rid = blip.get(qn("r:embed")) or blip.get(qn("r:link"))
+        relationship = relationships.get(rid or "")
+        if not relationship:
             continue
-        src = f"word/{target}" if not target.startswith("word/") else target
+        if relationship["external"]:
+            images.append({
+                "relationship_id": rid,
+                "source": relationship["target"],
+                "external": True,
+            })
+            continue
+        target = relationship["target"]
+        source = f"word/{target}" if not target.startswith("word/") else target
         try:
-            data = zf.read(src)
+            data = zf.read(source)
         except KeyError:
             continue
         media_dir.mkdir(parents=True, exist_ok=True)
         file_name = Path(target).name
-        out_path = media_dir / file_name
-        out_path.write_bytes(data)
-        images.append({"file": f"media/{file_name}", "source": target, **_image_metadata(data, file_name)})
+        output = media_dir / file_name
+        output.write_bytes(data)
+        doc_pr = next(iter(paragraph.iter(qn("wp:docPr"))), None)
+        images.append({
+            "file": f"media/{file_name}",
+            "source": target,
+            "source_part": "/" + source,
+            "relationship_id": rid,
+            "external": False,
+            "alt_text": doc_pr.get("descr") if doc_pr is not None else None,
+            "title": doc_pr.get("title") if doc_pr is not None else None,
+            **_image_metadata(data, file_name),
+        })
     return images
 
 
-def extract_word(file_path: str, work_dir: str) -> dict:
-    """docx を解析し、structure_json 相当の辞書を返す（work_dir に画像を展開する）。"""
+def _table_data(table: ET.Element, numbering: dict[str, dict]) -> dict:
+    rows = []
+    logical_width = 0
+    for row_no, tr in enumerate(table.findall(qn("w:tr"))):
+        row = []
+        logical_col = 0
+        for tc in tr.findall(qn("w:tc")):
+            paragraphs = [paragraph_data(p, numbering) for p in tc.findall(qn("w:p"))]
+            tc_pr = tc.find(qn("w:tcPr"))
+            grid_span = 1
+            v_merge = None
+            if tc_pr is not None:
+                span = tc_pr.find(qn("w:gridSpan"))
+                merge = tc_pr.find(qn("w:vMerge"))
+                grid_span = int(span.get(qn("w:val"), "1")) if span is not None else 1
+                v_merge = merge.get(qn("w:val"), "continue") if merge is not None else None
+            cell = {
+                "text": "\n".join(p["text"] for p in paragraphs if p["text"]),
+                "row": row_no,
+                "column": logical_col,
+                "colspan": grid_span,
+                "v_merge": v_merge,
+                "paragraphs": paragraphs,
+                "nested_tables": [_table_data(nested, numbering) for nested in tc.findall(qn("w:tbl"))],
+            }
+            row.append(cell)
+            logical_col += grid_span
+        logical_width = max(logical_width, logical_col)
+        rows.append(row)
+    return {"rows": rows, "row_count": len(rows), "column_count": logical_width}
+
+
+def extract_word(file_path: str, work_dir: str, feature_overrides: dict | None = None) -> dict:
     work = Path(work_dir)
     work.mkdir(parents=True, exist_ok=True)
     media_dir = work / "media"
+    features = {**FEATURE_DEFAULTS, **(feature_overrides or {})}
+    elements: list[dict] = []
+    seq = 0
+
+    def next_id() -> str:
+        nonlocal seq
+        seq += 1
+        return f"e{seq}"
 
     with zipfile.ZipFile(file_path) as zf:
+        validate_package(zf)
         outline_levels = _style_outline_levels(zf)
-        rels = _relationships(zf)
+        relationships = _document_relationships(zf)
         metadata = _core_metadata(zf)
-        body_root = ET.fromstring(zf.read("word/document.xml"))
-        body = body_root.find(_qn("w:body"))
+        numbering = parse_numbering(zf)
+        parts, rels_by_owner = package_inventory(zf, work / "raw_xml" if features["preserve_raw_xml"] else None)
+        root, _ = read_xml(zf, "word/document.xml")
+        body = root.find(qn("w:body"))
         if body is None:
             raise ValueError("word/document.xml に w:body がありません")
 
-        elements: list[dict] = []
         heading_stack: list[str] = []
-        seq = 0
-
-        def next_id() -> str:
-            nonlocal seq
-            seq += 1
-            return f"e{seq}"
-
+        page_no = 1
         for child in body:
-            tag = child.tag
-            if tag == _qn("w:p"):
-                text = _para_text(child)
-                p_pr = child.find(_qn("w:pPr"))
-                style = None
-                num_pr = None
-                if p_pr is not None:
-                    style_el = p_pr.find(_qn("w:pStyle"))
-                    style = style_el.get(_qn("w:val")) if style_el is not None else None
-                    num_pr = p_pr.find(_qn("w:numPr"))
-
-                images = _extract_images(child, rels, zf, media_dir)
-                for img in images:
-                    elements.append(
-                        {
-                            "id": next_id(),
-                            "type": "figure",
-                            "image": img["file"],
-                            "caption": None,
-                            "width": img.get("width"),
-                            "height": img.get("height"),
-                            "byte_size": img["byte_size"],
-                            "image_format": img["image_format"],
-                            "section_path": "/".join(heading_stack),
-                        }
-                    )
-
-                if not text and not images:
-                    continue  # 空段落
-                if not text:
-                    continue
-
-                level = outline_levels.get(style or "", 0)
-                if level > 0:
-                    # 見出し: 章階層スタックを更新
-                    del heading_stack[level - 1 :]
-                    heading_stack.append(text)
-                    elements.append(
-                        {
-                            "id": next_id(),
-                            "type": "heading",
-                            "text": text,
-                            "level": level,
-                            "style": style,
-                            "section_path": "/".join(heading_stack[:-1]),
-                        }
-                    )
-                elif num_pr is not None:
-                    ilvl_el = num_pr.find(_qn("w:ilvl"))
-                    ilvl = int(ilvl_el.get(_qn("w:val"), "0")) if ilvl_el is not None else 0
-                    elements.append(
-                        {
-                            "id": next_id(),
-                            "type": "list_item",
-                            "text": text,
-                            "level": ilvl,
-                            "style": style,
-                            "section_path": "/".join(heading_stack),
-                        }
-                    )
-                elif style and style.lower() in ("caption", "図表番号"):
-                    elements.append(
-                        {
-                            "id": next_id(),
-                            "type": "caption",
-                            "text": text,
-                            "style": style,
-                            "section_path": "/".join(heading_stack),
-                        }
-                    )
-                else:
-                    elements.append(
-                        {
-                            "id": next_id(),
-                            "type": "paragraph",
-                            "text": text,
-                            "style": style,
-                            "section_path": "/".join(heading_stack),
-                        }
-                    )
-            elif tag == _qn("w:tbl"):
-                rows: list[list[dict]] = []
-                for tr in child.findall(_qn("w:tr")):
-                    row: list[dict] = []
-                    for tc in tr.findall(_qn("w:tc")):
-                        cell_text = "\n".join(
-                            _para_text(p) for p in tc.findall(_qn("w:p")) if _para_text(p)
-                        )
-                        tc_pr = tc.find(_qn("w:tcPr"))
-                        grid_span = 1
-                        v_merge = None
-                        if tc_pr is not None:
-                            gs = tc_pr.find(_qn("w:gridSpan"))
-                            if gs is not None:
-                                grid_span = int(gs.get(_qn("w:val"), "1"))
-                            vm = tc_pr.find(_qn("w:vMerge"))
-                            if vm is not None:
-                                v_merge = vm.get(_qn("w:val"), "continue")
-                        cell: dict = {"text": cell_text}
-                        if grid_span > 1:
-                            cell["colspan"] = grid_span
-                        if v_merge is not None:
-                            cell["v_merge"] = v_merge
-                        row.append(cell)
-                    rows.append(row)
-                elements.append(
-                    {
-                        "id": next_id(),
-                        "type": "table",
-                        "rows": rows,
-                        "row_count": len(rows),
-                        "column_count": max((len(r) for r in rows), default=0),
+            if child.tag == qn("w:p"):
+                paragraph = paragraph_data(child, numbering)
+                anchor_uid = next_id()
+                images = _extract_images(child, relationships, zf, media_dir)
+                for image in images:
+                    image_uid = next_id()
+                    elements.append({
+                        "id": image_uid,
+                        "uid": image_uid,
+                        "type": "figure",
+                        "element_type": "figure",
+                        "image": image.get("file"),
+                        "caption": None,
                         "section_path": "/".join(heading_stack),
+                        "story_type": "main",
+                        "page_no": page_no,
+                        "anchor_paragraph_uid": anchor_uid,
+                        **image,
+                    })
+                shapes = drawing_elements(child, next_id, anchor_uid, numbering, features)
+                if paragraph["text"] or paragraph["fields"] or paragraph["bookmarks"]:
+                    common = {
+                        "id": anchor_uid,
+                        "uid": anchor_uid,
+                        "text": paragraph["text"],
+                        "style": paragraph["style"],
+                        "section_path": "/".join(heading_stack),
+                        "story_type": "main",
+                        "page_no": page_no,
+                        "source_part": "/word/document.xml",
+                        "runs": paragraph["runs"],
+                        "paragraph_format": paragraph["paragraph_format"],
+                        "fields": paragraph["fields"] if features["extract_fields"] else [],
+                        "bookmarks": paragraph["bookmarks"],
                     }
-                )
+                    level = outline_levels.get(paragraph["style"] or "", 0)
+                    if level:
+                        del heading_stack[level - 1 :]
+                        common["section_path"] = "/".join(heading_stack)
+                        heading_stack.append(paragraph["text"])
+                        common.update({"type": "heading", "element_type": "heading", "level": level})
+                    elif paragraph["list_info"] is not None:
+                        common.update({
+                            "type": "list_item",
+                            "element_type": "list_item",
+                            "level": paragraph["list_info"]["level"],
+                            "list_info": paragraph["list_info"],
+                        })
+                    elif paragraph["style"] and paragraph["style"].lower() in {"caption", "図表番号"}:
+                        common.update({"type": "caption", "element_type": "caption"})
+                    else:
+                        common.update({"type": "paragraph", "element_type": "paragraph"})
+                    elements.append(common)
+                elements.extend(shapes)
+                if any(br.get(qn("w:type")) == "page" for br in child.iter(qn("w:br"))) or next(
+                    iter(child.iter(qn("w:lastRenderedPageBreak"))), None
+                ) is not None:
+                    page_no += 1
+            elif child.tag == qn("w:tbl"):
+                uid = next_id()
+                elements.append({
+                    "id": uid,
+                    "uid": uid,
+                    "type": "table",
+                    "element_type": "table",
+                    "section_path": "/".join(heading_stack),
+                    "story_type": "main",
+                    "page_no": page_no,
+                    "source_part": "/word/document.xml",
+                    **_table_data(child, numbering),
+                })
 
+        auxiliary = extract_auxiliary(zf, numbering, next_id, features)
+        unsupported = unsupported_report(parts, zf)
+
+    counts: dict[str, int] = {}
+    for element in elements:
+        counts[element["type"]] = counts.get(element["type"], 0) + 1
     result = {
         "metadata": {
             **metadata,
             "extractor_name": EXTRACTOR_NAME,
             "extractor_version": EXTRACTOR_VERSION,
             "source_file": Path(file_path).name,
+            "source_sha256": hashlib.sha256(Path(file_path).read_bytes()).hexdigest(),
+            "feature_flags": features,
+        },
+        "statistics": {
+            "element_count": len(elements),
+            "by_type": counts,
+            "story_count": len(auxiliary["stories"]),
+            "comment_count": len(auxiliary["comments"]),
+            "revision_count": len(auxiliary["revisions"]),
+            "unsupported_kind_count": len(unsupported),
         },
         "elements": elements,
+        **auxiliary,
+        "package": {"parts": parts, "relationships": rels_by_owner},
+        "unsupported_elements": unsupported,
+        "review_hints": {
+            "warnings": [
+                f"未対応OOXML要素 {sum(item['count'] for item in unsupported)} 件（Raw XML保持済み）"
+            ] if unsupported else [],
+        },
     }
-    out_path = work / "extract.json"
-    out_path.write_text(json.dumps(result, ensure_ascii=False, indent=1), encoding="utf-8")
+    output = work / "extract.json"
+    output.write_text(json.dumps(result, ensure_ascii=False, indent=1), encoding="utf-8")
     return {
-        "output_ref": str(out_path),
+        "output_ref": str(output),
         "element_count": len(elements),
-        "image_count": sum(1 for e in elements if e["type"] == "figure"),
+        "image_count": counts.get("figure", 0),
+        "shape_count": sum(counts.get(kind, 0) for kind in ("shape", "group_shape", "connector")),
+        "unsupported_count": sum(item["count"] for item in unsupported),
     }
 
 
 def run(job_id: str, parameters: dict, emit_progress, emit_result, emit_error) -> None:
     file_path = parameters.get("file_path")
     work_dir = parameters.get("work_dir")
+    features = parameters.get("features")
     if not file_path or not work_dir:
         emit_error(job_id, "invalid_parameters", "file_path と work_dir は必須です")
         return
-    emit_progress(job_id, 10, "docx を解析中")
-    summary = extract_word(str(file_path), str(work_dir))
+    if features is not None and not isinstance(features, dict):
+        emit_error(job_id, "invalid_parameters", "features はオブジェクトで指定してください")
+        return
+    emit_progress(job_id, 10, "DOCXパッケージとOOXMLを解析中")
+    summary = extract_word(str(file_path), str(work_dir), features)
     emit_progress(job_id, 90, f"要素 {summary['element_count']} 件を抽出")
     emit_result(job_id, "success", output=summary, output_ref=summary["output_ref"])

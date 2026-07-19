@@ -680,6 +680,8 @@ sequenceDiagram
 
 Word抽出ワーカーは `command = "extract.word"` を受け取り、入力 `.docx` と抽出設定から、次の情報を含む `result.output` または `output_ref` を返す。
 
+Word固有の高度抽出契約、セキュリティ上限、機能フラグ、対応済み／Raw保持のみの境界は sdd_word_extraction.md を正とする。
+
 | 区分 | 内容 | 保存先 |
 | --- | --- | --- |
 | 文書メタデータ | title、creator、created、modified、last_modified_by 等 | `resource_metadata` または `extracted_document.structure_json.metadata` |

@@ -11,7 +11,10 @@ import { generateMarkdown } from './markdown-gen'
 import { renameExtractedDocument } from './review-service'
 
 const SAMPLE_EXTRACTION: ExtractionOutput = {
-  metadata: { title: 'テスト仕様書', extractor_name: 'd2d-word-extractor', extractor_version: '0.1.0' },
+  metadata: { title: 'テスト仕様書', extractor_name: 'd2d-word-extractor', extractor_version: '0.2.0' },
+  statistics: { element_count: 6 },
+  package: { parts: [{ part_uri: '/word/document.xml' }] },
+  unsupported_elements: [],
   elements: [
     { id: 'e1', type: 'heading', text: '1. 概要', level: 1, section_path: '' },
     { id: 'e2', type: 'paragraph', text: '本書はテスト用である。', section_path: '1. 概要' },
@@ -199,6 +202,14 @@ describe('取込〜②抽出保存（P4-1 / P5-2）', () => {
       )
       .get() as { section_path: string }
     expect(loc.section_path).toBe('1. 概要')
+    // Word高度抽出のトップレベル情報をelements以外もstructure_jsonへ保持する（EXT-046）。
+    const storedStructure = db
+      .prepare(`SELECT structure_json FROM extracted_document WHERE uid = ?`)
+      .get(stored.extractedDocumentUid) as { structure_json: string }
+    const structure = JSON.parse(storedStructure.structure_json) as Record<string, unknown>
+    expect(structure.statistics).toEqual({ element_count: 6 })
+    expect(structure.package).toEqual({ parts: [{ part_uri: '/word/document.xml' }] })
+    expect(structure.unsupported_elements).toEqual([])
   })
 })
 

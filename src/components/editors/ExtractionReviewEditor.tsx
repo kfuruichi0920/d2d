@@ -57,7 +57,10 @@ const TYPE_LABELS: Record<string, string> = {
   list_item: 'リスト',
   table: '表',
   figure: '図',
-  caption: 'キャプション'
+  caption: 'キャプション',
+  shape: '図形',
+  group_shape: 'グループ図形',
+  connector: 'コネクタ'
 }
 
 function FigurePreview({ element }: { element: ReviewElement }): React.JSX.Element {

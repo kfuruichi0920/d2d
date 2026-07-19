@@ -8,7 +8,7 @@
 - 完了: P0〜P13（クリティカルパス完走、MS6 相当まで）
 - 残り: **P14**（性能・オフライン確認・残 TBD-06〜08・パッケージング・商用版）、
   **P5 の他形式抽出**（Excel / PowerPoint / PDF / Visio / テキスト系、EXT-014/015）
-- テスト規模: ユニット 241 件 / pytest 10 件 / E2E 25 件（すべて成功の状態で引き渡し）
+- テスト規模: ユニット 242 件 / pytest 16 件 / E2E 25 件（すべて成功の状態で引き渡し）
 
 ## フェーズ履歴（要点のみ）
 
@@ -59,6 +59,7 @@
 | P3/P7追加            | zoom縮小余白解消、共通ボタンレスポンシブ撤回、抽出／中間限定の明示アイコン、Activity Barコンパクト化、プレビュー上下キー／一覧中央scroll（Unit 231／E2E 25）                              | 本コミット      |
 | P3/P7/P10追加        | Editorタブ固定、Resource／テキスト編集のEditor統合・アドレスコピー、LLMアウトライン文脈、管理用特記事項、種別別定義、Monaco校正差分（schema 1.9.0、Unit 237／pytest 10／E2E 25）          | 本コミット      |
 | P7/P8/P10追加        | セマンティック非選択プレビュー／選択時直接編集・Editor統合撤回、チャンク由来based_on、図／表／コードの説明・派生Resource・画像LLM入力、表セルUI（schema 1.10.0、Unit 241／E2E 25）        | 本コミット      |
+| P5-17                | Word高度抽出: リスト定義、Run書式、DrawingML/VML図形・グループ・コネクタ、Story・校閲、Part/Relationship・Raw XML・未対応レポート・安全上限（Unit 242／pytest 16／E2E 25） | 本コミット      |
 
 ## 恒久制約（違反するとビルド/実行が壊れる、または設計方針違反）
 
@@ -76,6 +77,7 @@
 - スキーマ変更は `backend/db/migrations.ts` に追記（バックアップ → DDL → 版数更新）。現在 1.10.0（図番号／キャプション、表／コード説明を追加）。
 - ②抽出レビューの選択・状態更新・構造プレビュー・Properties は `ReviewElement` 共通契約で実装し、
   Word 固有にしない。今後の Excel / PowerPoint / PDF / Visio / テキスト系も同じ操作体系へ接続する。
+- Word高度抽出の正本は `extracted_document.structure_json` 全体と `blobs/extracted/job-*/raw_xml/`。`storeExtractionResult` は `metadata`／`elements` だけを再構成せず、ワーカーのトップレベル（statistics、stories、comments、revisions、package、unsupported_elements、review_hints）を保持した上で `elements[].resource_uid` だけを付加する。
 - Python ワーカーは stdin/stdout とも UTF-8 ラップ必須（CP932 化け）。pytest はシステム Python
   （miniconda）で実行（PATH 先頭の venv に pip が無い）。
 - Workbench の文字サイズはツール全体設定 `theme.fontSize`（10〜20px、既定13px）で管理し、通常UIとMonacoへ即時反映する。
@@ -175,8 +177,8 @@
 
 - P14 一式（性能 NFR-001〜005 実測、オフライン確認、TBD-06〜08、
   Java/Graphviz/PlantUML/MeCab 同梱パッケージング P14-5、pymupdf 商用版 P14-6）
-- P5 他形式抽出: Excel / PowerPoint / PDF / Visio / テキスト系（P5-7〜14）、
-  Word 拡張（脚注・コメント・変更履歴・テキストボックス・数式）
+- P5 他形式抽出: Excel / PowerPoint / PDF / Visio / テキスト系（P5-7〜14）
+- Word高度抽出の残り: SmartArt、チャート、OLE、OMML、複雑なコンテンツコントロールの意味モデル化、スタイル／テーマ継承後の有効書式、コメント返信・解決状態、改訂の変更前後ビュー、コネクタnative ID→抽出UID解決、全図形属性・グループ座標変換、ZIP圧縮率・OSレベル時間／メモリ制限・マルウェアスキャン。現時点ではPart inventory、Raw XML、未対応要素レポートで保持・可視化する。
 - Undo/Redo（NFR-012）接続済み: ②レビュー状態・②名称変更・①②③アーカイブ・①②③論理削除（restore API）・
   ③レビュー状態・マトリクスセル操作（toggle常時、add/deleteは完全逆転時のみ）・用語状態変更。
   未接続: ③要素の追加・編集・複製・削除・マージ・分割（新Resource作成／structure_json位置の復元が必要）、

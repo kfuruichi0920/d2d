@@ -16,7 +16,7 @@ import { statSync } from 'node:fs'
 
 export interface ExtractionElement {
   id: string
-  type: 'heading' | 'paragraph' | 'list_item' | 'table' | 'figure' | 'caption'
+  type: 'heading' | 'paragraph' | 'list_item' | 'table' | 'figure' | 'caption' | 'shape' | 'group_shape' | 'connector'
   text?: string
   level?: number
   style?: string | null
@@ -36,6 +36,7 @@ export interface ExtractionElement {
 export interface ExtractionOutput {
   metadata: Record<string, unknown> & { extractor_name?: string; extractor_version?: string }
   elements: ExtractionElement[]
+  [key: string]: unknown
 }
 
 export interface StoreExtractionInput {
@@ -232,7 +233,7 @@ export function storeExtractionResult(db: Database, input: StoreExtractionInput)
 
     // 4) structure_json を確定（要素→リソース UID 対応を含めて保持）し、抽出完了へ
     const structureJson = JSON.stringify({
-      metadata: extraction.metadata,
+      ...extraction,
       elements: extraction.elements.map((e) => ({ ...e, resource_uid: resourceUidByElementId.get(e.id) }))
     })
     db.prepare(`UPDATE extracted_document SET structure_json = ?, extraction_status = 'success' WHERE uid = ?`).run(
