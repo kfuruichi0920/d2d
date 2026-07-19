@@ -2,6 +2,7 @@
  * ④設計モデルのツリー・要素ビューア（P8-6、V-04、UI-013）。
  */
 import { useCallback, useEffect, useState } from 'react'
+import { SerendieSymbolCube, SerendieSymbolFolderFilled } from '@serendie/symbols'
 import { invoke, onBackendEvent } from '../../services/backend'
 import { useEditorStore } from '../../stores/editor-store'
 import { useJobsStore } from '../../stores/jobs-store'
@@ -52,7 +53,8 @@ export function DesignModelTree(): React.JSX.Element {
 
   return (
     <details open className="d2d-explorer-section" data-testid="design-tree">
-      <summary className="d2d-explorer-section-header">
+      <summary className="d2d-explorer-section-header" role="treeitem" tabIndex={-1} data-explorer-treeitem>
+        <SerendieSymbolFolderFilled width={16} height={16} className="d2d-explorer-folder-icon" />
         <span className="d2d-explorer-section-title">④設計モデル</span>
         <span className="d2d-explorer-section-count">{elements.length}</span>
       </summary>
@@ -60,13 +62,22 @@ export function DesignModelTree(): React.JSX.Element {
         <div
           key={element.uid}
           className="d2d-list-row"
+          role="treeitem"
+          tabIndex={-1}
+          data-explorer-treeitem
           data-testid={`design-el-${element.code}`}
           title={`名称: ${element.title ?? element.code}\nID: ${element.code}\n分類: ${element.design_category}\n種別: ${element.entity_type}\n状態: ${element.status}${element.description ? `\n説明: ${element.description}` : ''}`}
           onClick={() => openResource(`design://${element.uid}`, element.code, { preview: true })}
         >
-          <span className="d2d-badge status-running">{element.design_category}</span>
-          <span style={{ color: 'var(--d2d-fg-muted)', fontSize: 11 }}>{element.code}</span>
-          <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{element.title}</span>
+          <SerendieSymbolCube width={15} height={15} className="d2d-explorer-resource-icon is-design" />
+          <span className="d2d-explorer-resource-name">
+            <span className="d2d-explorer-resource-code">{element.code}</span>
+            {element.title}
+          </span>
+          <span className="d2d-explorer-tags">
+            <span className="d2d-badge status-running">{element.design_category}</span>
+            <ReviewStatusBadge status={reviewStateFromEntityStatus(element.status)} />
+          </span>
         </div>
       ))}
     </details>

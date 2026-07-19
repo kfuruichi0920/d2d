@@ -49,6 +49,9 @@
   --d2d-border: #3a3d45;
   --d2d-shadow: rgba(0, 0, 0, 0.5);
   --d2d-selection-bg: color-mix(in srgb, var(--d2d-accent) 28%, transparent);
+  --d2d-button-bg: var(--d2d-surface-raised);
+  --d2d-button-fg: var(--d2d-fg);
+  --d2d-button-border: var(--d2d-border);
 }
 
 /* 表示モード: light */
@@ -63,4 +66,7 @@
   --d2d-border: #d3d7dd;
   --d2d-shadow: rgba(0, 0, 0, 0.18);
   --d2d-selection-bg: color-mix(in srgb, var(--d2d-accent) 18%, transparent);
+  --d2d-button-bg: var(--d2d-surface-raised);
+  --d2d-button-fg: var(--d2d-fg);
+  --d2d-button-border: var(--d2d-border);
 }

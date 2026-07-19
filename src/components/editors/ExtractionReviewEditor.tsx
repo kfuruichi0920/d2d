@@ -8,11 +8,14 @@ import { invoke, onBackendEvent } from '../../services/backend'
 import { useJobsStore } from '../../stores/jobs-store'
 import { useProjectStore } from '../../stores/project-store'
 import { useSelectionStore, type ExtractedItemSelection } from '../../stores/selection-store'
+import { useResourceNavigationStore } from '../../stores/resource-navigation-store'
 import { VirtualDataGrid } from '../common/VirtualDataGrid'
 import { StructuredJsonView } from '../common/StructuredJsonView'
 import { DocumentPreviewMetaControls, useDocumentPreviewMeta } from '../common/DocumentPreviewMeta'
 import { reviewStateFromEntityStatus, ReviewStatusBadge } from '../common/review'
 import { ResizablePaneGroup } from '../workbench/ResizablePaneGroup'
+import { pushUndo } from '../../services/undo-service'
+import { useEscapeToClose } from '../common/useEscapeToClose'
 
 interface TableCell {
   text: string
@@ -131,10 +134,13 @@ export function ExtractionReviewEditor({ uid }: { uid: string }): React.JSX.Elem
   const [renameTitle, setRenameTitle] = useState('')
   const previewRefs = useRef(new Map<string, HTMLElement>())
   const notify = useJobsStore((state) => state.notify)
+  // 名称変更モーダルは Escape で閉じる（W10）
+  useEscapeToClose(renameOpen, () => setRenameOpen(false))
   const setExtractedItems = useSelectionStore((state) => state.setExtractedItems)
   const clearExtractedItems = useSelectionStore((state) => state.clearExtractedItems)
   const setSelectedItem = useSelectionStore((state) => state.setSelectedItem)
   const clearSelectedItem = useSelectionStore((state) => state.clearSelectedItem)
+  const navigationTarget = useResourceNavigationStore((state) => state.target)
 
   const load = useCallback(async () => {
     const result = await invoke<ExtractedDoc>('extracted.get', { uid })
@@ -160,6 +166,19 @@ export function ExtractionReviewEditor({ uid }: { uid: string }): React.JSX.Elem
       }),
     [uid]
   )
+
+  useEffect(() => {
+    if (!doc || navigationTarget?.uri !== `extracted://${uid}`) return
+    const target = doc.elements.find(
+      (element) =>
+        (navigationTarget.itemUid && element.review?.item_uid === navigationTarget.itemUid) ||
+        (navigationTarget.resourceUid && element.resource_uid === navigationTarget.resourceUid)
+    )
+    if (!target) return
+    setSelectedIds(new Set([target.id]))
+    setActiveId(target.id)
+    setAnchorId(target.id)
+  }, [doc, navigationTarget, uid])
 
   useEffect(() => {
     if (!doc) return
@@ -281,16 +300,59 @@ export function ExtractionReviewEditor({ uid }: { uid: string }): React.JSX.Elem
     })
   }
 
+  const onPreviewKeyDown = (element: ReviewElement, event: React.KeyboardEvent<HTMLElement>): void => {
+    if (!doc || (event.key !== 'ArrowDown' && event.key !== 'ArrowUp')) return
+    event.preventDefault()
+    const index = doc.elements.findIndex((item) => item.id === element.id)
+    const nextIndex = Math.min(Math.max(index + (event.key === 'ArrowDown' ? 1 : -1), 0), doc.elements.length - 1)
+    const nextElement = doc.elements[nextIndex]
+    if (!nextElement) return
+    if (event.shiftKey) selectRange(nextElement.id, event.ctrlKey || event.metaKey)
+    else {
+      setSelectedIds(new Set([nextElement.id]))
+      setAnchorId(nextElement.id)
+    }
+    setActiveId(nextElement.id)
+    requestAnimationFrame(() => previewRefs.current.get(nextElement.id)?.focus())
+  }
+
+  const applyStatuses = async (groups: { resourceUids: string[]; status: ReviewStatus }[]): Promise<void> => {
+    for (const group of groups) {
+      if (group.resourceUids.length === 0) continue
+      const result = await invoke<{ updatedCount: number }>('extracted.updateItemStatuses', {
+        extractedDocumentUid: uid,
+        resourceUids: group.resourceUids,
+        status: group.status
+      })
+      if (!result.ok) throw new Error(result.error.message)
+    }
+    await load()
+  }
+
   const updateStatus = async (elements: ReviewElement[], status: ReviewStatus): Promise<void> => {
-    const resourceUids = elements.flatMap((element) => (element.resource_uid ? [element.resource_uid] : []))
+    const targets = elements.filter((element) => element.resource_uid)
+    const resourceUids = targets.map((element) => element.resource_uid!)
     if (resourceUids.length === 0) return
+    // Undo 用に変更前状態をグループ化して控える（W4、NFR-012）。
+    const previousGroups = new Map<ReviewStatus, string[]>()
+    for (const element of targets) {
+      const previous = (element.review?.status ?? 'draft') as ReviewStatus
+      previousGroups.set(previous, [...(previousGroups.get(previous) ?? []), element.resource_uid!])
+    }
     const result = await invoke<{ updatedCount: number }>('extracted.updateItemStatuses', {
       extractedDocumentUid: uid,
       resourceUids,
       status
     })
-    if (result.ok) await load()
-    else notify('error', 'レビュー状態を更新できませんでした', result.error.message)
+    if (result.ok) {
+      await load()
+      pushUndo({
+        label: `②レビュー状態の変更（${resourceUids.length}件 → ${status}）`,
+        undo: () =>
+          applyStatuses([...previousGroups.entries()].map(([prev, uids]) => ({ resourceUids: uids, status: prev }))),
+        redo: () => applyStatuses([{ resourceUids, status }])
+      })
+    } else notify('error', 'レビュー状態を更新できませんでした', result.error.message)
   }
 
   const cycleStatus = (element: ReviewElement): void => {
@@ -311,6 +373,7 @@ export function ExtractionReviewEditor({ uid }: { uid: string }): React.JSX.Elem
   const renameDocument = async (): Promise<void> => {
     const title = renameTitle.trim()
     if (!title) return
+    const previousTitle = doc?.title ?? null
     const result = await invoke<{ title: string }>('extracted.rename', { uid, title })
     if (!result.ok) {
       notify('error', '抽出データの名称を変更できませんでした', result.error.message)
@@ -319,6 +382,21 @@ export function ExtractionReviewEditor({ uid }: { uid: string }): React.JSX.Elem
     setDoc((current) => (current ? { ...current, title } : current))
     setRenameOpen(false)
     notify('info', '抽出データの名称を変更しました')
+    if (previousTitle && previousTitle !== title) {
+      pushUndo({
+        label: `②名称変更: ${previousTitle} → ${title}`,
+        undo: async () => {
+          const undone = await invoke('extracted.rename', { uid, title: previousTitle })
+          if (!undone.ok) throw new Error(undone.error.message)
+          setDoc((current) => (current ? { ...current, title: previousTitle } : current))
+        },
+        redo: async () => {
+          const redone = await invoke('extracted.rename', { uid, title })
+          if (!redone.ok) throw new Error(redone.error.message)
+          setDoc((current) => (current ? { ...current, title } : current))
+        }
+      })
+    }
   }
   const columns: ColumnDef<ReviewElement, unknown>[] = [
     {
@@ -367,7 +445,8 @@ export function ExtractionReviewEditor({ uid }: { uid: string }): React.JSX.Elem
         <span style={{ flex: 1 }} />
         <button
           type="button"
-          className="d2d-btn small"
+          className="d2d-btn small dense-editor-action"
+          data-editor-icon="✎"
           data-testid="rename-extracted"
           onClick={() => {
             setRenameTitle(doc.title ?? doc.code)
@@ -378,7 +457,8 @@ export function ExtractionReviewEditor({ uid }: { uid: string }): React.JSX.Elem
         </button>
         <button
           type="button"
-          className="d2d-btn small"
+          className="d2d-btn small dense-editor-action"
+          data-editor-icon="✓"
           disabled={selectedElements.length === 0}
           onClick={() => void updateStatus(selectedElements, 'approved')}
           data-testid="selected-confirm"
@@ -387,7 +467,8 @@ export function ExtractionReviewEditor({ uid }: { uid: string }): React.JSX.Elem
         </button>
         <button
           type="button"
-          className="d2d-btn small"
+          className="d2d-btn small dense-editor-action"
+          data-editor-icon="!"
           disabled={selectedElements.length === 0}
           onClick={() => void updateStatus(selectedElements, 'review')}
           data-testid="selected-needsfix"
@@ -396,7 +477,8 @@ export function ExtractionReviewEditor({ uid }: { uid: string }): React.JSX.Elem
         </button>
         <button
           type="button"
-          className="d2d-btn small"
+          className="d2d-btn small dense-editor-action"
+          data-editor-icon="×"
           disabled={selectedElements.length === 0}
           onClick={() => void updateStatus(selectedElements, 'rejected')}
           data-testid="selected-reject"
@@ -405,7 +487,8 @@ export function ExtractionReviewEditor({ uid }: { uid: string }): React.JSX.Elem
         </button>
         <button
           type="button"
-          className="d2d-btn primary"
+          className="d2d-btn primary dense-editor-action"
+          data-editor-icon="★"
           onClick={() => void approveAll()}
           disabled={doc.status === 'approved'}
           data-testid="approve-all-button"
@@ -430,7 +513,8 @@ export function ExtractionReviewEditor({ uid }: { uid: string }): React.JSX.Elem
           <div className="document-preview-switch" aria-label="抽出データのプレビュー表示">
             <button
               type="button"
-              className={`d2d-btn small${previewMode === 'visual' ? ' active' : ''}`}
+              className={`d2d-btn small dense-editor-action${previewMode === 'visual' ? ' active' : ''}`}
+              data-editor-icon="▤"
               onClick={() => setPreviewMode('visual')}
               data-testid="extraction-preview-visual"
             >
@@ -438,7 +522,8 @@ export function ExtractionReviewEditor({ uid }: { uid: string }): React.JSX.Elem
             </button>
             <button
               type="button"
-              className={`d2d-btn small${previewMode === 'structure' ? ' active' : ''}`}
+              className={`d2d-btn small dense-editor-action${previewMode === 'structure' ? ' active' : ''}`}
+              data-editor-icon="{}"
               onClick={() => setPreviewMode('structure')}
               data-testid="extraction-preview-structure"
             >
@@ -460,6 +545,8 @@ export function ExtractionReviewEditor({ uid }: { uid: string }): React.JSX.Elem
                   }}
                   data-testid={`preview-item-${element.id}`}
                   className={`extraction-preview-item${selected ? ' selected' : ''}${activeId === element.id ? ' active' : ''}`}
+                  tabIndex={0}
+                  onKeyDown={(event) => onPreviewKeyDown(element, event)}
                   onClick={() => {
                     setSelectedIds(new Set([element.id]))
                     setActiveId(element.id)

@@ -11,6 +11,14 @@ import { requireProject } from '../project/project-service'
 import { previewLlm, resolveLlmSettings } from '../llm/llm-service'
 import type { ChatMessage } from '../llm/providers'
 import {
+  buildConnectionTestMessages,
+  buildDesignCandidateMessages,
+  buildResourceMergeMessages,
+  buildSemanticTermMessages,
+  type LlmRequestOperation,
+  type ResourceMergeSource
+} from '../llm/request-messages'
+import {
   getPromptTemplate,
   listPromptTemplates,
   renderTemplate,
@@ -54,13 +62,97 @@ export function registerLlmApi(router: ApiRouter, jobs: JobManager, settings: Se
     return previewLlm(settings, project.info.rootPath, asMessages(p.messages))
   })
 
+  /** 画面別の既定プロンプトと送信本文を構築する。Providerへの送信・ジョブ登録は行わない（LLM-024/040）。 */
+  router.register('llm.prepareRequest', (params) => {
+    const p = asRecord(params)
+    const operation = String(p.operation ?? '') as LlmRequestOperation
+    const context = asRecord(p.context ?? {})
+    const { db } = requireProject()
+    if (operation === 'connection-test') {
+      return {
+        operation,
+        purpose: 'other',
+        processName: 'connection-test',
+        jsonMode: false,
+        messages: buildConnectionTestMessages()
+      }
+    }
+    if (operation === 'semantic-terms') {
+      return {
+        operation,
+        purpose: 'glossary',
+        processName: 'semantic-term-candidates',
+        jsonMode: true,
+        messages: buildSemanticTermMessages(String(context.text ?? ''))
+      }
+    }
+    if (operation === 'design-candidates') {
+      const chunkUid = String(context.chunkUid ?? '')
+      if (!chunkUid) throw new BackendError('validation', 'chunkUidは必須です', '')
+      return {
+        operation,
+        purpose: 'classify',
+        processName: 'design-candidates',
+        jsonMode: true,
+        messages: buildDesignCandidateMessages(db, chunkUid)
+      }
+    }
+    if (operation === 'resource-merge') {
+      const targetType = String(context.targetType ?? '')
+      const sources = Array.isArray(context.sources) ? (context.sources as ResourceMergeSource[]) : []
+      return {
+        operation,
+        purpose: 'other',
+        processName: 'resource-merge',
+        jsonMode: true,
+        messages: buildResourceMergeMessages(targetType, sources)
+      }
+    }
+    throw new BackendError('validation', `未対応のLLM問い合わせです: ${operation}`, '')
+  })
+
+  /** 確認画面で承認済みのメッセージだけを対応ジョブへ登録する（LLM-040）。 */
+  router.register('llm.runConfirmed', (params) => {
+    const p = asRecord(params)
+    const operation = String(p.operation ?? '') as LlmRequestOperation
+    const context = asRecord(p.context ?? {})
+    const messages = asMessages(p.messages)
+    const promptTemplateUid = typeof p.promptTemplateUid === 'string' ? p.promptTemplateUid : undefined
+    requireProject()
+    if (operation === 'connection-test' || operation === 'semantic-terms') {
+      return jobs.enqueue('llm.run', {
+        messages,
+        processName: operation === 'connection-test' ? 'connection-test' : 'semantic-term-candidates',
+        jsonMode: operation === 'semantic-terms',
+        promptTemplateUid
+      })
+    }
+    if (operation === 'design-candidates') {
+      const chunkUid = String(context.chunkUid ?? '')
+      if (!chunkUid) throw new BackendError('validation', 'chunkUidは必須です', '')
+      return jobs.enqueue('design.generateCandidates', { chunkUid, messages, promptTemplateUid })
+    }
+    if (operation === 'resource-merge') {
+      const targetType = String(context.targetType ?? '')
+      const sources = Array.isArray(context.sources) ? (context.sources as ResourceMergeSource[]) : []
+      buildResourceMergeMessages(targetType, sources)
+      return jobs.enqueue('resource.mergeCandidate', { targetType, sources, messages, promptTemplateUid })
+    }
+    throw new BackendError('validation', `未対応のLLM問い合わせです: ${operation}`, '')
+  })
+
   /** LLM 実行をジョブとして開始（NFR-003）。結果は job.output（llmRunUid） */
   router.register('llm.run', (params) => {
     const p = asRecord(params)
     requireProject()
     const messages = asMessages(p.messages)
     const processName = typeof p.processName === 'string' && p.processName ? p.processName : 'adhoc'
-    return jobs.enqueue('llm.run', { messages, processName, jsonMode: p.jsonMode === true })
+    return jobs.enqueue('llm.run', {
+      messages,
+      processName,
+      jsonMode: p.jsonMode === true,
+      promptTemplateUid: typeof p.promptTemplateUid === 'string' ? p.promptTemplateUid : undefined
+    })
   })
 
   /** LLM 実行ログ一覧（LLM-015、Panel LLM Logs） */
@@ -84,14 +176,18 @@ export function registerLlmApi(router: ApiRouter, jobs: JobManager, settings: Se
     const { db, info } = requireProject()
     const run = db
       .prepare(
-        `SELECT e.uid, e.code, r.*, pb.relative_path AS prompt_path, rb.relative_path AS result_path
+        `SELECT e.uid, e.code, r.*, pb.relative_path AS prompt_path, rb.relative_path AS result_path,
+                rqb.relative_path AS raw_request_path, rsb.relative_path AS raw_response_path
            FROM llm_run_ref r
            JOIN entity_registry e ON e.uid = r.uid
            LEFT JOIN blob_resource pb ON pb.uid = r.prompt_blob_uid
            LEFT JOIN blob_resource rb ON rb.uid = r.result_blob_uid
+           LEFT JOIN blob_resource rqb ON rqb.uid = r.raw_request_blob_uid
+           LEFT JOIN blob_resource rsb ON rsb.uid = r.raw_response_blob_uid
           WHERE r.uid = ?`
       )
-      .get(uid) as { prompt_path?: string; result_path?: string } | undefined
+      .get(uid) as
+      { prompt_path?: string; result_path?: string; raw_request_path?: string; raw_response_path?: string } | undefined
     if (!run) {
       throw new BackendError('not_found', `LLM 実行が見つかりません: ${uid}`, '')
     }
@@ -100,7 +196,37 @@ export function registerLlmApi(router: ApiRouter, jobs: JobManager, settings: Se
       const path = join(info.rootPath, rel)
       return existsSync(path) ? readFileSync(path, 'utf-8') : null
     }
-    return { ...run, prompt_text: readBlob(run.prompt_path), result_text: readBlob(run.result_path) }
+    return {
+      ...run,
+      prompt_text: readBlob(run.prompt_path),
+      result_text: readBlob(run.result_path),
+      raw_request_text: readBlob(run.raw_request_path),
+      raw_response_text: readBlob(run.raw_response_path)
+    }
+  })
+
+  /**
+   * LLM ログからの候補再作成（W12）。
+   * 入力参照（チャンク／中間要素）を保持する実行だけ、同じ入力で候補生成ジョブを再登録する。
+   */
+  router.register('llm.retryRun', (params) => {
+    const p = asRecord(params)
+    const uid = String(p.uid ?? '')
+    const { db } = requireProject()
+    const run = db.prepare(`SELECT process_name, input_ref_uid FROM llm_run_ref WHERE uid = ?`).get(uid) as
+      { process_name: string; input_ref_uid: string | null } | undefined
+    if (!run) throw new BackendError('not_found', `LLM 実行が見つかりません: ${uid}`, '')
+    if (!run.input_ref_uid) {
+      throw new BackendError('validation', 'この実行は入力参照を持たないため再作成できません', run.process_name)
+    }
+    if (run.process_name === 'design-candidates') {
+      return jobs.enqueue('design.generateCandidates', { chunkUid: run.input_ref_uid })
+    }
+    throw new BackendError(
+      'validation',
+      `この処理種別の再作成には未対応です: ${run.process_name}`,
+      '対応種別: design-candidates（④候補生成）'
+    )
   })
 
   // ---- プロンプトテンプレート（P6-3） ----

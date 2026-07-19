@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { DEFAULT_THEME } from '../theme/theme'
+import { DEFAULT_THEME, getThemeDefaultWorkbenchColors, getWorkbenchColorVariables } from '../theme/theme'
 import { isSemanticEditShortcut } from '../components/common/SemanticTextInput'
+import { composePromptMessages } from '../components/common/LlmRequestDialog'
 import { DEFAULT_ACTIVITY_ORDER, SECONDARY_SECTION_ORDER, useWorkbenchStore } from './workbench-store'
 
 function reset(): void {
@@ -17,6 +18,7 @@ function reset(): void {
     secondarySize: 280,
     panelSize: 200,
     theme: DEFAULT_THEME,
+    zoom: 100,
     activityOrder: [...DEFAULT_ACTIVITY_ORDER],
     persistKey: 'test'
   })
@@ -25,6 +27,26 @@ function reset(): void {
 describe('workbench-store（P3-1、UI-038/040）', () => {
   beforeEach(reset)
 
+  it('Workbench共通カラーは設定済みパーツだけをCSS変数へ変換する（UI-052）', () => {
+    expect(
+      getWorkbenchColorVariables({
+        workbenchBackground: '#102030',
+        buttonBackground: '#405060'
+      })
+    ).toEqual({
+      '--d2d-bg': '#102030',
+      '--d2d-button-bg': '#405060'
+    })
+  })
+
+  it('Workbench共通カラーの既定値は表示テーマへ追従する（UI-052）', () => {
+    const dark = getThemeDefaultWorkbenchColors({ ...DEFAULT_THEME, displayMode: 'dark' }, '#123456')
+    const light = getThemeDefaultWorkbenchColors({ ...DEFAULT_THEME, displayMode: 'light' }, '#654321')
+    expect(dark.workbenchBackground).toBe('#1b1d21')
+    expect(light.workbenchBackground).toBe('#f5f6f8')
+    expect(dark.foreground).not.toBe(light.foreground)
+    expect(light.accent).toBe('#654321')
+  })
   it('外周パネル寸法を許容範囲へ制限する', () => {
     useWorkbenchStore.getState().setPrimarySize(900)
     useWorkbenchStore.getState().setSecondarySize(20)
@@ -34,6 +56,15 @@ describe('workbench-store（P3-1、UI-038/040）', () => {
       secondarySize: 180,
       panelSize: 350
     })
+  })
+
+  it('Workbench表示倍率をブラウザ相当の50〜200%へ制限する（UI-054）', () => {
+    useWorkbenchStore.getState().setZoom(240)
+    expect(useWorkbenchStore.getState().zoom).toBe(200)
+    useWorkbenchStore.getState().setZoom(20)
+    expect(useWorkbenchStore.getState().zoom).toBe(50)
+    useWorkbenchStore.getState().setZoom(100)
+    expect(useWorkbenchStore.getState().zoom).toBe(100)
   })
 
   it('作業モードを切り替えてもWorkbench外周パネル状態を維持する（UI-041）', () => {
@@ -80,9 +111,45 @@ describe('workbench-store（P3-1、UI-038/040）', () => {
     expect(SECONDARY_SECTION_ORDER).toEqual(['properties', 'relations', 'review', 'dictionary'])
   })
 
+  it('下Panelの前後タブへ循環移動できる', () => {
+    useWorkbenchStore.getState().setPanelTab('jobs')
+    useWorkbenchStore.getState().activateAdjacentPanelTab(1)
+    expect(useWorkbenchStore.getState()).toMatchObject({ panelVisible: true, panelTab: 'validation' })
+    useWorkbenchStore.getState().activateAdjacentPanelTab(-1)
+    expect(useWorkbenchStore.getState().panelTab).toBe('jobs')
+  })
+
   it('セマンティックプレビューはEnterまたはF2だけを編集ショートカットとして扱う（EDIT-072）', () => {
     expect(isSemanticEditShortcut('Enter')).toBe(true)
     expect(isSemanticEditShortcut('F2')).toBe(true)
     expect(isSemanticEditShortcut('Space')).toBe(false)
+  })
+})
+describe('LLM共通送信確認（P6-3/P6-4、LLM-024/040）', () => {
+  it('編集したプロンプトでsystemメッセージだけを差し替える', () => {
+    expect(
+      composePromptMessages(
+        [
+          { role: 'system', content: '既定' },
+          { role: 'user', content: '対象本文' }
+        ],
+        '画面別プロンプト'
+      )
+    ).toEqual([
+      { role: 'system', content: '画面別プロンプト' },
+      { role: 'user', content: '対象本文' }
+    ])
+  })
+
+  it('{{body}}へ対象本文を展開して送信内容を構成する', () => {
+    expect(
+      composePromptMessages(
+        [
+          { role: 'system', content: '既定' },
+          { role: 'user', content: '対象本文' }
+        ],
+        '次を分析してください:\n{{body}}'
+      )
+    ).toEqual([{ role: 'user', content: '次を分析してください:\n対象本文' }])
   })
 })

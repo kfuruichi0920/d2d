@@ -16,7 +16,22 @@ import {
   listArchives,
   type ArchiveManifest
 } from './archive-service'
-import { getGitFileAt, getGitLog, getGitShow, isGitRepo } from '../git/git-service'
+import {
+  checkoutGitBranch,
+  commitGitChanges,
+  createGitBranch,
+  getGitBranches,
+  getGitComparisonFilePair,
+  getGitComparisonFiles,
+  getGitFileAt,
+  getGitLog,
+  getGitShow,
+  getGitStatus,
+  getGitWorkingFilePair,
+  isGitRepo,
+  stageGitFiles,
+  unstageGitFiles
+} from '../git/git-service'
 
 describe('P12 データ出力・アーカイブ・Git', () => {
   let dir: string
@@ -147,13 +162,41 @@ describe('P12 データ出力・アーカイブ・Git', () => {
     })
   })
 
-  describe('Git 履歴参照（P12-5、GIT-001/002/005/007 読み取り専用）', () => {
+  describe('Git連携（P12-5、GIT-001〜007）', () => {
     it('非リポジトリでは isRepo=false を返す', async () => {
       expect(await isGitRepo(root)).toBe(false)
     })
 
+    it('ステージ・解除・テキスト化コミット・ローカルブランチ操作ができる（GIT-003/004/007）', async () => {
+      const repository = simpleGit({ baseDir: root })
+      await repository.init()
+      addRequirement('コミット対象要求')
+      exportDbToText(db, projectUid, root)
+      exportSqliteDump(db, root)
+
+      await stageGitFiles(root, ['exports/db_to_text', 'exports/sqlite_dump'])
+      expect(
+        (await getGitStatus(root)).some((file) => file.path.endsWith('entity_registry.jsonl') && file.staged)
+      ).toBe(true)
+      await unstageGitFiles(root, ['exports/sqlite_dump/schema.sql'])
+      expect((await getGitStatus(root)).find((file) => file.path.endsWith('schema.sql'))?.staged).toBe(false)
+      await stageGitFiles(root, ['exports/sqlite_dump'])
+
+      const committed = await commitGitChanges(root, 'D2Dテキストスナップショット', 'D2D Test', 'd2d@example.test')
+      expect(committed.message).toBe('D2Dテキストスナップショット')
+      expect(await getGitFileAt(root, committed.hash, 'exports/sqlite_dump/schema.sql')).toContain('CREATE TABLE')
+      expect(await getGitFileAt(root, committed.hash, 'exports/db_to_text/entity_registry.jsonl')).toContain(
+        'コミット対象要求'
+      )
+
+      const initialBranch = (await getGitBranches(root)).current
+      const created = await createGitBranch(root, 'review/snapshot')
+      expect(created.current).toBe('review/snapshot')
+      expect((await getGitBranches(root)).branches).toContain('review/snapshot')
+      expect((await checkoutGitBranch(root, initialBranch)).current).toBe(initialBranch)
+    }, 15_000)
     it('履歴・patch・過去版ファイル内容を読み取り専用で参照できる', async () => {
-      // テスト用リポジトリはツール外の Git 操作として準備する（GIT-007 の前提を再現）
+      // 履歴比較用の既存コミットをテスト前提として準備する。
       const git = simpleGit({ baseDir: root })
       await git.init()
       await git.addConfig('user.email', 'test@example.com')
@@ -177,9 +220,25 @@ describe('P12 データ出力・アーカイブ・Git', () => {
       // GIT-001/006: 過去コミット時点の DB to Text 内容
       const old = await getGitFileAt(root, log[1]!.hash, 'exports/db_to_text/sample.jsonl')
       expect(old).toContain('"v1"')
+
+      const changedFiles = await getGitComparisonFiles(root, log[1]!.hash, log[0]!.hash)
+      expect(changedFiles).toContain('exports/db_to_text/sample.jsonl')
+      const comparison = await getGitComparisonFilePair(
+        root,
+        log[1]!.hash,
+        log[0]!.hash,
+        'exports/db_to_text/sample.jsonl'
+      )
+      expect(comparison.left).toContain('"v1"')
+      expect(comparison.right).toContain('"v2"')
+
+      writeFileSync(join(root, 'exports', 'db_to_text', 'sample.jsonl'), '{"uid":"a","title":"working"}\n', 'utf-8')
+      const working = await getGitWorkingFilePair(root, 'exports/db_to_text/sample.jsonl')
+      expect(working.left).toContain('"v2"')
+      expect(working.right).toContain('"working"')
       // 不正ハッシュ・パスは拒否
       await expect(getGitShow(root, 'x; rm -rf')).rejects.toThrowError(/ハッシュ/)
       await expect(getGitFileAt(root, log[0]!.hash, '../outside')).rejects.toThrowError(/パス/)
-    })
+    }, 15_000)
   })
 })

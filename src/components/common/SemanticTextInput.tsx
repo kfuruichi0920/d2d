@@ -10,6 +10,8 @@ import type {
   SemanticRelationType
 } from '../../types/semantic'
 import { SEMANTIC_RELATIONS } from '../../types/semantic'
+import { LlmRequestDialog, type LlmRequestMessage, type PreparedLlmRequest } from './LlmRequestDialog'
+import { useEscapeToClose } from './useEscapeToClose'
 interface CandidateGroups {
   query: string
   tooBroad: boolean
@@ -101,6 +103,7 @@ export function SemanticTextInput({
     [raw, setRaw] = useState(() => structured(document)),
     [validation, setValidation] = useState<string>(''),
     [llmBusy, setLlmBusy] = useState(false),
+    [llmRequest, setLlmRequest] = useState<PreparedLlmRequest | null>(null),
     [editing, setEditing] = useState(false)
   const activeRefs = useMemo(() => document.references.filter((r) => r.status !== 'rejected'), [document.references])
   const editorTestId = testId ? `${testId}-editor` : undefined
@@ -112,6 +115,8 @@ export function SemanticTextInput({
     setGroups(null)
     setEditing(false)
   }
+  // モーダル最前面だけを閉じる共通 Escape（W10）。フォーカスが外れていても効く。
+  useEscapeToClose(editing, closeEditor)
   useEffect(() => {
     if (editing && mode === 'edit') inputRef.current?.focus()
   }, [editing, mode])
@@ -280,20 +285,25 @@ export function SemanticTextInput({
     setValidation('スキーマ・UID存在・参照整合性の検証に成功しました')
     setMode('preview')
   }
-  const analyzeWithLlm = async (): Promise<void> => {
+  const openLlmAnalysis = async (): Promise<void> => {
+    const prepared = await invoke<PreparedLlmRequest>('llm.prepareRequest', {
+      operation: 'semantic-terms',
+      context: { text: document.displayText }
+    })
+    if (!prepared.ok) {
+      setValidation(prepared.error.message)
+      return
+    }
+    setLlmRequest(prepared.result)
+  }
+  const analyzeWithLlm = async (messages: LlmRequestMessage[], promptTemplateUid?: string): Promise<void> => {
     setLlmBusy(true)
     try {
-      const started = await invoke<{ jobId: string }>('llm.run', {
-        processName: 'semantic-term-candidates',
-        jsonMode: true,
-        messages: [
-          {
-            role: 'system',
-            content:
-              '設計文から未登録と思われる専門用語候補だけを抽出し、{"terms":["用語"]}形式のJSONで返してください。同義語や関係を確定しないでください。'
-          },
-          { role: 'user', content: document.displayText }
-        ]
+      const started = await invoke<{ jobId: string }>('llm.runConfirmed', {
+        operation: 'semantic-terms',
+        context: { text: document.displayText },
+        messages,
+        promptTemplateUid
       })
       if (!started.ok) {
         setValidation(started.error.message)
@@ -425,7 +435,7 @@ export function SemanticTextInput({
                   type="button"
                   title="設定済みLLMへ送信し、未登録用語の候補だけを抽出します。外部送信設定とマスキングが適用されます"
                   disabled={llmBusy}
-                  onClick={() => void analyzeWithLlm()}
+                  onClick={() => void openLlmAnalysis()}
                 >
                   {llmBusy ? 'LLM解析中…' : 'LLMで用語候補'}
                 </button>
@@ -656,6 +666,15 @@ export function SemanticTextInput({
             </div>
           </div>
         </div>
+      )}
+      {llmRequest && (
+        <LlmRequestDialog
+          request={llmRequest}
+          screenId={`semantic.${document.fieldName}.terms`}
+          title="LLM用語候補"
+          onClose={() => setLlmRequest(null)}
+          onConfirmed={analyzeWithLlm}
+        />
       )}
     </div>
   )

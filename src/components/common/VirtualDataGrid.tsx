@@ -3,7 +3,7 @@
  * TanStack Table（ヘッドレス）+ TanStack Virtual。大量一覧の共通基盤として
  * P5（抽出要素一覧）・P8（候補セット）等から利用する。
  */
-import { useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import {
   flexRender,
   getCoreRowModel,
@@ -24,6 +24,9 @@ export interface VirtualDataGridProps<T> {
   onRowKeyDown?: (row: T, event: React.KeyboardEvent<HTMLTableRowElement>) => void
   selectedRowIds?: ReadonlySet<string>
   activeRowId?: string | null
+  scrollToRowId?: string | null
+  scrollToRowVersion?: number
+  scrollToRowAlign?: 'auto' | 'center' | 'start' | 'end'
   relatedRowIds?: ReadonlySet<string>
   accentRowIds?: ReadonlySet<string>
   isRowDisabled?: (row: T) => boolean
@@ -40,6 +43,9 @@ export function VirtualDataGrid<T>({
   onRowKeyDown,
   selectedRowIds,
   activeRowId,
+  scrollToRowId,
+  scrollToRowVersion,
+  scrollToRowAlign = 'auto',
   relatedRowIds,
   accentRowIds,
   isRowDisabled,
@@ -48,6 +54,7 @@ export function VirtualDataGrid<T>({
 }: VirtualDataGridProps<T>): React.JSX.Element {
   const [sorting, setSorting] = useState<SortingState>([])
   const containerRef = useRef<HTMLDivElement>(null)
+  const lastScrollVersionRef = useRef(scrollToRowVersion)
 
   const table = useReactTable({
     data,
@@ -66,6 +73,16 @@ export function VirtualDataGrid<T>({
     estimateSize: () => rowHeight,
     overscan: 10
   })
+
+  useEffect(() => {
+    if (!scrollToRowId) return
+    if (scrollToRowVersion !== undefined) {
+      if (lastScrollVersionRef.current === scrollToRowVersion) return
+      lastScrollVersionRef.current = scrollToRowVersion
+    }
+    const index = rows.findIndex((row) => row.id === scrollToRowId)
+    if (index >= 0) virtualizer.scrollToIndex(index, { align: scrollToRowAlign })
+  }, [rows, scrollToRowAlign, scrollToRowId, scrollToRowVersion, virtualizer])
 
   return (
     <div

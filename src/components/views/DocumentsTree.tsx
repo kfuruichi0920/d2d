@@ -2,12 +2,24 @@
  * Explorer の ①原本 / ②抽出データ ツリー（P4-2 / P5-15、UI-010/011）。
  */
 import { useCallback, useEffect, useState } from 'react'
+import {
+  SerendieSymbolArticle,
+  SerendieSymbolData,
+  SerendieSymbolFile,
+  SerendieSymbolFileText,
+  SerendieSymbolFolderFilled
+} from '@serendie/symbols'
 import { invoke, onBackendEvent } from '../../services/backend'
 import { executeCommand } from '../../services/command-registry'
+import { importSourceDocuments } from '../../services/source-import'
 import { useEditorStore } from '../../stores/editor-store'
+import { useFavoritesStore } from '../../stores/favorites-store'
 import { useJobsStore } from '../../stores/jobs-store'
 import { reviewStateFromEntityStatus, ReviewStatusBadge } from '../common/review'
+import { showContextMenu } from '../common/ContextMenu'
+import { IntermediateImportDialog } from '../editors/IntermediateImportDialog'
 import { DesignModelTree } from './DesignModelViews'
+import { useExplorerTreeKeyboard } from './useExplorerTreeKeyboard'
 
 export interface SourceDocumentItem {
   uid: string
@@ -67,14 +79,41 @@ export interface IntermediateDocumentItem {
   sources?: { extracted_document_uid: string; order: number }[]
 }
 
-export function DocumentsTree(): React.JSX.Element {
+function ExplorerFolderIcon(): React.JSX.Element {
+  return <SerendieSymbolFolderFilled width={16} height={16} className="d2d-explorer-folder-icon" />
+}
+
+function ExplorerResourceIcon({
+  kind
+}: {
+  kind: 'original' | 'extracted' | 'intermediate' | 'source'
+}): React.JSX.Element {
+  const Icon =
+    kind === 'original'
+      ? SerendieSymbolFile
+      : kind === 'extracted'
+        ? SerendieSymbolData
+        : kind === 'intermediate'
+          ? SerendieSymbolArticle
+          : SerendieSymbolFileText
+  return <Icon width={15} height={15} className={`d2d-explorer-resource-icon is-${kind}`} />
+}
+
+export function DocumentsTree({ projectName }: { projectName: string }): React.JSX.Element {
   const [sources, setSources] = useState<SourceDocumentItem[]>([])
   const [extracted, setExtracted] = useState<ExtractedDocumentItem[]>([])
   const [intermediates, setIntermediates] = useState<IntermediateDocumentItem[]>([])
   const [artifacts, setArtifacts] = useState<ArtifactSetting[]>([])
   const [phases, setPhases] = useState<DevPhaseSetting[]>([])
+  const [importArtifactUid, setImportArtifactUid] = useState<string | null | undefined>(undefined)
+  const [renamingFavorite, setRenamingFavorite] = useState<string | null>(null)
+  const [favoriteName, setFavoriteName] = useState('')
+  const { treeRef, expandAll, collapseAll } = useExplorerTreeKeyboard()
   const openResource = useEditorStore((state) => state.openResource)
   const notify = useJobsStore((state) => state.notify)
+  const favorites = useFavoritesStore((state) => state.items)
+  const renameFavorite = useFavoritesStore((state) => state.rename)
+  const removeFavorite = useFavoritesStore((state) => state.remove)
   const extractedUnconfirmed = extracted.reduce((total, document) => total + document.unconfirmed_count, 0)
   const intermediateUnconfirmed = intermediates.reduce((total, document) => total + document.unconfirmed_count, 0)
 
@@ -127,137 +166,368 @@ export function DocumentsTree(): React.JSX.Element {
   }, [refresh])
 
   return (
-    <div data-testid="documents-tree">
-      <details open className="d2d-explorer-section" data-testid="explorer-section-original">
-        <summary className="d2d-explorer-section-header">
-          <span className="d2d-explorer-section-title">①原本</span>
-          <span className="d2d-explorer-section-count">{sources.length}</span>
-        </summary>
-        {sources.map((doc) => (
-          <div
-            key={doc.uid}
-            className="d2d-list-row"
-            data-testid={`source-doc-${doc.code}`}
-            title={`名称: ${doc.file_name}\nID: ${doc.code}\n形式: ${doc.file_type}\n状態: ${doc.status}\nSHA-256: ${doc.file_hash}\n取込日時: ${doc.imported_at}`}
-            onClick={() => openResource(`original://${doc.uid}`, doc.file_name, { preview: true })}
+    <div ref={treeRef} role="tree" tabIndex={0} aria-label="プロジェクトExplorer" data-testid="documents-tree">
+      <details open className="d2d-explorer-root" data-testid="explorer-project-tree">
+        <summary className="d2d-explorer-root-header" role="treeitem" tabIndex={-1} data-explorer-treeitem>
+          <ExplorerFolderIcon />
+          <button
+            type="button"
+            className="d2d-explorer-project-name"
+            data-tree-action
+            data-testid="explorer-project-row"
+            title="プロジェクトのダッシュボードを開く"
+            onClick={(event) => {
+              event.preventDefault()
+              event.stopPropagation()
+              void executeCommand('resource.open', { uri: 'project://current', title: 'ダッシュボード' })
+            }}
           >
-            <span style={{ color: 'var(--d2d-fg-muted)', fontSize: 11 }}>{doc.file_type}</span>
-            <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{doc.file_name}</span>
-            {doc.is_current === 0 && <span style={{ color: 'var(--d2d-fg-muted)', fontSize: 10 }}>旧版</span>}
-          </div>
-        ))}
-      </details>
-
-      <details open className="d2d-explorer-section" data-testid="explorer-section-extracted">
-        <summary className="d2d-explorer-section-header">
-          <span className="d2d-explorer-section-title">②抽出データ</span>
-          <span className="d2d-explorer-section-count">{extracted.length}</span>
-          <span
-            className={`d2d-unconfirmed-badge ${extractedUnconfirmed === 0 ? 'is-zero' : ''}`}
-            data-testid="extracted-unconfirmed-badge"
-            title="正本確定していない抽出要素数"
-          >
-            未確定 {extractedUnconfirmed}
-          </span>
-        </summary>
-        <p className="d2d-explorer-hint">編集する場合は、対象の抽出データを選択してください。</p>
-        {extracted.map((doc) => (
-          <div
-            key={doc.uid}
-            className="d2d-list-row"
-            data-testid={`extracted-doc-${doc.code}`}
-            title={`名称: ${doc.title ?? doc.code}\nID: ${doc.code}\n状態: ${doc.status} / ${doc.extraction_status}\n抽出器: ${doc.extractor_name} ${doc.extractor_version}\n要素数: ${doc.item_count}\n未確定: ${doc.unconfirmed_count}\n抽出日時: ${doc.extracted_at}`}
-            onClick={() => openResource(`extracted://${doc.uid}`, `抽出: ${doc.title ?? doc.code}`, { preview: true })}
-          >
-            <ReviewStatusBadge status={reviewStateFromEntityStatus(doc.status)} />
-            <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{doc.title ?? doc.code}</span>
-            <span
-              className={`d2d-unconfirmed-badge ${doc.unconfirmed_count === 0 ? 'is-zero' : ''}`}
-              data-testid={`extracted-unconfirmed-${doc.code}`}
+            {projectName}
+          </button>
+          <span className="d2d-explorer-tree-actions">
+            <button
+              type="button"
+              data-testid="explorer-expand-all"
+              aria-label="Treeをすべて展開"
+              title="Explorer Treeをすべて展開します"
+              onClick={(event) => {
+                event.preventDefault()
+                event.stopPropagation()
+                expandAll()
+              }}
             >
-              未確定 {doc.unconfirmed_count}
-            </span>
-            <span style={{ color: 'var(--d2d-fg-muted)', fontSize: 11 }}>{doc.item_count}要素</span>
-          </div>
-        ))}
-      </details>
-
-      <details open className="d2d-explorer-section" data-testid="explorer-section-intermediate">
-        <summary className="d2d-explorer-section-header">
-          <span className="d2d-explorer-section-title">③中間データ</span>
-          <span className="d2d-explorer-section-count">
-            {artifacts.filter((artifact) => artifact.is_active === 1 && artifact.dev_phase_id).length}
-          </span>
-          <span
-            className={`d2d-unconfirmed-badge ${intermediateUnconfirmed === 0 ? 'is-zero' : ''}`}
-            data-testid="intermediate-unconfirmed-badge"
-            title="正本確定していない中間要素数"
-          >
-            未確定 {intermediateUnconfirmed}
+              ⊞
+            </button>
+            <button
+              type="button"
+              data-testid="explorer-collapse-all"
+              aria-label="Treeをすべて折りたたむ"
+              title="Explorer Treeをルート以外すべて折りたたみます"
+              onClick={(event) => {
+                event.preventDefault()
+                event.stopPropagation()
+                collapseAll()
+              }}
+            >
+              ⊟
+            </button>
           </span>
         </summary>
-        {phases
-          .filter((phase) => phase.is_active === 1)
-          .map((phase) => (
-            <div key={phase.uid} className="d2d-explorer-phase" data-testid={`phase-${phase.dev_phase_id}`}>
-              <div className="d2d-explorer-phase-label">
-                <span className="d2d-hierarchy-kind">フェーズ</span>
-                <span>▾ {phase.dev_phase_name}</span>
-              </div>
-              {artifacts
-                .filter((artifact) => artifact.is_active === 1 && artifact.dev_phase_id === phase.dev_phase_id)
-                .map((artifact) => {
-                  const doc = intermediates.find(
-                    (item) =>
-                      item.dev_phase_id === phase.dev_phase_id && item.artifact_type_id === artifact.artifact_type_id
-                  )
-                  const sourceIds = doc?.sources?.map((source) => source.extracted_document_uid) ?? []
-                  const tooltip = doc
-                    ? `名称: ${artifact.artifact_name}\nID: ${doc.code}\n状態: ${doc.status} / ${doc.intermediate_status}\n開発フェーズ: ${phase.dev_phase_name}\n成果物: ${artifact.artifact_name}\n要素数: ${doc.item_count}\n未確定: ${doc.unconfirmed_count}\n統合元: ${sourceIds.length}件\n生成日時: ${doc.generated_at}`
-                    : `名称: ${artifact.artifact_name}\n開発フェーズ: ${phase.dev_phase_name}\n成果物種別: ${artifact.artifact_type_id}\n状態: 未作成`
-                  return (
-                    <div
-                      key={artifact.uid}
-                      data-testid={
-                        doc
-                          ? `intermediate-doc-${doc.code}`
-                          : `artifact-slot-${phase.dev_phase_id}-${artifact.artifact_type_id}`
+        <div className="d2d-explorer-root-children" role="group">
+          {favorites.length > 0 && (
+            <details open className="d2d-explorer-section" data-testid="explorer-section-favorites">
+              <summary className="d2d-explorer-section-header" role="treeitem" tabIndex={-1} data-explorer-treeitem>
+                <span className="d2d-explorer-favorite-icon">★</span>
+                <span className="d2d-explorer-section-title">お気に入り</span>
+                <span className="d2d-explorer-section-count">{favorites.length}</span>
+              </summary>
+              {favorites.map((favorite) => (
+                <div
+                  key={favorite.uri}
+                  className="d2d-list-row d2d-favorite-row"
+                  role="treeitem"
+                  tabIndex={-1}
+                  data-explorer-treeitem
+                  title={`${favorite.name}\n${favorite.uri}`}
+                  onClick={() => {
+                    if (renamingFavorite !== favorite.uri) openResource(favorite.uri, favorite.title, { preview: true })
+                  }}
+                  onDoubleClick={(event) => {
+                    event.stopPropagation()
+                    setRenamingFavorite(favorite.uri)
+                    setFavoriteName(favorite.name)
+                  }}
+                  onContextMenu={(event) =>
+                    showContextMenu(event, [
+                      {
+                        label: '表示名を変更',
+                        run: () => {
+                          setRenamingFavorite(favorite.uri)
+                          setFavoriteName(favorite.name)
+                        }
+                      },
+                      { label: 'お気に入りから解除', run: () => removeFavorite(favorite.uri) }
+                    ])
+                  }
+                >
+                  <span className="d2d-explorer-favorite-icon">★</span>
+                  {renamingFavorite === favorite.uri ? (
+                    <input
+                      autoFocus
+                      data-tree-action
+                      value={favoriteName}
+                      aria-label="お気に入り表示名"
+                      onClick={(event) => event.stopPropagation()}
+                      onChange={(event) => setFavoriteName(event.target.value)}
+                      onBlur={() => {
+                        renameFavorite(favorite.uri, favoriteName)
+                        setRenamingFavorite(null)
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') {
+                          renameFavorite(favorite.uri, favoriteName)
+                          setRenamingFavorite(null)
+                        }
+                        if (event.key === 'Escape') setRenamingFavorite(null)
+                      }}
+                    />
+                  ) : (
+                    <span className="d2d-explorer-item-label">{favorite.name}</span>
+                  )}
+                </div>
+              ))}
+            </details>
+          )}
+          <details open className="d2d-explorer-section" data-testid="explorer-section-original">
+            <summary
+              className="d2d-explorer-section-header"
+              role="treeitem"
+              tabIndex={-1}
+              data-explorer-treeitem
+              onContextMenu={(event) =>
+                showContextMenu(event, [
+                  {
+                    label: '取込',
+                    testId: 'ctx-original-import',
+                    run: () => void importSourceDocuments(notify).then(() => refresh())
+                  }
+                ])
+              }
+            >
+              <ExplorerFolderIcon />
+              <span className="d2d-explorer-section-title">①原本</span>
+              <span className="d2d-explorer-section-count">{sources.length}</span>
+            </summary>
+            {sources.map((doc) => (
+              <div
+                key={doc.uid}
+                className="d2d-list-row"
+                role="treeitem"
+                tabIndex={-1}
+                data-explorer-treeitem
+                data-testid={`source-doc-${doc.code}`}
+                title={`名称: ${doc.file_name}\nID: ${doc.code}\n形式: ${doc.file_type}\n状態: ${doc.status}\nSHA-256: ${doc.file_hash}\n取込日時: ${doc.imported_at}`}
+                onClick={() => openResource(`original://${doc.uid}`, doc.file_name, { preview: true })}
+                onContextMenu={(event) =>
+                  showContextMenu(event, [
+                    {
+                      label: '開く',
+                      testId: 'ctx-original-open',
+                      run: () => openResource(`original://${doc.uid}`, doc.file_name)
+                    },
+                    {
+                      label: 'OSアプリで開く',
+                      run: async () => {
+                        const result = await invoke('document.openExternal', { uid: doc.uid })
+                        if (!result.ok) notify('error', 'OSアプリで開けませんでした', result.error.message)
                       }
-                      title={tooltip}
-                      style={{ paddingLeft: 14, marginBottom: 3 }}
-                    >
-                      <div
-                        className="d2d-list-row d2d-explorer-artifact-row"
-                        onClick={() => void openArtifact(artifact)}
-                      >
-                        <span className="d2d-hierarchy-kind artifact">成果物</span>
-                        {doc && <ReviewStatusBadge status={reviewStateFromEntityStatus(doc.status)} />}
-                        <span style={{ flex: 1, minWidth: 0, fontWeight: 500 }}>{artifact.artifact_name}</span>
-                        {doc && (
-                          <span
-                            className={`d2d-unconfirmed-badge ${doc.unconfirmed_count === 0 ? 'is-zero' : ''}`}
-                            data-testid={`intermediate-unconfirmed-${doc.code}`}
+                    }
+                  ])
+                }
+              >
+                <ExplorerResourceIcon kind="original" />
+                <span className="d2d-explorer-resource-name">{doc.file_name}</span>
+                <span className="d2d-explorer-tags">
+                  <span className="d2d-explorer-tag">{doc.file_type}</span>
+                  {doc.is_current === 0 && <span className="d2d-explorer-tag muted">旧版</span>}
+                </span>
+              </div>
+            ))}
+          </details>
+
+          <details open className="d2d-explorer-section" data-testid="explorer-section-extracted">
+            <summary className="d2d-explorer-section-header" role="treeitem" tabIndex={-1} data-explorer-treeitem>
+              <ExplorerFolderIcon />
+              <span className="d2d-explorer-section-title">②抽出データ</span>
+              <span className="d2d-explorer-section-count">{extracted.length}</span>
+              <span
+                className={`d2d-unconfirmed-badge ${extractedUnconfirmed === 0 ? 'is-zero' : ''}`}
+                data-testid="extracted-unconfirmed-badge"
+                title="正本確定していない抽出要素数"
+              >
+                未確定 {extractedUnconfirmed}
+              </span>
+            </summary>
+            <p className="d2d-explorer-hint">編集する場合は、対象の抽出データを選択してください。</p>
+            {extracted.map((doc) => (
+              <div
+                key={doc.uid}
+                className="d2d-list-row"
+                role="treeitem"
+                tabIndex={-1}
+                data-explorer-treeitem
+                data-testid={`extracted-doc-${doc.code}`}
+                title={`名称: ${doc.title ?? doc.code}\nID: ${doc.code}\n状態: ${doc.status} / ${doc.extraction_status}\n抽出器: ${doc.extractor_name} ${doc.extractor_version}\n要素数: ${doc.item_count}\n未確定: ${doc.unconfirmed_count}\n抽出日時: ${doc.extracted_at}`}
+                onClick={() =>
+                  openResource(`extracted://${doc.uid}`, `抽出: ${doc.title ?? doc.code}`, { preview: true })
+                }
+                onContextMenu={(event) =>
+                  showContextMenu(event, [
+                    {
+                      label: '開く',
+                      testId: 'ctx-extracted-open',
+                      run: () => openResource(`extracted://${doc.uid}`, `抽出: ${doc.title ?? doc.code}`)
+                    }
+                  ])
+                }
+              >
+                <ExplorerResourceIcon kind="extracted" />
+                <span className="d2d-explorer-resource-name">{doc.title ?? doc.code}</span>
+                <span className="d2d-explorer-tags">
+                  <ReviewStatusBadge status={reviewStateFromEntityStatus(doc.status)} />
+                  <span
+                    className={`d2d-unconfirmed-badge ${doc.unconfirmed_count === 0 ? 'is-zero' : ''}`}
+                    data-testid={`extracted-unconfirmed-${doc.code}`}
+                  >
+                    未確定 {doc.unconfirmed_count}
+                  </span>
+                  <span className="d2d-explorer-tag muted">{doc.item_count}要素</span>
+                </span>
+              </div>
+            ))}
+          </details>
+
+          <details open className="d2d-explorer-section" data-testid="explorer-section-intermediate">
+            <summary
+              className="d2d-explorer-section-header"
+              role="treeitem"
+              tabIndex={-1}
+              data-explorer-treeitem
+              onContextMenu={(event) =>
+                showContextMenu(event, [
+                  {
+                    label: '中間データへ取込',
+                    testId: 'ctx-intermediate-import',
+                    run: () => setImportArtifactUid(null)
+                  }
+                ])
+              }
+            >
+              <ExplorerFolderIcon />
+              <span className="d2d-explorer-section-title">③中間データ</span>
+              <span className="d2d-explorer-section-count">
+                {artifacts.filter((artifact) => artifact.is_active === 1 && artifact.dev_phase_id).length}
+              </span>
+              <span
+                className={`d2d-unconfirmed-badge ${intermediateUnconfirmed === 0 ? 'is-zero' : ''}`}
+                data-testid="intermediate-unconfirmed-badge"
+                title="正本確定していない中間要素数"
+              >
+                未確定 {intermediateUnconfirmed}
+              </span>
+            </summary>
+            {phases
+              .filter((phase) => phase.is_active === 1)
+              .map((phase) => (
+                <details
+                  open
+                  key={phase.uid}
+                  className="d2d-explorer-phase"
+                  data-testid={`phase-${phase.dev_phase_id}`}
+                >
+                  <summary className="d2d-explorer-phase-label" role="treeitem" tabIndex={-1} data-explorer-treeitem>
+                    <ExplorerFolderIcon />
+                    <span>{phase.dev_phase_name}</span>
+                    <span className="d2d-explorer-tag muted">フェーズ</span>
+                  </summary>
+                  {artifacts
+                    .filter((artifact) => artifact.is_active === 1 && artifact.dev_phase_id === phase.dev_phase_id)
+                    .map((artifact) => {
+                      const doc = intermediates.find(
+                        (item) =>
+                          item.dev_phase_id === phase.dev_phase_id &&
+                          item.artifact_type_id === artifact.artifact_type_id
+                      )
+                      const sourceIds = doc?.sources?.map((source) => source.extracted_document_uid) ?? []
+                      const tooltip = doc
+                        ? `名称: ${artifact.artifact_name}\nID: ${doc.code}\n状態: ${doc.status} / ${doc.intermediate_status}\n開発フェーズ: ${phase.dev_phase_name}\n成果物: ${artifact.artifact_name}\n要素数: ${doc.item_count}\n未確定: ${doc.unconfirmed_count}\n統合元: ${sourceIds.length}件\n生成日時: ${doc.generated_at}`
+                        : `名称: ${artifact.artifact_name}\n開発フェーズ: ${phase.dev_phase_name}\n成果物種別: ${artifact.artifact_type_id}\n状態: 未作成`
+                      const artifactTestId = doc
+                        ? `intermediate-doc-${doc.code}`
+                        : `artifact-slot-${phase.dev_phase_id}-${artifact.artifact_type_id}`
+                      return (
+                        <details
+                          open
+                          key={artifact.uid}
+                          className={`d2d-explorer-artifact-node ${sourceIds.length === 0 ? 'has-no-sources' : ''}`}
+                        >
+                          <summary
+                            className="d2d-list-row d2d-explorer-artifact-row"
+                            role="treeitem"
+                            tabIndex={-1}
+                            data-explorer-treeitem
+                            title={tooltip}
+                            onContextMenu={(event) =>
+                              showContextMenu(event, [
+                                {
+                                  label: '取込',
+                                  testId: 'ctx-artifact-import',
+                                  run: () => setImportArtifactUid(artifact.uid)
+                                }
+                              ])
+                            }
                           >
-                            未確定 {doc.unconfirmed_count}
-                          </span>
-                        )}
-                      </div>
-                      <div className="d2d-explorer-sources">
-                        {sourceIds.length === 0 ? (
-                          <span>↳ 統合元未選択</span>
-                        ) : (
-                          sourceIds.map((id) => (
-                            <span key={id}>↳ {extracted.find((item) => item.uid === id)?.title ?? id}</span>
-                          ))
-                        )}
-                      </div>
-                    </div>
-                  )
-                })}
-            </div>
-          ))}
+                            <button
+                              type="button"
+                              className="d2d-explorer-item-action"
+                              data-tree-action
+                              data-testid={artifactTestId}
+                              title={tooltip}
+                              onClick={(event) => {
+                                event.preventDefault()
+                                event.stopPropagation()
+                                void openArtifact(artifact)
+                              }}
+                            >
+                              <ExplorerResourceIcon kind="intermediate" />
+                              <span className="d2d-explorer-resource-name">{artifact.artifact_name}</span>
+                              <span className="d2d-explorer-tags">
+                                <ReviewStatusBadge status={reviewStateFromEntityStatus(doc?.status ?? 'draft')} />
+                                <span
+                                  className={`d2d-unconfirmed-badge ${!doc || doc.unconfirmed_count === 0 ? 'is-zero' : ''}`}
+                                  data-testid={doc ? `intermediate-unconfirmed-${doc.code}` : undefined}
+                                >
+                                  未確定 {doc?.unconfirmed_count ?? 0}
+                                </span>
+                                <span className="d2d-explorer-tag muted">{doc?.item_count ?? 0}要素</span>
+                              </span>
+                            </button>
+                          </summary>
+                          {sourceIds.length > 0 && (
+                            <div className="d2d-explorer-sources" role="group">
+                              {sourceIds.map((id) => (
+                                <span
+                                  key={id}
+                                  className="d2d-explorer-source-row"
+                                  role="treeitem"
+                                  tabIndex={-1}
+                                  data-explorer-treeitem
+                                >
+                                  <ExplorerResourceIcon kind="source" />
+                                  <span className="d2d-explorer-resource-name">
+                                    {extracted.find((item) => item.uid === id)?.title ?? id}
+                                  </span>
+                                  <span className="d2d-explorer-tag muted">取込元</span>
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </details>
+                      )
+                    })}
+                </details>
+              ))}
+          </details>
+          <DesignModelTree />
+        </div>
       </details>
-      <DesignModelTree />
+      {importArtifactUid !== undefined && (
+        <IntermediateImportDialog
+          initialArtifactUid={importArtifactUid ?? undefined}
+          onClose={() => setImportArtifactUid(undefined)}
+          onSaved={refresh}
+        />
+      )}
     </div>
   )
 }

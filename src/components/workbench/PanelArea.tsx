@@ -1,38 +1,40 @@
-/**
- * Panel（sdd_ui_design §12）。結果・問題・ログの表示に限定する。
- */
-import { useWorkbenchStore, type PanelTab } from '../../stores/workbench-store'
+/** 下段Panel（sdd_ui_design §12）。全文検索結果はSearch Activity内に表示する。 */
+import { PANEL_TAB_ORDER, useWorkbenchStore, type PanelTab } from '../../stores/workbench-store'
 import { JobsListView } from '../views/JobsListView'
 import { LlmLogsPanel } from '../views/LlmViews'
 import { ProblemsView } from '../views/TraceViews'
-import { SearchResultsPanel } from '../views/SearchViews'
+import { LogsPanel } from '../views/LogsPanel'
 
-const TABS: { id: PanelTab; label: string }[] = [
-  { id: 'problems', label: 'Problems' },
-  { id: 'output', label: 'Output' },
-  { id: 'jobs', label: 'Jobs' },
-  { id: 'search', label: 'Search Results' },
-  { id: 'validation', label: 'Validation' },
-  { id: 'llm', label: 'LLM Logs' }
-]
+const LABELS: Record<PanelTab, string> = {
+  problems: 'Problems',
+  output: 'Output',
+  jobs: 'Jobs',
+  validation: 'Validation',
+  llm: 'LLM Logs'
+}
 
 export function PanelArea(): React.JSX.Element {
-  const tab = useWorkbenchStore((s) => s.panelTab)
-  const setTab = useWorkbenchStore((s) => s.setPanelTab)
-  const togglePanel = useWorkbenchStore((s) => s.togglePanel)
-
+  const tab = useWorkbenchStore((state) => state.panelTab)
+  const setTab = useWorkbenchStore((state) => state.setPanelTab)
+  const togglePanel = useWorkbenchStore((state) => state.togglePanel)
   return (
-    <section className="wb-panel" data-testid="panel">
+    <section
+      className="wb-panel"
+      data-testid="panel"
+      data-workbench-tab-region="panel"
+      tabIndex={-1}
+      onPointerDown={(event) => event.currentTarget.focus({ preventScroll: true })}
+    >
       <div className="wb-tabstrip">
-        {TABS.map((t) => (
+        {PANEL_TAB_ORDER.map((id) => (
           <button
-            key={t.id}
+            key={id}
             type="button"
-            className={tab === t.id ? 'active' : ''}
-            onClick={() => setTab(t.id)}
-            data-testid={`panel-tab-${t.id}`}
+            className={tab === id ? 'active' : ''}
+            onClick={() => setTab(id)}
+            data-testid={`panel-tab-${id}`}
           >
-            {t.label}
+            {LABELS[id]}
           </button>
         ))}
         <span style={{ flex: 1 }} />
@@ -47,12 +49,10 @@ export function PanelArea(): React.JSX.Element {
           <LlmLogsPanel />
         ) : tab === 'problems' ? (
           <ProblemsView />
-        ) : tab === 'search' ? (
-          <SearchResultsPanel />
+        ) : tab === 'output' ? (
+          <LogsPanel />
         ) : (
-          <div className="d2d-empty">
-            {TABS.find((t) => t.id === tab)?.label} は対応機能の実装時に接続します（Validation: P8 拡張、Search: P11）
-          </div>
+          <div className="d2d-empty">Validation は対応機能の実装時に接続します。</div>
         )}
       </div>
     </section>

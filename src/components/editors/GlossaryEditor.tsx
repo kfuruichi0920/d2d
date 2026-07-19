@@ -6,6 +6,8 @@ import { useCallback, useEffect, useState } from 'react'
 import { invoke } from '../../services/backend'
 import { useJobsStore } from '../../stores/jobs-store'
 import { reviewStateFromEntityStatus, ReviewStatusBadge } from '../common/review'
+import { pushUndo } from '../../services/undo-service'
+import { confirmDialog } from '../common/ConfirmDialog'
 
 interface GlossaryTerm {
   uid: string
@@ -59,9 +61,31 @@ export function GlossaryEditor(): React.JSX.Element {
 
   const setStatus = async (uid: string, status: string): Promise<void> => {
     // 破壊的操作の確認（NFR-013）
-    if (status === 'deleted' && !window.confirm('この用語を削除しますか？')) return
+    if (
+      status === 'deleted' &&
+      !(await confirmDialog({ message: 'この用語を削除しますか？', okLabel: '削除', danger: true }))
+    )
+      return
+    const entry = terms.find((term) => term.uid === uid)
+    const previousStatus = entry?.status
     const res = await invoke('glossary.setStatus', { uid, status })
-    if (res.ok) await refresh()
+    if (res.ok) {
+      await refresh()
+      // W4（NFR-012）: 状態変更・削除を Ctrl+Z で戻せるようにする。
+      if (previousStatus && previousStatus !== status) {
+        pushUndo({
+          label: `用語「${entry?.term_text ?? uid}」の状態変更（${previousStatus} → ${status}）`,
+          undo: async () => {
+            const undone = await invoke('glossary.setStatus', { uid, status: previousStatus })
+            if (!undone.ok) throw new Error(undone.error.message)
+          },
+          redo: async () => {
+            const redone = await invoke('glossary.setStatus', { uid, status })
+            if (!redone.ok) throw new Error(redone.error.message)
+          }
+        })
+      }
+    }
   }
 
   const addSynonym = async (uid: string): Promise<void> => {
@@ -104,12 +128,14 @@ export function GlossaryEditor(): React.JSX.Element {
       <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
         <input
           placeholder="用語"
+          title="登録する用語を入力します（例: トレーサビリティ）。登録直後は承認待ちの候補になります"
           value={newTerm}
           onChange={(e) => setNewTerm(e.target.value)}
           data-testid="glossary-term-input"
         />
         <input
           placeholder="定義"
+          title="用語の定義文を入力します（例: 要求と設計・試験の対応関係を追跡できる性質）"
           style={{ flex: 1 }}
           value={newDefinition}
           onChange={(e) => setNewDefinition(e.target.value)}
@@ -180,7 +206,12 @@ export function GlossaryEditor(): React.JSX.Element {
             <span style={{ color: 'var(--d2d-fg-muted)' }}>
               同義語: {term.synonyms.map((s) => s.synonym_text).join(', ') || 'なし'}
             </span>
-            <input id={`syn-${term.uid}`} placeholder="同義語を追加" style={{ width: 140 }} />
+            <input
+              id={`syn-${term.uid}`}
+              placeholder="同義語を追加"
+              title={`「${term.term_text}」の同義語・略語を入力します（例: 追跡性）`}
+              style={{ width: 140 }}
+            />
             <button type="button" className="d2d-btn small" onClick={() => void addSynonym(term.uid)}>
               +
             </button>

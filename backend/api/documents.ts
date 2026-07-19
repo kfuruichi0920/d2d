@@ -97,6 +97,21 @@ export function registerDocumentApi(router: ApiRouter, jobs: JobManager): void {
     eventBus.emit('source.updated', { kind: 'deleted' })
     return { deleted: true }
   })
+  /** 論理削除した原本を復元する（W4、NFR-012 Undo）。復元後状態は削除前の値を指定する */
+  router.register('document.restore', (params) => {
+    const p = asRecord(params)
+    const { db, info } = requireProject()
+    const status = typeof p.status === 'string' && p.status !== 'deleted' ? p.status : 'draft'
+    const result = db
+      .prepare(
+        `UPDATE entity_registry SET status=?, updated_by='user', updated_at=? WHERE uid=? AND project_uid=? AND entity_type='source_document' AND status = 'deleted'`
+      )
+      .run(status, new Date().toISOString(), requireString(p, 'uid'), info.projectUid)
+    if (result.changes !== 1) throw new BackendError('not_found', '削除済みの原本が見つかりません', '')
+    eventBus.emit('source.updated', { kind: 'restored' })
+    return { restored: true }
+  })
+
   /** 原本から②抽出ジョブを開始（P4-2 / P5、UI-010 / UI-046。現状 Word のみ） */
   router.register('document.extract', (params) => {
     const p = asRecord(params)
@@ -165,6 +180,21 @@ export function registerDocumentApi(router: ApiRouter, jobs: JobManager): void {
     if (result.changes !== 1) throw new BackendError('not_found', '抽出データが見つかりません', '')
     eventBus.emit('extracted.updated', { kind: 'deleted' })
     return { deleted: true }
+  })
+
+  /** 論理削除した②抽出データを復元する（W4、NFR-012 Undo） */
+  router.register('extracted.restore', (params) => {
+    const p = asRecord(params)
+    const { db, info } = requireProject()
+    const status = typeof p.status === 'string' && p.status !== 'deleted' ? p.status : 'draft'
+    const result = db
+      .prepare(
+        `UPDATE entity_registry SET status=?, updated_by='user', updated_at=? WHERE uid=? AND project_uid=? AND entity_type='extracted_document' AND status = 'deleted'`
+      )
+      .run(status, new Date().toISOString(), requireString(p, 'uid'), info.projectUid)
+    if (result.changes !== 1) throw new BackendError('not_found', '削除済みの抽出データが見つかりません', '')
+    eventBus.emit('extracted.updated', { kind: 'restored' })
+    return { restored: true }
   })
   /** 抽出文書の表示名称変更（P5-15、EXT-040）。 */
   router.register('extracted.rename', (params) => {

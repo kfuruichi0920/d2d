@@ -4,6 +4,7 @@
  */
 import { Fragment, useCallback, useEffect, useMemo, useState, type KeyboardEvent } from 'react'
 import { invoke, onBackendEvent } from '../../services/backend'
+import { importSourceDocuments } from '../../services/source-import'
 import { useEditorStore } from '../../stores/editor-store'
 import { useJobsStore } from '../../stores/jobs-store'
 import { useProjectStore } from '../../stores/project-store'
@@ -19,6 +20,8 @@ import {
 import type { DesignElementRow } from '../views/DesignModelViews'
 import { ResizablePaneGroup } from '../workbench/ResizablePaneGroup'
 import { IntermediateImportDialog } from './IntermediateImportDialog'
+import { pushUndo } from '../../services/undo-service'
+import { confirmDialog } from '../common/ConfirmDialog'
 import {
   DocumentPreviewMetaControls,
   useDocumentPreviewMeta,
@@ -268,7 +271,13 @@ export function PipelineStageEditor({ stage }: { stage: PipelineStage }): React.
 
   const changeSort = (key: string): void =>
     setSort((current) => ({ key, direction: current.key === key && current.direction === 'asc' ? 'desc' : 'asc' }))
-  const mutate = async (method: string, params: Record<string, unknown>, message: string): Promise<void> => {
+  const mutate = async (
+    method: string,
+    params: Record<string, unknown>,
+    message: string,
+    // W4（NFR-012）: 逆操作を指定した変更は Ctrl+Z で取り消せる。
+    undoSpec?: { label: string; undoMethod: string; undoParams: Record<string, unknown> }
+  ): Promise<void> => {
     const result = await invoke(method, params)
     if (!result.ok) {
       notify('error', message, result.error.message)
@@ -278,35 +287,43 @@ export function PipelineStageEditor({ stage }: { stage: PipelineStage }): React.
     setSelectedUid(null)
     await refresh()
     await refreshStats()
+    if (undoSpec) {
+      pushUndo({
+        label: undoSpec.label,
+        undo: async () => {
+          const undone = await invoke(undoSpec.undoMethod, undoSpec.undoParams)
+          if (!undone.ok) throw new Error(undone.error.message)
+          await refreshStats()
+        },
+        redo: async () => {
+          const redone = await invoke(method, params)
+          if (!redone.ok) throw new Error(redone.error.message)
+          await refreshStats()
+        }
+      })
+    }
   }
-  const confirmDelete = (kind: 'document' | 'extracted' | 'intermediate', uid: string, name: string): void => {
-    if (
-      !window.confirm(
-        `${name}を削除しますか？\n通常削除のためデータは論理削除され、一覧とExplorerから非表示になります。`
-      )
-    )
-      return
-    void mutate(`${kind}.delete`, { uid }, `${name}を削除しました`)
+  const confirmDelete = async (
+    kind: 'document' | 'extracted' | 'intermediate',
+    uid: string,
+    name: string,
+    previousStatus?: string
+  ): Promise<void> => {
+    const accepted = await confirmDialog({
+      message: `${name}を削除しますか？\n通常削除のためデータは論理削除され、一覧とExplorerから非表示になります。`,
+      okLabel: '削除',
+      danger: true
+    })
+    if (!accepted) return
+    void mutate(`${kind}.delete`, { uid }, `${name}を削除しました`, {
+      label: `${name} の削除`,
+      undoMethod: `${kind}.restore`,
+      undoParams: { uid, status: previousStatus ?? 'draft' }
+    })
   }
 
   const importDocuments = async (): Promise<void> => {
-    const filePaths = await window.api.showOpenFilesDialog({
-      title: '取込む原本ファイルを選択（複数選択可）',
-      filters: [
-        {
-          name: '対象文書',
-          extensions: ['docx', 'xlsx', 'pptx', 'vsdx', 'pdf', 'txt', 'md', 'csv', 'tsv', 'json', 'jsonl', 'yaml']
-        }
-      ]
-    })
-    if (filePaths.length === 0) return
-    const results = await Promise.all(filePaths.map((filePath) => invoke('document.import', { filePath })))
-    const failed = results.filter((result) => !result.ok)
-    if (failed.length > 0) {
-      notify('error', `${failed.length}件の取込Jobを登録できませんでした`)
-      return
-    }
-    notify('info', `${filePaths.length}件の原本取込Jobを登録しました`)
+    await importSourceDocuments(notify)
   }
 
   const ensureArtifact = async (artifact: ArtifactSetting): Promise<void> => {
@@ -514,7 +531,12 @@ export function PipelineStageEditor({ stage }: { stage: PipelineStage }): React.
                           void mutate(
                             'document.setArchived',
                             { uid: row.uid, archived: !row.is_archived },
-                            row.is_archived ? 'アーカイブを解除しました' : 'アーカイブしました'
+                            row.is_archived ? 'アーカイブを解除しました' : 'アーカイブしました',
+                            {
+                              label: `${row.file_name} の${row.is_archived ? 'アーカイブ解除' : 'アーカイブ'}`,
+                              undoMethod: 'document.setArchived',
+                              undoParams: { uid: row.uid, archived: Boolean(row.is_archived) }
+                            }
                           )
                         }}
                       >
@@ -524,7 +546,7 @@ export function PipelineStageEditor({ stage }: { stage: PipelineStage }): React.
                         className="d2d-btn small danger"
                         onClick={(event) => {
                           event.stopPropagation()
-                          confirmDelete('document', row.uid, row.file_name)
+                          void confirmDelete('document', row.uid, row.file_name, row.status)
                         }}
                       >
                         削除
@@ -580,7 +602,12 @@ export function PipelineStageEditor({ stage }: { stage: PipelineStage }): React.
                           void mutate(
                             'extracted.setArchived',
                             { uid: row.uid, archived: !row.is_archived },
-                            row.is_archived ? 'アーカイブを解除しました' : 'アーカイブしました'
+                            row.is_archived ? 'アーカイブを解除しました' : 'アーカイブしました',
+                            {
+                              label: `${row.title ?? row.code} の${row.is_archived ? 'アーカイブ解除' : 'アーカイブ'}`,
+                              undoMethod: 'extracted.setArchived',
+                              undoParams: { uid: row.uid, archived: Boolean(row.is_archived) }
+                            }
                           )
                         }}
                       >
@@ -590,7 +617,7 @@ export function PipelineStageEditor({ stage }: { stage: PipelineStage }): React.
                         className="d2d-btn small danger"
                         onClick={(event) => {
                           event.stopPropagation()
-                          confirmDelete('extracted', row.uid, row.title ?? row.code)
+                          void confirmDelete('extracted', row.uid, row.title ?? row.code)
                         }}
                       >
                         削除
@@ -618,10 +645,15 @@ export function PipelineStageEditor({ stage }: { stage: PipelineStage }): React.
                 void mutate(
                   'intermediate.setArchived',
                   { uid: row.uid, archived: !row.is_archived },
-                  row.is_archived ? 'アーカイブを解除しました' : 'アーカイブしました'
+                  row.is_archived ? 'アーカイブを解除しました' : 'アーカイブしました',
+                  {
+                    label: `${row.code} の${row.is_archived ? 'アーカイブ解除' : 'アーカイブ'}`,
+                    undoMethod: 'intermediate.setArchived',
+                    undoParams: { uid: row.uid, archived: Boolean(row.is_archived) }
+                  }
                 )
               }
-              onDelete={(row, artifactName) => confirmDelete('intermediate', row.uid, artifactName)}
+              onDelete={(row, artifactName) => void confirmDelete('intermediate', row.uid, artifactName)}
             />
           )}
           {stage === 'design' && (

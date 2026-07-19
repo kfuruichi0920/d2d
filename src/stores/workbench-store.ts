@@ -19,7 +19,8 @@ export const WORK_MODES: { mode: WorkMode; label: string }[] = [
 
 export type Activity = 'explorer' | 'search' | 'trace' | 'reports' | 'history' | 'settings'
 export const DEFAULT_ACTIVITY_ORDER: Activity[] = ['explorer', 'search', 'trace', 'reports', 'history', 'settings']
-export type PanelTab = 'problems' | 'output' | 'jobs' | 'search' | 'validation' | 'llm'
+export type PanelTab = 'problems' | 'output' | 'jobs' | 'validation' | 'llm'
+export const PANEL_TAB_ORDER: PanelTab[] = ['problems', 'output', 'jobs', 'validation', 'llm']
 export type SecondaryTab = 'properties' | 'relations' | 'review' | 'dictionary'
 
 export const SECONDARY_SECTION_ORDER: SecondaryTab[] = ['properties', 'relations', 'review', 'dictionary']
@@ -77,8 +78,10 @@ interface WorkbenchState extends ModeLayout {
   workMode: WorkMode
   layouts: Record<WorkMode, ModeLayout>
   theme: ThemeState
+  zoom: number
   activityOrder: Activity[]
   paletteOpen: boolean
+  menuOpen: boolean
   persistKey: string
   switchMode(mode: WorkMode): void
   resetLayout(): void
@@ -91,11 +94,14 @@ interface WorkbenchState extends ModeLayout {
   togglePanel(): void
   setPanelTab(tab: PanelTab): void
   openPanel(tab: PanelTab): void
+  activateAdjacentPanelTab(offset: -1 | 1): void
   setPrimarySize(size: number): void
   setSecondarySize(size: number): void
   setPanelSize(size: number): void
   setTheme(theme: Partial<ThemeState>): void
+  setZoom(zoom: number): void
   setPaletteOpen(open: boolean): void
+  setMenuOpen(open: boolean): void
   loadPersisted(persistKey: string): void
 }
 
@@ -143,8 +149,10 @@ export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
   workMode: 'M0',
   layouts: structuredClone(MODE_DEFAULT_LAYOUTS),
   theme: DEFAULT_THEME,
+  zoom: 100,
   activityOrder: [...DEFAULT_ACTIVITY_ORDER],
   paletteOpen: false,
+  menuOpen: false,
   persistKey: 'global',
   ...MODE_DEFAULT_LAYOUTS.M0,
 
@@ -222,6 +230,16 @@ export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
     persist(get())
   },
 
+  activateAdjacentPanelTab: (offset) => {
+    const state = get()
+    const index = PANEL_TAB_ORDER.indexOf(state.panelTab)
+    const next = PANEL_TAB_ORDER[(index + offset + PANEL_TAB_ORDER.length) % PANEL_TAB_ORDER.length]
+    if (next) {
+      set({ panelVisible: true, panelTab: next })
+      persist(get())
+    }
+  },
+
   setPrimarySize: (size) => {
     set({ primarySize: clamp(size, 160, 600) })
     persist(get())
@@ -238,16 +256,34 @@ export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
   },
 
   setTheme: (partial) => {
-    const theme = { ...get().theme, ...partial }
+    const current = get().theme
+    const theme = {
+      ...current,
+      ...partial,
+      customColors: partial.customColors === undefined ? current.customColors : { ...partial.customColors }
+    }
     set({ theme })
     applyTheme(theme)
     persist(get())
     void invoke('settings.set', { key: 'theme.displayMode', value: theme.displayMode })
     void invoke('settings.set', { key: 'theme.colorTheme', value: theme.colorTheme })
     void invoke('settings.set', { key: 'theme.fontSize', value: theme.fontSize })
+    void invoke('settings.set', { key: 'theme.customColors', value: theme.customColors })
+  },
+
+  setZoom: (zoom) => {
+    const next = clamp(zoom, 50, 200)
+    set({ zoom: next })
+    try {
+      localStorage.setItem('d2d.workbench.zoom', String(next))
+    } catch {
+      // 保存失敗は現在の表示操作を妨げない。
+    }
   },
 
   setPaletteOpen: (open) => set({ paletteOpen: open }),
+
+  setMenuOpen: (open) => set({ menuOpen: open }),
 
   loadPersisted: (persistKey) => {
     let data: PersistedLayout | null = null
@@ -270,7 +306,8 @@ export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
           saved?.secondaryExpanded?.filter((section): section is SecondaryTab =>
             SECONDARY_SECTION_ORDER.includes(section as SecondaryTab)
           ) ?? MODE_DEFAULT_LAYOUTS.M0.secondaryExpanded,
-        activity: saved?.activity && DEFAULT_ACTIVITY_ORDER.includes(saved.activity) ? saved.activity : 'explorer'
+        activity: saved?.activity && DEFAULT_ACTIVITY_ORDER.includes(saved.activity) ? saved.activity : 'explorer',
+        panelTab: PANEL_TAB_ORDER.includes(saved?.panelTab as PanelTab) ? (saved?.panelTab as PanelTab) : 'jobs'
       }
       const layouts = Object.fromEntries(
         (Object.keys(MODE_DEFAULT_LAYOUTS) as WorkMode[]).map((mode) => [mode, structuredClone(layout)])
@@ -294,6 +331,12 @@ export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
         activityOrder: [...DEFAULT_ACTIVITY_ORDER],
         ...layout
       })
+    }
+    try {
+      const zoom = Number(localStorage.getItem('d2d.workbench.zoom') ?? 100)
+      set({ zoom: Number.isFinite(zoom) ? clamp(zoom, 50, 200) : 100 })
+    } catch {
+      set({ zoom: 100 })
     }
     applyTheme(get().theme)
   }

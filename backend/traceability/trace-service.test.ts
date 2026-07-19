@@ -106,10 +106,16 @@ describe('トレーサビリティ（P9）', () => {
     const scopes = listTraceMatrixScopes(db, projectUid)
     expect(scopes).toEqual(
       expect.arrayContaining([
+        expect.objectContaining({ id: 'all:design', kind: 'design', count: 5 }),
+        expect.objectContaining({ id: 'all:extracted', kind: 'extracted', count: 0 }),
+        expect.objectContaining({ id: 'all:intermediate', kind: 'intermediate', count: 0 }),
         expect.objectContaining({ id: 'design:FUNC', count: 1 }),
         expect.objectContaining({ id: 'design:REQ', count: 2 })
       ])
     )
+
+    const allDesign = getEditableTraceMatrix(db, projectUid, ['all:design'], ['design:REQ'], ['satisfies'])
+    expect(allDesign.rows).toHaveLength(5)
 
     const forward = getEditableTraceMatrix(db, projectUid, ['design:FUNC'], ['design:REQ'], ['satisfies'])
     expect(forward.rows.map((row) => row.code)).toEqual([func1.code])

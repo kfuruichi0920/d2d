@@ -4,6 +4,7 @@
  */
 import { useRef } from 'react'
 import { useEditorStore, type EditorGroup, type EditorLayoutNode } from '../../stores/editor-store'
+import { showContextMenu } from '../common/ContextMenu'
 import { DashboardEditor } from '../editors/DashboardEditor'
 import { SettingsEditor } from '../editors/SettingsEditor'
 import { ProjectSettingsEditor } from '../editors/ProjectSettingsEditor'
@@ -21,7 +22,13 @@ import { TraceMatrixEditor } from '../editors/TraceMatrixEditor'
 import { TraceImpactEditor } from '../editors/TraceImpactEditor'
 import { GlossaryEditor } from '../editors/GlossaryEditor'
 import { ModelPlaygroundEditor } from '../editors/ModelPlaygroundEditor'
-import { ArchiveDiffEditor, GitCommitViewer, StoreBrowserEditor } from '../views/HistoryViews'
+import {
+  ArchiveDiffEditor,
+  GitCommitViewer,
+  GitSemanticDiffEditor,
+  GitWorkingDiffEditor,
+  StoreBrowserEditor
+} from '../views/HistoryViews'
 import { ReportPreviewEditor } from '../views/ReportViews'
 import { ResourceEditorPage } from '../editors/ResourceEditor'
 import { PipelineStageEditor, type PipelineStage } from '../editors/PipelineStageEditor'
@@ -57,6 +64,12 @@ function resolveEditor(uri: string): React.JSX.Element {
   if (uri.startsWith('glossary://')) return <GlossaryEditor />
   if (uri === 'model://playground') return <ModelPlaygroundEditor />
   if (uri === 'diff://archive') return <ArchiveDiffEditor />
+  if (uri.startsWith('diff://git-working/'))
+    return <GitWorkingDiffEditor path={decodeURIComponent(uri.slice('diff://git-working/'.length))} />
+  if (uri.startsWith('diff://git-compare/')) {
+    const [fromHash, toHash] = uri.slice('diff://git-compare/'.length).split('..')
+    return <GitSemanticDiffEditor fromHash={fromHash ?? ''} toHash={toHash ?? ''} />
+  }
   if (uri.startsWith('diff://git/')) return <GitCommitViewer hash={uri.slice('diff://git/'.length)} />
   if (uri === 'store://tables') return <StoreBrowserEditor />
   if (uri.startsWith('report://')) return <ReportPreviewEditor fileName={uri.slice('report://'.length)} />
@@ -126,6 +139,7 @@ function GroupView({ group }: { group: EditorGroup }): React.JSX.Element {
   const pinTab = useEditorStore((state) => state.pinTab)
   const splitGroup = useEditorStore((state) => state.splitGroup)
   const moveTab = useEditorStore((state) => state.moveTab)
+  const refreshVersion = useEditorStore((state) => state.refreshVersion)
   const activeTab = group.tabs.find((tab) => tab.uri === group.activeUri)
 
   const acceptDrop = (event: React.DragEvent): void => {
@@ -143,6 +157,9 @@ function GroupView({ group }: { group: EditorGroup }): React.JSX.Element {
   return (
     <div
       className="wb-editor-group"
+      data-workbench-tab-region="editor"
+      tabIndex={-1}
+      onPointerDown={(event) => event.currentTarget.focus({ preventScroll: true })}
       data-testid={'editor-group-' + group.id}
       onDragOver={(event) => event.preventDefault()}
       onDrop={acceptDrop}
@@ -161,6 +178,31 @@ function GroupView({ group }: { group: EditorGroup }): React.JSX.Element {
             }}
             onClick={() => activateTab(tab.uri, group.id)}
             onDoubleClick={() => pinTab(tab.uri)}
+            onContextMenu={(event) =>
+              showContextMenu(event, [
+                { label: '閉じる', detail: 'Ctrl+W', testId: 'tab-menu-close', run: () => closeTab(tab.uri, group.id) },
+                {
+                  label: '他のタブをすべて閉じる',
+                  disabled: group.tabs.length <= 1,
+                  testId: 'tab-menu-close-others',
+                  run: () => group.tabs.filter((t) => t.uri !== tab.uri).forEach((t) => closeTab(t.uri, group.id))
+                },
+                {
+                  label: 'すべてのタブを閉じる',
+                  testId: 'tab-menu-close-all',
+                  run: () => [...group.tabs].forEach((t) => closeTab(t.uri, group.id))
+                },
+                { separator: true },
+                {
+                  label: 'タブを固定表示にする',
+                  disabled: !tab.preview,
+                  run: () => pinTab(tab.uri)
+                },
+                { separator: true },
+                { label: 'Editorを左右に分割', run: () => splitGroup(group.id, 'horizontal') },
+                { label: 'Editorを上下に分割', run: () => splitGroup(group.id, 'vertical') }
+              ])
+            }
             title={tab.title}
           >
             <span className={'wb-tab-title ' + (tab.preview ? 'preview' : '')}>{tab.title}</span>
@@ -200,7 +242,13 @@ function GroupView({ group }: { group: EditorGroup }): React.JSX.Element {
         </span>
       </div>
       <div className="wb-editor-body">
-        {activeTab ? resolveEditor(activeTab.uri) : <div className="d2d-empty">タブをここへドロップ</div>}
+        {activeTab ? (
+          <div key={`${activeTab.uri}:${refreshVersion}`} className="wb-editor-refresh-root">
+            {resolveEditor(activeTab.uri)}
+          </div>
+        ) : (
+          <div className="d2d-empty">タブをここへドロップ</div>
+        )}
       </div>
     </div>
   )

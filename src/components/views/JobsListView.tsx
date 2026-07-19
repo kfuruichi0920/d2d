@@ -3,6 +3,7 @@
  */
 import { executeCommand } from '../../services/command-registry'
 import { useJobsStore, type JobRecord } from '../../stores/jobs-store'
+import { showContextMenu } from '../common/ContextMenu'
 
 export function JobStatusBadge({ status }: { status: JobRecord['status'] }): React.JSX.Element {
   const label: Record<JobRecord['status'], string> = {
@@ -26,7 +27,29 @@ export function JobsListView(): React.JSX.Element {
   return (
     <div data-testid="jobs-list">
       {jobs.map((job) => (
-        <div key={job.jobId} style={{ borderBottom: '1px solid var(--d2d-border)', padding: '4px 2px' }}>
+        <div
+          key={job.jobId}
+          style={{ borderBottom: '1px solid var(--d2d-border)', padding: '4px 2px' }}
+          onContextMenu={(event) =>
+            showContextMenu(event, [
+              {
+                label: 'ログを開く',
+                testId: 'ctx-job-log',
+                run: () => void executeCommand('job.openLog', { jobId: job.jobId })
+              },
+              {
+                label: '再実行',
+                disabled: !(job.status === 'failed' || job.status === 'partial' || job.status === 'aborted'),
+                run: () => void executeCommand('job.retry', { jobId: job.jobId })
+              },
+              {
+                label: '中断',
+                disabled: !(job.status === 'running' || job.status === 'waiting'),
+                run: () => void executeCommand('job.cancel', { jobId: job.jobId })
+              }
+            ])
+          }
+        >
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <JobStatusBadge status={job.status} />
             <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{job.type}</span>

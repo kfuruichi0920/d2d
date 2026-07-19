@@ -39,6 +39,19 @@ describe('P11 MeCab + FTS5 検索', () => {
     expect(searchElements(db, projectUid, target.uid, {}).results[0]?.uid).toBe(target.uid)
   })
 
+  it('FTS一致が存在しても全文部分一致の結果を併合する', () => {
+    const exact = text('安全監視', '安全監視')
+    const partial = text('複合語', '起動前安全監視条件を確認する')
+    const results = searchElements(db, projectUid, '安全監視', {}).results.map((row) => row.uid)
+    expect(results).toContain(exact.uid)
+    expect(results).toContain(partial.uid)
+  })
+
+  it('LIKEフォールバックは%と_を文字として検索する', () => {
+    const target = text('特殊文字', '進捗率は100%_完了')
+    expect(searchElements(db, projectUid, '%_', {}, { entityType: 'resource_text' }).results[0]?.uid).toBe(target.uid)
+  })
+
   it('レビュー記録を検索し、deletedは索引から除外する', () => {
     const target = text('電源要求', '電圧を監視する')
     db.prepare(`UPDATE entity_registry SET review_info_json = ? WHERE uid = ?`).run(
@@ -49,6 +62,57 @@ describe('P11 MeCab + FTS5 検索', () => {
     const response = searchElements(db, projectUid, 'フェイルセーフ', {})
     expect(response.results.map((r) => r.uid)).toEqual([target.uid])
     expect(response.indexCount).toBe(1)
+  })
+
+  it('文書種別検索は配下要素本文を検索し、文書内選択先を返す（SEARCH-001/003）', () => {
+    const source = registerEntity(db, { projectUid, entityType: 'source_document', title: '要求原本' })
+    db.prepare(
+      "INSERT INTO source_document (uid, file_name, file_type, file_hash) VALUES (?, 'req.docx', 'word', 'hash')"
+    ).run(source.uid)
+    const extracted = registerEntity(db, { projectUid, entityType: 'extracted_document', title: '抽出要求' })
+    db.prepare("INSERT INTO extracted_document (uid, source_document_uid, structure_json) VALUES (?, ?, '{}')").run(
+      extracted.uid,
+      source.uid
+    )
+    const resource = text('制御要求要素', '緊急停止時は駆動力を遮断する')
+    const item = registerEntity(db, { projectUid, entityType: 'extracted_item', title: '要求段落' })
+    db.prepare(
+      "INSERT INTO extracted_item (uid, extracted_document_uid, source_document_uid, item_type, resource_uid) VALUES (?, ?, ?, 'resource_text', ?)"
+    ).run(item.uid, extracted.uid, source.uid, resource.uid)
+
+    const extractedResult = searchElements(db, projectUid, '駆動力', {}, { entityType: 'extracted_document' })
+      .results[0]
+    expect(extractedResult).toMatchObject({
+      entityType: 'extracted_document',
+      resourceUri: `extracted://${extracted.uid}`,
+      targetItemUid: item.uid,
+      targetResourceUid: resource.uid
+    })
+    const sourceResult = searchElements(db, projectUid, '駆動力', {}, { entityType: 'source_document' }).results[0]
+    expect(sourceResult).toMatchObject({
+      entityType: 'source_document',
+      resourceUri: `extracted://${extracted.uid}`,
+      targetItemUid: item.uid
+    })
+  })
+
+  it('中間文書検索は配下要素本文を検索し、中間要素の選択先を返す', () => {
+    const intermediate = registerEntity(db, { projectUid, entityType: 'intermediate_document', title: 'SW要求仕様書' })
+    db.prepare(
+      "INSERT INTO intermediate_document (uid, artifact_type_id, dev_phase_id, structure_json) VALUES (?, 'SRS', 'SWA', '{}')"
+    ).run(intermediate.uid)
+    const resource = text('監視要求', '通信タイムアウトを監視する')
+    const item = registerEntity(db, { projectUid, entityType: 'intermediate_item', title: '監視段落' })
+    db.prepare(
+      "INSERT INTO intermediate_item (uid, intermediate_document_uid, item_type, resource_uid) VALUES (?, ?, 'resource_text', ?)"
+    ).run(item.uid, intermediate.uid, resource.uid)
+    expect(
+      searchElements(db, projectUid, 'タイムアウト', {}, { entityType: 'intermediate_document' }).results[0]
+    ).toMatchObject({
+      resourceUri: `intermediate://${intermediate.uid}`,
+      targetItemUid: item.uid,
+      targetResourceUid: resource.uid
+    })
   })
 
   it('MeCab設定済みでも利用フラグのデフォルトは無効', () => {

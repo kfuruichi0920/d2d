@@ -41,6 +41,7 @@ interface EditorState {
   activeGroupId: number
   activeUri: string | null
   persistKey: string
+  refreshVersion: number
   openResource(uri: string, title: string, options?: { preview?: boolean; groupId?: number }): void
   closeTab(uri: string, groupId?: number): void
   activateTab(uri: string, groupId: number): void
@@ -51,6 +52,8 @@ interface EditorState {
   resizeSplit(splitId: number, deltaRatio: number): void
   moveTab(uri: string, fromGroupId: number, toGroupId: number, targetIndex?: number): void
   moveActiveTab(offset: -1 | 1): void
+  activateAdjacentTab(offset: -1 | 1): void
+  refreshActiveResource(): void
   closeGroup(groupId: number): void
   loadPersisted(persistKey: string): void
 }
@@ -132,6 +135,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   activeGroupId: 1,
   activeUri: null,
   persistKey: 'global',
+  refreshVersion: 0,
 
   openResource: (uri, title, options) => {
     const state = get()
@@ -262,6 +266,19 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const current = order.indexOf(state.activeGroupId)
     const targetGroupId = order[(current + offset + order.length) % order.length]!
     state.moveTab(state.activeUri, state.activeGroupId, targetGroupId)
+  },
+
+  activateAdjacentTab: (offset) => {
+    const state = get()
+    const group = state.groups.find((candidate) => candidate.id === state.activeGroupId)
+    if (!group || group.tabs.length < 2 || !group.activeUri) return
+    const index = group.tabs.findIndex((tab) => tab.uri === group.activeUri)
+    const next = group.tabs[(index + offset + group.tabs.length) % group.tabs.length]
+    if (next) state.activateTab(next.uri, group.id)
+  },
+
+  refreshActiveResource: () => {
+    if (get().activeUri) set({ refreshVersion: get().refreshVersion + 1 })
   },
 
   closeGroup: (groupId) => {

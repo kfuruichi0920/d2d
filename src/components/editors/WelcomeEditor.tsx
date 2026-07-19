@@ -25,10 +25,10 @@ export function WelcomeEditor(): React.JSX.Element {
       <section className="d2d-welcome-hero">
         <span className="d2d-help-eyebrow">DESIGN TO DATA</span>
         <h1>
-          <span>D2D</span> — 設計情報を、たどれる意味構造へ
+          <span>D2D</span> — 設計・トレース作成支援ツール
         </h1>
         <p>
-          D2Dは、従来の設計文書を段階的にデータ化し、根拠から設計・検証・実装までの
+          D2Dは、自然言語の設計文書を段階的にデータ化し、根拠から設計・検証・実装までの
           トレーサビリティを人間レビュー前提で管理する設計支援ツールです。
         </p>
         <div className="d2d-welcome-actions">
@@ -48,22 +48,6 @@ export function WelcomeEditor(): React.JSX.Element {
           >
             新規プロジェクトを作成…
           </button>
-        </div>
-      </section>
-
-      <section className="d2d-terms" aria-label="D2Dの用語定義">
-        <div>
-          <span>文書</span>
-          <h2>人が自然言語で書いた設計情報</h2>
-          <p>Word、Excel、PowerPoint、PDFなど、従来どおり文章・表・図で表現された成果物です。</p>
-        </div>
-        <div className="d2d-term-arrow" aria-hidden="true">
-          意味を保って写像 →
-        </div>
-        <div>
-          <span>データ</span>
-          <h2>オントロジーに写像した意味構造</h2>
-          <p>要求・機能・構造・検証などの種類と、それらの関係を機械と人が共通にたどれる形です。</p>
         </div>
       </section>
 

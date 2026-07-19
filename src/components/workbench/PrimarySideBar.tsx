@@ -66,20 +66,7 @@ function ExplorerView(): React.JSX.Element {
     )
   }
 
-  return (
-    <div>
-      <div
-        className="d2d-list-row"
-        data-testid="explorer-project-row"
-        onClick={() => void executeCommand('resource.open', { uri: 'project://current', title: 'ダッシュボード' })}
-      >
-        📁 {project.name}
-      </div>
-      <div style={{ paddingLeft: 8 }}>
-        <DocumentsTree />
-      </div>
-    </div>
-  )
+  return <DocumentsTree projectName={project.name} />
 }
 
 function SettingsShortcutView(): React.JSX.Element {

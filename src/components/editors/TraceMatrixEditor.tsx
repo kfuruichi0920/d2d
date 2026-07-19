@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { invoke, onBackendEvent } from '../../services/backend'
 import { useJobsStore } from '../../stores/jobs-store'
+import { pushUndo } from '../../services/undo-service'
 
 interface MatrixScope {
   id: string
@@ -191,6 +192,25 @@ export function TraceMatrixEditor({
       `関係を更新しました（追加 ${result.result.added} / 削除 ${result.result.deleted} / 変更なし ${result.result.unchanged}）`
     )
     await load()
+    // W7（NFR-012）: 正確に逆転できる操作だけ Undo へ登録する。
+    // toggle は自己逆操作。add/delete は「変更なし」が混ざると逆操作が既存関係を壊すため対象外。
+    const inverse: Record<'add' | 'delete' | 'toggle', 'add' | 'delete' | 'toggle'> = {
+      add: 'delete',
+      delete: 'add',
+      toggle: 'toggle'
+    }
+    if (operation === 'toggle' || result.result.unchanged === 0) {
+      const request = { pairs, relationTypes, direction }
+      const apply = async (op: 'add' | 'delete' | 'toggle'): Promise<void> => {
+        const res = await invoke('trace.updateMatrix', { ...request, operation: op })
+        if (!res.ok) throw new Error(res.error.message)
+      }
+      pushUndo({
+        label: `マトリクス関係の${operation === 'add' ? '追加' : operation === 'delete' ? '削除' : '切替'}（${pairs.length}セル）`,
+        undo: () => apply(inverse[operation]),
+        redo: () => apply(operation)
+      })
+    }
   }
 
   const selectCell = (rowUid: string, colUid: string, event: React.MouseEvent<HTMLTableCellElement>): void => {

@@ -211,6 +211,12 @@ export function TraceImpactEditor({ contextUri }: { contextUri: string }): React
       setScopes(result.result)
       setConfigs((current) => {
         if (current.length > 0) return current
+        if (contextUri === 'trace://list-link/pipeline') {
+          return (['extracted', 'intermediate', 'design'] as const).map((kind, index) => ({
+            id: `impact-column-${index + 1}`,
+            scopeIds: [`all:${kind}`]
+          }))
+        }
         const preferred = [
           result.result.find((scope) => scope.kind === 'extracted'),
           result.result.find((scope) => scope.kind === 'intermediate'),
@@ -221,7 +227,7 @@ export function TraceImpactEditor({ contextUri }: { contextUri: string }): React
         return initial.map((scope, index) => ({ id: `impact-column-${index + 1}`, scopeIds: [scope.id] }))
       })
     })
-  }, [notify])
+  }, [contextUri, notify])
 
   const load = useCallback(async (): Promise<void> => {
     if (configs.length < 2 || configs.some((config) => config.scopeIds.length === 0)) {
@@ -514,10 +520,10 @@ export function TraceImpactEditor({ contextUri }: { contextUri: string }): React
     nextElement?.scrollIntoView({ block: 'nearest' })
   }
 
-  const reorderColumn = (targetId: string): void => {
-    if (!draggedColumnId || draggedColumnId === targetId) return
+  const reorderColumn = (targetId: string, sourceId = draggedColumnId): void => {
+    if (!sourceId || sourceId === targetId) return
     setConfigs((current) => {
-      const from = current.findIndex((config) => config.id === draggedColumnId)
+      const from = current.findIndex((config) => config.id === sourceId)
       const to = current.findIndex((config) => config.id === targetId)
       if (from < 0 || to < 0) return current
       const next = [...current]
@@ -807,7 +813,10 @@ export function TraceImpactEditor({ contextUri }: { contextUri: string }): React
                   data-testid={`impact-column-${index}`}
                   style={{ marginInlineStart: index === 0 ? 0 : `${gapBefore(config.id)}px` }}
                   onDragOver={(event) => event.preventDefault()}
-                  onDrop={() => reorderColumn(config.id)}
+                  onDrop={(event) => {
+                    event.preventDefault()
+                    reorderColumn(config.id, event.dataTransfer.getData('text/plain') || undefined)
+                  }}
                 >
                   <div className="trace-impact-column-header">
                     <div className="trace-impact-heading-row">
@@ -815,6 +824,7 @@ export function TraceImpactEditor({ contextUri }: { contextUri: string }): React
                         draggable
                         onDragStart={(event) => {
                           event.dataTransfer.effectAllowed = 'move'
+                          event.dataTransfer.setData('text/plain', config.id)
                           setDraggedColumnId(config.id)
                         }}
                         onDragEnd={() => setDraggedColumnId(null)}

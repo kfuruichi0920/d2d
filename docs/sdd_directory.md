@@ -170,6 +170,7 @@ flowchart TD
 | `blobs/figures/` | 対象 | 図・画像の変更履歴 |
 | `blobs/tables/` | 対象 | 表データの変更履歴 |
 | `exports/db_to_text/` | 対象 | Git diff による変更差分の可読化（主要差分確認媒体） |
+| xports/sqlite_dump/ | 対象 | スキーマ差分とデータ復元補助。ツール内コミット時にDB to Textとともに再生成・ステージする |
 | `exports/sqlite_dump/` | 対象 | スキーマ差分・復元補助 |
 | `exports/manifest/` | 対象 | blob整合確認（派生成果物） |
 | `blobs/extracted/` | 管理外（.gitignore 推奨） | 大容量・再生成可能 |

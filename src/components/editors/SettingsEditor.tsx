@@ -7,17 +7,35 @@ import { useEffect, useState } from 'react'
 import { invoke } from '../../services/backend'
 import { useJobsStore } from '../../stores/jobs-store'
 import { useWorkbenchStore } from '../../stores/workbench-store'
-import { COLOR_THEMES, DISPLAY_MODES } from '../../theme/theme'
+import {
+  COLOR_THEMES,
+  DISPLAY_MODES,
+  WORKBENCH_COLOR_DEFINITIONS,
+  getThemeDefaultWorkbenchColors,
+  type WorkbenchColors,
+  type WorkbenchColorKey
+} from '../../theme/theme'
 import { LlmSettingsSection } from '../views/LlmViews'
 import { useProjectStore } from '../../stores/project-store'
 import { SearchEngineSettingsSection } from '../views/SearchSettingsView'
 import { PlantUmlSettingsSection } from '../views/PlantUmlSettingsView'
 import { AppSettingsStorageNotice } from '../views/AppSettingsStorageNotice'
+import { KeybindingSettingsSection } from '../views/KeybindingSettingsView'
 
+function toColorInputValue(value: string, fallback: string): string {
+  const trimmed = value.trim()
+  if (/^#[0-9a-f]{6}$/i.test(trimmed)) return trimmed
+  const match = /^rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(trimmed)
+  if (!match) return fallback
+  return `#${[match[1], match[2], match[3]].map((part) => Number(part).toString(16).padStart(2, '0')).join('')}`
+}
 export function SettingsEditor(): React.JSX.Element {
   const theme = useWorkbenchStore((s) => s.theme)
   const setTheme = useWorkbenchStore((s) => s.setTheme)
   const notify = useJobsStore((s) => s.notify)
+  const [defaultColors, setDefaultColors] = useState<Record<WorkbenchColorKey, string>>(() =>
+    getThemeDefaultWorkbenchColors(theme)
+  )
 
   const hasProject = useProjectStore((s) => s.project !== null)
   const [secretKeys, setSecretKeys] = useState<string[]>([])
@@ -31,6 +49,15 @@ export function SettingsEditor(): React.JSX.Element {
     if (res.ok) setSecretKeys(res.result)
   }
 
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      const computed = getComputedStyle(document.documentElement)
+      const fallback = getThemeDefaultWorkbenchColors(theme).accent
+      const accent = toColorInputValue(computed.getPropertyValue('--sd-system-color-impression-primary'), fallback)
+      setDefaultColors(getThemeDefaultWorkbenchColors(theme, accent))
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [theme])
   useEffect(() => {
     void loadSecrets()
     void invoke<unknown>('settings.get', { key: 'project.initializeGitOnCreate' }).then((result) => {
@@ -89,6 +116,7 @@ export function SettingsEditor(): React.JSX.Element {
         <label style={{ width: 120, color: 'var(--d2d-fg-muted)' }}>表示モード</label>
         <select
           data-testid="setting-display-mode"
+          title="Workbench全体の明暗を選択します（例: light=明色、dark=暗色、system=OS設定に追従）"
           value={theme.displayMode}
           onChange={(e) => setTheme({ displayMode: e.target.value as (typeof DISPLAY_MODES)[number] })}
         >
@@ -103,6 +131,7 @@ export function SettingsEditor(): React.JSX.Element {
         <label style={{ width: 120, color: 'var(--d2d-fg-muted)' }}>カラーテーマ</label>
         <select
           data-testid="setting-color-theme"
+          title="アクセントカラーの配色テーマを選択します（例: blue、green）"
           value={theme.colorTheme}
           onChange={(e) => setTheme({ colorTheme: e.target.value as (typeof COLOR_THEMES)[number] })}
         >
@@ -124,10 +153,59 @@ export function SettingsEditor(): React.JSX.Element {
           onChange={(event) => setTheme({ fontSize: Number(event.target.value) })}
           data-testid="setting-font-size"
           aria-label="ツール全体の文字サイズ"
+          title="Workbench全体の文字サイズを10〜20pxで調整します（既定: 13px。Monacoエディタにも即時反映）"
         />
         <output data-testid="setting-font-size-value">{theme.fontSize}px</output>
       </div>
 
+      <h2 style={{ fontSize: 14, marginTop: 20 }}>Workbench共通カラー（UI-052）</h2>
+      <p style={{ color: 'var(--d2d-fg-muted)', fontSize: 11.5 }}>
+        共通デザイントークンをパーツ単位で上書きします。未設定へ戻すと選択中テーマの配色を使用します。
+      </p>
+      <div data-testid="setting-workbench-colors" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+        {WORKBENCH_COLOR_DEFINITIONS.map((definition) => {
+          const configured = theme.customColors[definition.key]
+          return (
+            <label key={definition.key} style={{ ...rowStyle, margin: 0 }}>
+              <span style={{ flex: 1 }}>{definition.label}</span>
+              <input
+                type="color"
+                value={configured ?? defaultColors[definition.key]}
+                onChange={(event) =>
+                  setTheme({
+                    customColors: { ...theme.customColors, [definition.key]: event.target.value } as WorkbenchColors
+                  })
+                }
+                data-testid={`setting-color-${definition.key}`}
+                aria-label={`${definition.label}の色`}
+                title={`${definition.label}の共通色を設定します`}
+              />
+              <button
+                type="button"
+                className="d2d-btn small"
+                disabled={!configured}
+                onClick={() => {
+                  const next = { ...theme.customColors }
+                  delete next[definition.key]
+                  setTheme({ customColors: next })
+                }}
+                data-testid={`setting-color-reset-${definition.key}`}
+              >
+                既定
+              </button>
+            </label>
+          )
+        })}
+      </div>
+      <button
+        type="button"
+        className="d2d-btn"
+        style={{ marginTop: 8 }}
+        onClick={() => setTheme({ customColors: {} })}
+        data-testid="setting-colors-reset-all"
+      >
+        すべてテーマ既定色へ戻す
+      </button>
       <h2 style={{ fontSize: 14, marginTop: 20 }}>プロジェクト作成（CORE-047）</h2>
       <label style={rowStyle} title="新規プロジェクトの作成後にgit initを実行します。失敗しても作成処理は継続します。">
         <input
@@ -146,6 +224,8 @@ export function SettingsEditor(): React.JSX.Element {
         />
         新規プロジェクトでGitリポジトリを初期化する（既定: 有効、失敗時は継続）
       </label>
+
+      <KeybindingSettingsSection />
 
       <AppSettingsStorageNotice />
       <PlantUmlSettingsSection />
@@ -183,6 +263,7 @@ export function SettingsEditor(): React.JSX.Element {
           value={newKeyName}
           onChange={(e) => setNewKeyName(e.target.value)}
           placeholder="キー名（例: openai_api_key）"
+          title="保存する機密情報の識別名を入力します（例: openai_api_key、anthropic_api_key）"
         />
         <input
           style={{ flex: 1 }}
@@ -190,6 +271,7 @@ export function SettingsEditor(): React.JSX.Element {
           value={newKeyValue}
           onChange={(e) => setNewKeyValue(e.target.value)}
           placeholder="値"
+          title="機密情報の値を入力します（例: sk-... 形式のAPIキー）。safeStorageで暗号化され平文保存されません"
           data-testid="secret-value-input"
         />
         <button type="button" className="d2d-btn primary" onClick={() => void saveSecret()} data-testid="secret-save">

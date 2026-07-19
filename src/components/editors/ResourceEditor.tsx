@@ -7,7 +7,9 @@ import { invoke } from '../../services/backend'
 import { useJobsStore } from '../../stores/jobs-store'
 import { useSelectionStore } from '../../stores/selection-store'
 import { ResizablePaneGroup } from '../workbench/ResizablePaneGroup'
+import { useEscapeToClose } from '../common/useEscapeToClose'
 import { SemanticTextInput } from '../common/SemanticTextInput'
+import { LlmRequestDialog, type LlmRequestMessage, type PreparedLlmRequest } from '../common/LlmRequestDialog'
 import type { SemanticDocument } from '../../types/semantic'
 
 interface FieldDefinition {
@@ -170,7 +172,10 @@ export function ResourceEditor({
   const [confirming, setConfirming] = useState(false)
   const [saving, setSaving] = useState(false)
   const [merging, setMerging] = useState(false)
+  const [llmRequest, setLlmRequest] = useState<PreparedLlmRequest | null>(null)
   const notify = useJobsStore((state) => state.notify)
+  // 種別変更の確認モーダルは Escape でキャンセルする（W10）
+  useEscapeToClose(confirming, () => setConfirming(false))
   const setSelectedItem = useSelectionStore((state) => state.setSelectedItem)
   const clearSelectedItem = useSelectionStore((state) => state.clearSelectedItem)
   const loadSemanticDocuments = useCallback(
@@ -325,12 +330,22 @@ export function ResourceEditor({
     if (!result.ok) return notify('error', 'ルールマージできません', result.error.message)
     applyCandidate(result.result, 'merge')
   }
-  const llmMerge = async (): Promise<void> => {
+  const openLlmMergeDialog = async (): Promise<void> => {
+    const result = await invoke<PreparedLlmRequest>('llm.prepareRequest', {
+      operation: 'resource-merge',
+      context: { targetType, sources: mergePayload() }
+    })
+    if (result.ok) setLlmRequest(result.result)
+    else notify('error', 'LLMマージの確認画面を開けません', result.error.message)
+  }
+  const llmMerge = async (messages: LlmRequestMessage[], promptTemplateUid?: string): Promise<void> => {
     setMerging(true)
     try {
-      const enqueued = await invoke<{ jobId: string }>('resource.generateMergeCandidate', {
-        targetType,
-        sources: mergePayload()
+      const enqueued = await invoke<{ jobId: string }>('llm.runConfirmed', {
+        operation: 'resource-merge',
+        context: { targetType, sources: mergePayload() },
+        messages,
+        promptTemplateUid
       })
       if (!enqueued.ok) return notify('error', 'LLMマージを開始できません', enqueued.error.message)
       for (let index = 0; index < 240; index++) {
@@ -492,7 +507,7 @@ export function ResourceEditor({
                 type="button"
                 className="d2d-btn"
                 disabled={merging}
-                onClick={() => void llmMerge()}
+                onClick={() => void openLlmMergeDialog()}
                 data-testid="resource-llm-merge"
               >
                 {merging ? 'LLMマージ中…' : 'LLMマージ'}
@@ -532,6 +547,15 @@ export function ResourceEditor({
           </div>
         </section>
       </ResizablePaneGroup>
+      {llmRequest && (
+        <LlmRequestDialog
+          request={llmRequest}
+          screenId="resource.merge"
+          title="Resource LLMマージ"
+          onClose={() => setLlmRequest(null)}
+          onConfirmed={llmMerge}
+        />
+      )}
       {confirming && (
         <div className="resource-loss-confirm" role="dialog" aria-modal="true" data-testid="resource-loss-confirm">
           <h3>Resource種別を変更しますか？</h3>

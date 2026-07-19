@@ -5,8 +5,17 @@
 import { useEffect } from 'react'
 import { installKeybindings } from '../../services/command-registry'
 import { getCommandContext, registerBuiltinCommands } from '../../services/builtin-commands'
+import { loadKeybindingOverrides } from '../../services/keybindings'
+import { clearUndoHistory } from '../../services/undo-service'
+import {
+  clearNavigationHistory,
+  initNavigationHistory,
+  navigateBack,
+  navigateForward
+} from '../../services/navigation-history'
 import { invoke, onBackendEvent } from '../../services/backend'
 import { useEditorStore } from '../../stores/editor-store'
+import { useFavoritesStore } from '../../stores/favorites-store'
 import { useJobsStore, type JobRecord } from '../../stores/jobs-store'
 import { useProjectStore, type ProjectInfo } from '../../stores/project-store'
 import { useWorkbenchStore } from '../../stores/workbench-store'
@@ -22,6 +31,8 @@ import { ResizeHandle } from './ResizeHandle'
 import { SecondarySideBar } from './SecondarySideBar'
 import { ScreenTextSearch } from './ScreenTextSearch'
 import { GlobalButtonTooltips } from './GlobalButtonTooltips'
+import { ContextMenuHost } from '../common/ContextMenu'
+import { ConfirmDialogHost } from '../common/ConfirmDialog'
 import { StatusBar } from './StatusBar'
 import { TitleBar } from './TitleBar'
 
@@ -34,6 +45,7 @@ export function WorkbenchShell(): React.JSX.Element {
   const primarySize = useWorkbenchStore((state) => state.primarySize)
   const secondarySize = useWorkbenchStore((state) => state.secondarySize)
   const panelSize = useWorkbenchStore((state) => state.panelSize)
+  const zoom = useWorkbenchStore((state) => state.zoom)
   const loadPersisted = useWorkbenchStore((state) => state.loadPersisted)
   const loadEditorPersisted = useEditorStore((state) => state.loadPersisted)
 
@@ -42,13 +54,16 @@ export function WorkbenchShell(): React.JSX.Element {
       registerBuiltinCommands()
       commandsRegistered = true
     }
+    loadKeybindingOverrides()
     loadPersisted('global')
     loadEditorPersisted('global')
+    useFavoritesStore.getState().loadPersisted('global')
     void Promise.all([
       invoke<unknown>('settings.get', { key: 'theme.displayMode' }),
       invoke<unknown>('settings.get', { key: 'theme.colorTheme' }),
-      invoke<unknown>('settings.get', { key: 'theme.fontSize' })
-    ]).then(([displayModeResult, colorThemeResult, fontSizeResult]) => {
+      invoke<unknown>('settings.get', { key: 'theme.fontSize' }),
+      invoke<unknown>('settings.get', { key: 'theme.customColors' })
+    ]).then(([displayModeResult, colorThemeResult, fontSizeResult, customColorsResult]) => {
       const theme: Partial<ThemeState> = {}
       if (displayModeResult.ok && DISPLAY_MODES.includes(displayModeResult.result as (typeof DISPLAY_MODES)[number])) {
         theme.displayMode = displayModeResult.result as ThemeState['displayMode']
@@ -64,10 +79,39 @@ export function WorkbenchShell(): React.JSX.Element {
       ) {
         theme.fontSize = fontSizeResult.result
       }
+      if (
+        customColorsResult.ok &&
+        typeof customColorsResult.result === 'object' &&
+        customColorsResult.result !== null
+      ) {
+        theme.customColors = Object.fromEntries(
+          Object.entries(customColorsResult.result).filter(
+            ([, value]) => typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value)
+          )
+        )
+      }
       if (Object.keys(theme).length > 0) useWorkbenchStore.getState().setTheme(theme)
     })
 
     const uninstallKeys = installKeybindings(getCommandContext)
+    const uninstallNav = initNavigationHistory()
+    const handleMouseNavigation = (event: PointerEvent): void => {
+      if (event.button === 3) {
+        event.preventDefault()
+        navigateBack()
+      } else if (event.button === 4) {
+        event.preventDefault()
+        navigateForward()
+      }
+    }
+    window.addEventListener('pointerdown', handleMouseNavigation)
+    const handleZoomWheel = (event: WheelEvent): void => {
+      if (!event.ctrlKey) return
+      event.preventDefault()
+      const state = useWorkbenchStore.getState()
+      state.setZoom(state.zoom + (event.deltaY < 0 ? 10 : -10))
+    }
+    window.addEventListener('wheel', handleZoomWheel, { passive: false })
     const unwatchTheme = watchSystemTheme(() => useWorkbenchStore.getState().theme)
     const offEvents = onBackendEvent((event, payload) => {
       if (event === 'job.updated') {
@@ -77,10 +121,17 @@ export function WorkbenchShell(): React.JSX.Element {
         useProjectStore.getState().setProject(info)
         useWorkbenchStore.getState().loadPersisted(info.projectUid)
         useEditorStore.getState().loadPersisted(info.projectUid)
+        useFavoritesStore.getState().loadPersisted(info.projectUid)
+        // プロジェクトをまたぐ取り消しは二重適用の危険があるため履歴を破棄する。
+        clearUndoHistory()
+        clearNavigationHistory()
       } else if (event === 'project.closed') {
         useProjectStore.getState().setProject(null)
         useWorkbenchStore.getState().loadPersisted('global')
         useEditorStore.getState().loadPersisted('global')
+        useFavoritesStore.getState().loadPersisted('global')
+        clearUndoHistory()
+        clearNavigationHistory()
       } else if (
         [
           'source.imported',
@@ -100,13 +151,21 @@ export function WorkbenchShell(): React.JSX.Element {
 
     return () => {
       uninstallKeys()
+      uninstallNav()
+      window.removeEventListener('pointerdown', handleMouseNavigation)
+      window.removeEventListener('wheel', handleZoomWheel)
       unwatchTheme()
       offEvents()
     }
   }, [loadEditorPersisted, loadPersisted])
 
   return (
-    <div className="wb-root" data-testid="workbench">
+    <div
+      className="wb-root"
+      data-testid="workbench"
+      data-zoom={zoom}
+      style={{ zoom: zoom / 100, width: `${10000 / zoom}vw`, height: `${10000 / zoom}vh` }}
+    >
       <TitleBar />
       <GlobalButtonTooltips />
       <ScreenTextSearch />
@@ -169,6 +228,8 @@ export function WorkbenchShell(): React.JSX.Element {
       </div>
       <StatusBar />
       <CommandPalette />
+      <ContextMenuHost />
+      <ConfirmDialogHost />
       <Notifications />
     </div>
   )

@@ -10,6 +10,8 @@ import { useSelectionStore } from '../../stores/selection-store'
 import { reviewStateFromEntityStatus, ReviewStatusBadge } from '../common/review'
 import { DocumentPreviewMetaControls, useDocumentPreviewMeta } from '../common/DocumentPreviewMeta'
 import { ResizablePaneGroup } from '../workbench/ResizablePaneGroup'
+import { confirmDialog } from '../common/ConfirmDialog'
+import { LlmRequestDialog, type LlmRequestMessage, type PreparedLlmRequest } from '../common/LlmRequestDialog'
 
 interface ElementRow {
   id: string
@@ -78,6 +80,7 @@ export function ChunkEditor({ uid }: { uid: string }): React.JSX.Element {
   const [promptDraft, setPromptDraft] = useState('')
   const [editingPrompt, setEditingPrompt] = useState(false)
   const [generating, setGenerating] = useState(false)
+  const [llmRequest, setLlmRequest] = useState<PreparedLlmRequest | null>(null)
   const anchor = useRef<number | null>(null)
   const keyboardAnchor = useRef<string | null>(null)
   const previewRefs = useRef(new Map<string, HTMLElement>())
@@ -247,7 +250,8 @@ export function ChunkEditor({ uid }: { uid: string }): React.JSX.Element {
     await refresh()
   }
   const remove = async (): Promise<void> => {
-    if (!selectedChunk || !window.confirm('選択中のチャンクを削除しますか？')) return
+    if (!selectedChunk) return
+    if (!(await confirmDialog({ message: '選択中のチャンクを削除しますか？', okLabel: '削除', danger: true }))) return
     const result = await invoke('chunk.delete', { uid: selectedChunk })
     if (!result.ok) return notify('error', 'チャンクを削除できません', result.error.message)
     setSelectedChunk(null)
@@ -256,10 +260,25 @@ export function ChunkEditor({ uid }: { uid: string }): React.JSX.Element {
     await refresh()
   }
 
-  const generate = async (): Promise<void> => {
+  const openGenerateDialog = async (): Promise<void> => {
+    if (!selectedChunk) return
+    const result = await invoke<PreparedLlmRequest>('llm.prepareRequest', {
+      operation: 'design-candidates',
+      context: { chunkUid: selectedChunk }
+    })
+    if (result.ok) setLlmRequest(result.result)
+    else notify('error', '候補生成の確認画面を開けません', result.error.message)
+  }
+
+  const generate = async (messages: LlmRequestMessage[], promptTemplateUid?: string): Promise<void> => {
     if (!selectedChunk) return
     setGenerating(true)
-    const enq = await invoke<{ jobId: string }>('design.generateCandidates', { chunkUid: selectedChunk })
+    const enq = await invoke<{ jobId: string }>('llm.runConfirmed', {
+      operation: 'design-candidates',
+      context: { chunkUid: selectedChunk },
+      messages,
+      promptTemplateUid
+    })
     if (!enq.ok) {
       setGenerating(false)
       return notify('error', '候補生成を開始できません', enq.error.message)
@@ -341,7 +360,11 @@ export function ChunkEditor({ uid }: { uid: string }): React.JSX.Element {
         <button className="d2d-btn" onClick={() => void remove()} disabled={!selectedChunk}>
           削除
         </button>
-        <button className="d2d-btn primary" onClick={() => void generate()} disabled={!selectedChunk || generating}>
+        <button
+          className="d2d-btn primary"
+          onClick={() => void openGenerateDialog()}
+          disabled={!selectedChunk || generating}
+        >
           {generating ? '生成中…' : '④モデル候補生成'}
         </button>
       </div>
@@ -545,6 +568,15 @@ export function ChunkEditor({ uid }: { uid: string }): React.JSX.Element {
           })}
         </section>
       </ResizablePaneGroup>
+      {llmRequest && selectedChunk && (
+        <LlmRequestDialog
+          request={llmRequest}
+          screenId="chunk.design-candidates"
+          title="④設計モデル候補生成"
+          onClose={() => setLlmRequest(null)}
+          onConfirmed={generate}
+        />
+      )}
     </div>
   )
 }

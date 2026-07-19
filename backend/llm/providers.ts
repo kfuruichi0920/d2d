@@ -32,6 +32,19 @@ export interface ChatResponse {
   outputTokens: number | null
 }
 
+/**
+ * Provider との生の送受信内容（W12、LLM-011 拡張）。
+ * requestBody はマスキング後の送信ボディそのもの。APIキー（ヘッダ・URLクエリ）は含めない。
+ */
+export interface RawExchange {
+  url: string
+  requestBody: unknown
+  /** 応答の生JSON。JSONでない場合とエラー時は本文文字列、未受信は null */
+  responseBody: unknown
+}
+
+export type RawExchangeCapture = (exchange: RawExchange) => void
+
 export interface ProviderConfig {
   provider: ProviderName
   model: string
@@ -48,8 +61,14 @@ async function postJson(
   url: string,
   headers: Record<string, string>,
   body: unknown,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  capture?: RawExchangeCapture,
+  /** 記録用 URL（APIキー等の機密をクエリへ含む場合はマスクした URL を渡す） */
+  displayUrl?: string
 ): Promise<unknown> {
+  // 送信直前に記録し、応答受信後に responseBody を書き足す（失敗時も送信内容は残る）
+  const exchange: RawExchange = { url: displayUrl ?? url, requestBody: body, responseBody: null }
+  capture?.(exchange)
   let response: Response
   try {
     response = await fetch(url, {
@@ -70,6 +89,11 @@ async function postJson(
     )
   }
   const text = await response.text()
+  try {
+    exchange.responseBody = JSON.parse(text)
+  } catch {
+    exchange.responseBody = text
+  }
   if (!response.ok) {
     // 応答本文に APIキーは含まれない前提だが、長大な本文は切り詰める
     throw new BackendError(
@@ -87,7 +111,12 @@ async function postJson(
 }
 
 /** OpenAI: https://api.openai.com/v1/chat/completions（Bearer） */
-async function chatOpenAi(config: ProviderConfig, request: ChatRequest, signal?: AbortSignal): Promise<ChatResponse> {
+async function chatOpenAi(
+  config: ProviderConfig,
+  request: ChatRequest,
+  signal?: AbortSignal,
+  capture?: RawExchangeCapture
+): Promise<ChatResponse> {
   const url = `${config.endpoint ?? 'https://api.openai.com'}/v1/chat/completions`
   const json = (await postJson(
     url,
@@ -98,7 +127,8 @@ async function chatOpenAi(config: ProviderConfig, request: ChatRequest, signal?:
       temperature: request.temperature,
       ...(request.jsonMode ? { response_format: { type: 'json_object' } } : {})
     },
-    signal
+    signal,
+    capture
   )) as {
     choices?: { message?: { content?: string } }[]
     usage?: { prompt_tokens?: number; completion_tokens?: number }
@@ -111,7 +141,12 @@ async function chatOpenAi(config: ProviderConfig, request: ChatRequest, signal?:
 }
 
 /** Azure OpenAI: {endpoint}/openai/deployments/{deployment}/chat/completions?api-version=（api-key ヘッダ） */
-async function chatAzure(config: ProviderConfig, request: ChatRequest, signal?: AbortSignal): Promise<ChatResponse> {
+async function chatAzure(
+  config: ProviderConfig,
+  request: ChatRequest,
+  signal?: AbortSignal,
+  capture?: RawExchangeCapture
+): Promise<ChatResponse> {
   if (!config.endpoint || !config.deployment) {
     throw new BackendError('validation', 'Azure OpenAI の endpoint / deployment が未設定です', '')
   }
@@ -121,7 +156,8 @@ async function chatAzure(config: ProviderConfig, request: ChatRequest, signal?: 
     url,
     { 'api-key': config.apiKey ?? '' },
     { messages: request.messages, temperature: request.temperature },
-    signal
+    signal,
+    capture
   )) as {
     choices?: { message?: { content?: string } }[]
     usage?: { prompt_tokens?: number; completion_tokens?: number }
@@ -134,9 +170,16 @@ async function chatAzure(config: ProviderConfig, request: ChatRequest, signal?: 
 }
 
 /** Gemini: generativelanguage v1beta models/{model}:generateContent?key=（APIキーはクエリ） */
-async function chatGemini(config: ProviderConfig, request: ChatRequest, signal?: AbortSignal): Promise<ChatResponse> {
+async function chatGemini(
+  config: ProviderConfig,
+  request: ChatRequest,
+  signal?: AbortSignal,
+  capture?: RawExchangeCapture
+): Promise<ChatResponse> {
   const base = config.endpoint ?? 'https://generativelanguage.googleapis.com'
   const url = `${base}/v1beta/models/${request.model}:generateContent?key=${encodeURIComponent(config.apiKey ?? '')}`
+  // 記録用 URL は APIキーをマスクする（LLM-016）
+  const displayUrl = `${base}/v1beta/models/${request.model}:generateContent?key=***`
   // system メッセージは systemInstruction、それ以外は contents へ写像する
   const system = request.messages.filter((m) => m.role === 'system')
   const contents = request.messages
@@ -150,7 +193,9 @@ async function chatGemini(config: ProviderConfig, request: ChatRequest, signal?:
       contents,
       ...(request.jsonMode ? { generationConfig: { responseMimeType: 'application/json' } } : {})
     },
-    signal
+    signal,
+    capture,
+    displayUrl
   )) as {
     candidates?: { content?: { parts?: { text?: string }[] } }[]
     usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number }
@@ -163,7 +208,12 @@ async function chatGemini(config: ProviderConfig, request: ChatRequest, signal?:
 }
 
 /** Ollama: {endpoint|http://localhost:11434}/api/chat（認証不要・ローカル） */
-async function chatOllama(config: ProviderConfig, request: ChatRequest, signal?: AbortSignal): Promise<ChatResponse> {
+async function chatOllama(
+  config: ProviderConfig,
+  request: ChatRequest,
+  signal?: AbortSignal,
+  capture?: RawExchangeCapture
+): Promise<ChatResponse> {
   const base = config.endpoint ?? 'http://localhost:11434'
   const json = (await postJson(
     `${base}/api/chat`,
@@ -174,7 +224,8 @@ async function chatOllama(config: ProviderConfig, request: ChatRequest, signal?:
       stream: false,
       ...(request.jsonMode ? { format: 'json' } : {})
     },
-    signal
+    signal,
+    capture
   )) as {
     message?: { content?: string }
     prompt_eval_count?: number
@@ -187,16 +238,21 @@ async function chatOllama(config: ProviderConfig, request: ChatRequest, signal?:
   }
 }
 
-export async function chat(config: ProviderConfig, request: ChatRequest, signal?: AbortSignal): Promise<ChatResponse> {
+export async function chat(
+  config: ProviderConfig,
+  request: ChatRequest,
+  signal?: AbortSignal,
+  capture?: RawExchangeCapture
+): Promise<ChatResponse> {
   switch (config.provider) {
     case 'openai':
-      return chatOpenAi(config, request, signal)
+      return chatOpenAi(config, request, signal, capture)
     case 'azure':
-      return chatAzure(config, request, signal)
+      return chatAzure(config, request, signal, capture)
     case 'gemini':
-      return chatGemini(config, request, signal)
+      return chatGemini(config, request, signal, capture)
     case 'ollama':
-      return chatOllama(config, request, signal)
+      return chatOllama(config, request, signal, capture)
     default:
       throw new BackendError('validation', `未知の LLM Provider です: ${String(config.provider)}`, '')
   }

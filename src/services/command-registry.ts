@@ -22,10 +22,27 @@ export interface CommandDefinition {
   isEnabled?: (ctx: CommandContext) => boolean
   /** パレットに表示しない内部コマンド */
   hidden?: boolean
+  /** 入力欄・テキストエリア内ではショートカットを無効化する（Ctrl+Z 等、編集系との衝突回避） */
+  skipInEditable?: boolean
   run: (arg?: unknown) => void | Promise<void>
 }
 
 const commands = new Map<string, CommandDefinition>()
+
+/** キーバインド解決関数。keybindings.ts がユーザー上書きを考慮した resolver を注入する */
+let keybindingResolver: (def: Pick<CommandDefinition, 'id' | 'keybinding'>) => string | undefined = (def) =>
+  def.keybinding
+
+export function setKeybindingResolver(
+  resolver: (def: Pick<CommandDefinition, 'id' | 'keybinding'>) => string | undefined
+): void {
+  keybindingResolver = resolver
+}
+
+/** ユーザー上書きを考慮した実効キーバインドを返す */
+export function resolveKeybinding(def: Pick<CommandDefinition, 'id' | 'keybinding'>): string | undefined {
+  return keybindingResolver(def)
+}
 
 export function registerCommand(def: CommandDefinition): () => void {
   if (commands.has(def.id)) {
@@ -65,20 +82,24 @@ export function matchKeybinding(binding: string, e: KeyboardEvent): boolean {
   if (e.ctrlKey !== needCtrl || e.shiftKey !== needShift || e.altKey !== needAlt) return false
   const eventKey = e.key.toLowerCase()
   if (key === '\\') return eventKey === '\\'
+  if (key === '=') return eventKey === '=' || eventKey === '+'
   return eventKey === key
 }
 
 /** グローバルショートカットハンドラを設置する。解除関数を返す */
 export function installKeybindings(getContext: () => CommandContext): () => void {
   const handler = (e: KeyboardEvent): void => {
-    // 入力欄内では単キー系を無効化（Ctrl 系のみ許可）
+    // 入力欄内では単キー系を無効化（Ctrl / Alt 系のみ許可）
     const inEditable =
       e.target instanceof HTMLElement &&
       (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable)
     for (const def of commands.values()) {
-      if (!def.keybinding) continue
-      if (inEditable && !def.keybinding.toLowerCase().includes('ctrl')) continue
-      if (matchKeybinding(def.keybinding, e)) {
+      const binding = keybindingResolver(def)
+      if (!binding) continue
+      if (inEditable && def.skipInEditable) continue
+      const lower = binding.toLowerCase()
+      if (inEditable && !lower.includes('ctrl') && !lower.includes('alt')) continue
+      if (matchKeybinding(binding, e)) {
         e.preventDefault()
         void executeCommand(def.id, undefined, getContext())
         return

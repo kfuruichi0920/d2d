@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { invoke } from '../../services/backend'
 import { useJobsStore } from '../../stores/jobs-store'
+import { confirmDialog } from '../common/ConfirmDialog'
 
 interface StateTransition {
   from: string
@@ -134,13 +135,20 @@ export function StateMachineEditor({ uid }: { uid: string }): React.JSX.Element 
               <button
                 type="button"
                 className="d2d-btn small"
-                onClick={() => {
-                  if (!window.confirm(`状態「${state}」を削除しますか？（参照する遷移も削除されます）`)) return
-                  void save({
-                    states: machine.states.filter((s) => s !== state),
-                    transitions: machine.transitions.filter((t) => t.from !== state && t.to !== state)
-                  })
-                }}
+                onClick={() =>
+                  void (async () => {
+                    const accepted = await confirmDialog({
+                      message: `状態「${state}」を削除しますか？（参照する遷移も削除されます）`,
+                      okLabel: '削除',
+                      danger: true
+                    })
+                    if (!accepted) return
+                    await save({
+                      states: machine.states.filter((s) => s !== state),
+                      transitions: machine.transitions.filter((t) => t.from !== state && t.to !== state)
+                    })
+                  })()
+                }
               >
                 ×
               </button>
