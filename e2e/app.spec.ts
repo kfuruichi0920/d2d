@@ -1300,7 +1300,10 @@ test('②→③統合・編集・確定（P7）', async () => {
   await secondChunkSourceRow.press('Shift+ArrowUp')
   await expect(secondChunkSourceRow).toHaveAttribute('aria-selected', 'false')
   await firstChunkSourceRow.click()
-  await page.getByRole('button', { name: 'チャンク作成' }).click()
+  // チャンク作成は成果物行の右クリックメニューから実行する（MID-004 UI改善）。
+  // 行のbounding box中央はPrimary境界のリサイズハンドルと重なり得るため、セルを右クリックする。
+  await firstChunkSourceRow.locator('td').nth(1).click({ button: 'right' })
+  await page.getByTestId('ctx-chunk-create').click()
   await expect(page.getByTestId('chunk-editor')).toContainText('1')
   await expect(
     page.getByTestId('chunk-editor').locator('.chunk-grid').nth(1).locator('tbody tr').first()
@@ -1311,7 +1314,9 @@ test('②→③統合・編集・確定（P7）', async () => {
   await page.getByTestId('chunk-source-i1').click()
   await expect(page.getByTestId('chunk-source-i1')).toHaveClass(/chunk-row-selected/)
   await expect(createdChunkRow).toHaveClass(/chunk-row-related/)
-  await page.getByTestId('chunk-prompt-edit').click()
+  // 追加プロンプト編集はチャンク行の右クリックメニューから開く
+  await createdChunkRow.click({ button: 'right' })
+  await page.getByTestId('ctx-chunk-prompt-edit').click()
   await page.getByLabel('追加プロンプト').fill('安全性の観点を優先すること')
   await page.getByTestId('chunk-prompt-editor').getByRole('button', { name: '保存' }).click()
   await expect(page.getByTestId('chunk-editor')).toContainText('安全性の観点を優先すること')
