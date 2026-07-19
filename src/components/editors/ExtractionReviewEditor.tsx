@@ -8,6 +8,7 @@ import { invoke, onBackendEvent } from '../../services/backend'
 import { useJobsStore } from '../../stores/jobs-store'
 import { useProjectStore } from '../../stores/project-store'
 import { useSelectionStore, type ExtractedItemSelection } from '../../stores/selection-store'
+import { useResourceNavigationStore } from '../../stores/resource-navigation-store'
 import { VirtualDataGrid } from '../common/VirtualDataGrid'
 import { StructuredJsonView } from '../common/StructuredJsonView'
 import { DocumentPreviewMetaControls, useDocumentPreviewMeta } from '../common/DocumentPreviewMeta'
@@ -139,6 +140,7 @@ export function ExtractionReviewEditor({ uid }: { uid: string }): React.JSX.Elem
   const clearExtractedItems = useSelectionStore((state) => state.clearExtractedItems)
   const setSelectedItem = useSelectionStore((state) => state.setSelectedItem)
   const clearSelectedItem = useSelectionStore((state) => state.clearSelectedItem)
+  const navigationTarget = useResourceNavigationStore((state) => state.target)
 
   const load = useCallback(async () => {
     const result = await invoke<ExtractedDoc>('extracted.get', { uid })
@@ -164,6 +166,19 @@ export function ExtractionReviewEditor({ uid }: { uid: string }): React.JSX.Elem
       }),
     [uid]
   )
+
+  useEffect(() => {
+    if (!doc || navigationTarget?.uri !== `extracted://${uid}`) return
+    const target = doc.elements.find(
+      (element) =>
+        (navigationTarget.itemUid && element.review?.item_uid === navigationTarget.itemUid) ||
+        (navigationTarget.resourceUid && element.resource_uid === navigationTarget.resourceUid)
+    )
+    if (!target) return
+    setSelectedIds(new Set([target.id]))
+    setActiveId(target.id)
+    setAnchorId(target.id)
+  }, [doc, navigationTarget, uid])
 
   useEffect(() => {
     if (!doc) return

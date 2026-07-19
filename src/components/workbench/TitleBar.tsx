@@ -1,7 +1,6 @@
 /** Title Bar（P3-1、UI-041）。Command入口と外周パネルの表示切替を右側へ集約する。 */
 import { useProjectStore } from '../../stores/project-store'
 import { useWorkbenchStore } from '../../stores/workbench-store'
-import { OPEN_SCREEN_TEXT_SEARCH } from './ScreenTextSearch'
 import { AppMenu } from './AppMenu'
 
 export function TitleBar(): React.JSX.Element {
@@ -69,16 +68,6 @@ export function TitleBar(): React.JSX.Element {
           ▤ Panel
         </button>
       </div>
-      <button
-        type="button"
-        className="wb-screen-search"
-        data-testid="open-screen-search"
-        aria-label="画面内検索"
-        title="現在の画面に表示されている文字列を検索します（Ctrl+F）"
-        onClick={() => window.dispatchEvent(new Event(OPEN_SCREEN_TEXT_SEARCH))}
-      >
-        ⌕
-      </button>{' '}
       <AppMenu />
     </header>
   )

@@ -127,6 +127,7 @@ function GroupView({ group }: { group: EditorGroup }): React.JSX.Element {
   const pinTab = useEditorStore((state) => state.pinTab)
   const splitGroup = useEditorStore((state) => state.splitGroup)
   const moveTab = useEditorStore((state) => state.moveTab)
+  const refreshVersion = useEditorStore((state) => state.refreshVersion)
   const activeTab = group.tabs.find((tab) => tab.uri === group.activeUri)
 
   const acceptDrop = (event: React.DragEvent): void => {
@@ -226,7 +227,13 @@ function GroupView({ group }: { group: EditorGroup }): React.JSX.Element {
         </span>
       </div>
       <div className="wb-editor-body">
-        {activeTab ? resolveEditor(activeTab.uri) : <div className="d2d-empty">タブをここへドロップ</div>}
+        {activeTab ? (
+          <div key={`${activeTab.uri}:${refreshVersion}`} className="wb-editor-refresh-root">
+            {resolveEditor(activeTab.uri)}
+          </div>
+        ) : (
+          <div className="d2d-empty">タブをここへドロップ</div>
+        )}
       </div>
     </div>
   )

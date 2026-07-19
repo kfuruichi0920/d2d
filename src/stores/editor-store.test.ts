@@ -87,6 +87,17 @@ describe('editor-store（P3-1、UI-006/039/040）', () => {
     expect(useEditorStore.getState().groups.find((group) => group.id !== 1)?.activeUri).toBe('b://2')
   })
 
+  it('アクティブGroupの前後タブへ循環移動し、Editorを再読込できる', () => {
+    const state = useEditorStore.getState()
+    state.openResource('a://1', 'A')
+    state.openResource('b://2', 'B')
+    state.activateAdjacentTab(-1)
+    expect(useEditorStore.getState().activeUri).toBe('a://1')
+    const version = useEditorStore.getState().refreshVersion
+    state.refreshActiveResource()
+    expect(useEditorStore.getState().refreshVersion).toBe(version + 1)
+  })
+
   it('dirty状態を管理できる', () => {
     useEditorStore.getState().openResource('a://1', 'A')
     useEditorStore.getState().setDirty('a://1', true)

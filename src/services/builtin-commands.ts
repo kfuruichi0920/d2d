@@ -114,6 +114,45 @@ export function registerBuiltinCommands(): void {
       navigateForward()
     }
   })
+  registerCommand({
+    id: 'nav.refresh',
+    title: '現在のEditorを更新',
+    category: '移動',
+    run: () => editor().refreshActiveResource()
+  })
+  registerCommand({
+    id: 'nav.home',
+    title: 'ホーム（ダッシュボード）',
+    category: '移動',
+    run: () => {
+      wb().switchMode('M0')
+      editor().openResource('project://current', 'ダッシュボード')
+    }
+  })
+  registerCommand({
+    id: 'editor.tab.previous',
+    title: 'Editorタブ: 前へ',
+    category: '表示',
+    run: () => editor().activateAdjacentTab(-1)
+  })
+  registerCommand({
+    id: 'editor.tab.next',
+    title: 'Editorタブ: 後へ',
+    category: '表示',
+    run: () => editor().activateAdjacentTab(1)
+  })
+  registerCommand({
+    id: 'panel.tab.previous',
+    title: '下Panelタブ: 前へ',
+    category: '表示',
+    run: () => wb().activateAdjacentPanelTab(-1)
+  })
+  registerCommand({
+    id: 'panel.tab.next',
+    title: '下Panelタブ: 後へ',
+    category: '表示',
+    run: () => wb().activateAdjacentPanelTab(1)
+  })
 
   // Activity Bar の各アクティビティを開く（W10、ショートカット割り当て可能）
   const ACTIVITY_LABELS: Record<Activity, string> = {

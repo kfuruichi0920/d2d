@@ -101,6 +101,14 @@ describe('workbench-store（P3-1、UI-038/040）', () => {
     expect(SECONDARY_SECTION_ORDER).toEqual(['properties', 'relations', 'review', 'dictionary'])
   })
 
+  it('下Panelの前後タブへ循環移動できる', () => {
+    useWorkbenchStore.getState().setPanelTab('jobs')
+    useWorkbenchStore.getState().activateAdjacentPanelTab(1)
+    expect(useWorkbenchStore.getState()).toMatchObject({ panelVisible: true, panelTab: 'validation' })
+    useWorkbenchStore.getState().activateAdjacentPanelTab(-1)
+    expect(useWorkbenchStore.getState().panelTab).toBe('jobs')
+  })
+
   it('セマンティックプレビューはEnterまたはF2だけを編集ショートカットとして扱う（EDIT-072）', () => {
     expect(isSemanticEditShortcut('Enter')).toBe(true)
     expect(isSemanticEditShortcut('F2')).toBe(true)

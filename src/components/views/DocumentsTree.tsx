@@ -13,6 +13,7 @@ import { invoke, onBackendEvent } from '../../services/backend'
 import { executeCommand } from '../../services/command-registry'
 import { importSourceDocuments } from '../../services/source-import'
 import { useEditorStore } from '../../stores/editor-store'
+import { useFavoritesStore } from '../../stores/favorites-store'
 import { useJobsStore } from '../../stores/jobs-store'
 import { reviewStateFromEntityStatus, ReviewStatusBadge } from '../common/review'
 import { showContextMenu } from '../common/ContextMenu'
@@ -105,9 +106,14 @@ export function DocumentsTree({ projectName }: { projectName: string }): React.J
   const [artifacts, setArtifacts] = useState<ArtifactSetting[]>([])
   const [phases, setPhases] = useState<DevPhaseSetting[]>([])
   const [importArtifactUid, setImportArtifactUid] = useState<string | null | undefined>(undefined)
+  const [renamingFavorite, setRenamingFavorite] = useState<string | null>(null)
+  const [favoriteName, setFavoriteName] = useState('')
   const { treeRef, expandAll, collapseAll } = useExplorerTreeKeyboard()
   const openResource = useEditorStore((state) => state.openResource)
   const notify = useJobsStore((state) => state.notify)
+  const favorites = useFavoritesStore((state) => state.items)
+  const renameFavorite = useFavoritesStore((state) => state.rename)
+  const removeFavorite = useFavoritesStore((state) => state.remove)
   const extractedUnconfirmed = extracted.reduce((total, document) => total + document.unconfirmed_count, 0)
   const intermediateUnconfirmed = intermediates.reduce((total, document) => total + document.unconfirmed_count, 0)
 
@@ -208,6 +214,70 @@ export function DocumentsTree({ projectName }: { projectName: string }): React.J
           </span>
         </summary>
         <div className="d2d-explorer-root-children" role="group">
+          {favorites.length > 0 && (
+            <details open className="d2d-explorer-section" data-testid="explorer-section-favorites">
+              <summary className="d2d-explorer-section-header" role="treeitem" tabIndex={-1} data-explorer-treeitem>
+                <span className="d2d-explorer-favorite-icon">★</span>
+                <span className="d2d-explorer-section-title">お気に入り</span>
+                <span className="d2d-explorer-section-count">{favorites.length}</span>
+              </summary>
+              {favorites.map((favorite) => (
+                <div
+                  key={favorite.uri}
+                  className="d2d-list-row d2d-favorite-row"
+                  role="treeitem"
+                  tabIndex={-1}
+                  data-explorer-treeitem
+                  title={`${favorite.name}\n${favorite.uri}`}
+                  onClick={() => {
+                    if (renamingFavorite !== favorite.uri) openResource(favorite.uri, favorite.title, { preview: true })
+                  }}
+                  onDoubleClick={(event) => {
+                    event.stopPropagation()
+                    setRenamingFavorite(favorite.uri)
+                    setFavoriteName(favorite.name)
+                  }}
+                  onContextMenu={(event) =>
+                    showContextMenu(event, [
+                      {
+                        label: '表示名を変更',
+                        run: () => {
+                          setRenamingFavorite(favorite.uri)
+                          setFavoriteName(favorite.name)
+                        }
+                      },
+                      { label: 'お気に入りから解除', run: () => removeFavorite(favorite.uri) }
+                    ])
+                  }
+                >
+                  <span className="d2d-explorer-favorite-icon">★</span>
+                  {renamingFavorite === favorite.uri ? (
+                    <input
+                      autoFocus
+                      data-tree-action
+                      value={favoriteName}
+                      aria-label="お気に入り表示名"
+                      onClick={(event) => event.stopPropagation()}
+                      onChange={(event) => setFavoriteName(event.target.value)}
+                      onBlur={() => {
+                        renameFavorite(favorite.uri, favoriteName)
+                        setRenamingFavorite(null)
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') {
+                          renameFavorite(favorite.uri, favoriteName)
+                          setRenamingFavorite(null)
+                        }
+                        if (event.key === 'Escape') setRenamingFavorite(null)
+                      }}
+                    />
+                  ) : (
+                    <span className="d2d-explorer-item-label">{favorite.name}</span>
+                  )}
+                </div>
+              ))}
+            </details>
+          )}
           <details open className="d2d-explorer-section" data-testid="explorer-section-original">
             <summary
               className="d2d-explorer-section-header"

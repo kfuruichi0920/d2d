@@ -9,6 +9,7 @@ import { moveKeyboardRangeSelection } from '../../utils/keyboard-range-selection
 import { useJobsStore } from '../../stores/jobs-store'
 import { useProjectStore } from '../../stores/project-store'
 import { useSelectionStore } from '../../stores/selection-store'
+import { useResourceNavigationStore } from '../../stores/resource-navigation-store'
 import { VirtualDataGrid } from '../common/VirtualDataGrid'
 import { StructuredJsonView } from '../common/StructuredJsonView'
 import { DocumentPreviewMetaControls, useDocumentPreviewMeta } from '../common/DocumentPreviewMeta'
@@ -130,6 +131,7 @@ export function IntermediateDocumentEditor({
   const setWorkbenchItems = useSelectionStore((s) => s.setWorkbenchItems)
   const setSelectedItem = useSelectionStore((s) => s.setSelectedItem)
   const clearSelectedItem = useSelectionStore((s) => s.clearSelectedItem)
+  const navigationTarget = useResourceNavigationStore((state) => state.target)
 
   const load = useCallback(async () => {
     const [docRes, mdRes, termsRes] = await Promise.all([
@@ -149,6 +151,21 @@ export function IntermediateDocumentEditor({
       if (event === 'glossary.updated') void load()
     })
   }, [load])
+
+  useEffect(() => {
+    if (!doc || navigationTarget?.uri !== `intermediate://${uid}`) return
+    const target = doc.elements.find(
+      (element) =>
+        (navigationTarget.itemUid && element.intermediate_item_uid === navigationTarget.itemUid) ||
+        (navigationTarget.resourceUid && element.resource_uid === navigationTarget.resourceUid)
+    )
+    if (!target) return
+    setSelectedIds(new Set([target.id]))
+    setActiveId(target.id)
+    setItemAnchorId(target.id)
+    setLastSelectedPane('intermediate')
+    previewRefs.current.get(target.id)?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  }, [doc, navigationTarget, uid])
 
   useEffect(() => {
     const items =

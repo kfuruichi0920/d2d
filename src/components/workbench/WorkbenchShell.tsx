@@ -7,9 +7,15 @@ import { installKeybindings } from '../../services/command-registry'
 import { getCommandContext, registerBuiltinCommands } from '../../services/builtin-commands'
 import { loadKeybindingOverrides } from '../../services/keybindings'
 import { clearUndoHistory } from '../../services/undo-service'
-import { clearNavigationHistory, initNavigationHistory } from '../../services/navigation-history'
+import {
+  clearNavigationHistory,
+  initNavigationHistory,
+  navigateBack,
+  navigateForward
+} from '../../services/navigation-history'
 import { invoke, onBackendEvent } from '../../services/backend'
 import { useEditorStore } from '../../stores/editor-store'
+import { useFavoritesStore } from '../../stores/favorites-store'
 import { useJobsStore, type JobRecord } from '../../stores/jobs-store'
 import { useProjectStore, type ProjectInfo } from '../../stores/project-store'
 import { useWorkbenchStore } from '../../stores/workbench-store'
@@ -50,6 +56,7 @@ export function WorkbenchShell(): React.JSX.Element {
     loadKeybindingOverrides()
     loadPersisted('global')
     loadEditorPersisted('global')
+    useFavoritesStore.getState().loadPersisted('global')
     void Promise.all([
       invoke<unknown>('settings.get', { key: 'theme.displayMode' }),
       invoke<unknown>('settings.get', { key: 'theme.colorTheme' }),
@@ -87,6 +94,16 @@ export function WorkbenchShell(): React.JSX.Element {
 
     const uninstallKeys = installKeybindings(getCommandContext)
     const uninstallNav = initNavigationHistory()
+    const handleMouseNavigation = (event: PointerEvent): void => {
+      if (event.button === 3) {
+        event.preventDefault()
+        navigateBack()
+      } else if (event.button === 4) {
+        event.preventDefault()
+        navigateForward()
+      }
+    }
+    window.addEventListener('pointerdown', handleMouseNavigation)
     const unwatchTheme = watchSystemTheme(() => useWorkbenchStore.getState().theme)
     const offEvents = onBackendEvent((event, payload) => {
       if (event === 'job.updated') {
@@ -96,6 +113,7 @@ export function WorkbenchShell(): React.JSX.Element {
         useProjectStore.getState().setProject(info)
         useWorkbenchStore.getState().loadPersisted(info.projectUid)
         useEditorStore.getState().loadPersisted(info.projectUid)
+        useFavoritesStore.getState().loadPersisted(info.projectUid)
         // プロジェクトをまたぐ取り消しは二重適用の危険があるため履歴を破棄する。
         clearUndoHistory()
         clearNavigationHistory()
@@ -103,6 +121,7 @@ export function WorkbenchShell(): React.JSX.Element {
         useProjectStore.getState().setProject(null)
         useWorkbenchStore.getState().loadPersisted('global')
         useEditorStore.getState().loadPersisted('global')
+        useFavoritesStore.getState().loadPersisted('global')
         clearUndoHistory()
         clearNavigationHistory()
       } else if (
@@ -125,6 +144,7 @@ export function WorkbenchShell(): React.JSX.Element {
     return () => {
       uninstallKeys()
       uninstallNav()
+      window.removeEventListener('pointerdown', handleMouseNavigation)
       unwatchTheme()
       offEvents()
     }

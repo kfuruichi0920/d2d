@@ -18,6 +18,16 @@ let current: NavigationEntry | null = null
 /** back/forward 実行による遷移を履歴へ再記録しないためのフラグ */
 let navigating = false
 let unsubscribe: (() => void) | null = null
+const listeners = new Set<() => void>()
+
+function notifyListeners(): void {
+  for (const listener of listeners) listener()
+}
+
+export function subscribeNavigationHistory(listener: () => void): () => void {
+  listeners.add(listener)
+  return () => listeners.delete(listener)
+}
 
 function titleOf(uri: string): string {
   for (const group of useEditorStore.getState().groups) {
@@ -36,6 +46,7 @@ function record(uri: string): void {
   }
   current = { uri, title: titleOf(uri) }
   forwardStack = []
+  notifyListeners()
 }
 
 /** アプリ起動時に一度だけ呼ぶ。解除関数を返す */
@@ -78,6 +89,7 @@ export function navigateBack(): boolean {
   if (current) forwardStack.push(current)
   current = entry
   open(entry)
+  notifyListeners()
   return true
 }
 
@@ -88,6 +100,7 @@ export function navigateForward(): boolean {
   if (current) backStack.push(current)
   current = entry
   open(entry)
+  notifyListeners()
   return true
 }
 
@@ -97,4 +110,5 @@ export function clearNavigationHistory(): void {
   forwardStack = []
   const activeUri = useEditorStore.getState().activeUri
   current = activeUri ? { uri: activeUri, title: titleOf(activeUri) } : null
+  notifyListeners()
 }
