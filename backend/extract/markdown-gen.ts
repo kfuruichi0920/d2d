@@ -48,6 +48,14 @@ export function generateMarkdown(elements: StructureElement[], variant: Markdown
         lines.push(variant === 'review' ? `![図](${e.image ?? ''})${anchor(e)}` : `（図: ${e.image ?? ''}）`)
         lines.push('')
         break
+      case 'shape':
+      case 'group_shape':
+      case 'connector':
+        if (e.text) {
+          lines.push(`${e.text}${anchor(e)}`)
+          lines.push('')
+        }
+        break
       case 'table': {
         const rows = e.rows ?? []
         if (rows.length === 0) break

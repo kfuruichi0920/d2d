@@ -4,6 +4,7 @@
  */
 import { Fragment, useCallback, useEffect, useMemo, useState, type KeyboardEvent } from 'react'
 import { invoke, onBackendEvent } from '../../services/backend'
+import type { ApiMethod } from '../../types/api-methods'
 import { importSourceDocuments } from '../../services/source-import'
 import { useEditorStore } from '../../stores/editor-store'
 import { useJobsStore } from '../../stores/jobs-store'
@@ -272,11 +273,11 @@ export function PipelineStageEditor({ stage }: { stage: PipelineStage }): React.
   const changeSort = (key: string): void =>
     setSort((current) => ({ key, direction: current.key === key && current.direction === 'asc' ? 'desc' : 'asc' }))
   const mutate = async (
-    method: string,
+    method: ApiMethod,
     params: Record<string, unknown>,
     message: string,
     // W4（NFR-012）: 逆操作を指定した変更は Ctrl+Z で取り消せる。
-    undoSpec?: { label: string; undoMethod: string; undoParams: Record<string, unknown> }
+    undoSpec?: { label: string; undoMethod: ApiMethod; undoParams: Record<string, unknown> }
   ): Promise<void> => {
     const result = await invoke(method, params)
     if (!result.ok) {

@@ -1,25 +1,13 @@
 import { create } from 'zustand'
-import type { ApiError } from '../types/ipc'
 import { invoke } from '../services/backend'
 import { useLogsStore } from './logs-store'
+import type { JobRecord, JobStatus } from '../types/api-contract'
+
+export type { JobRecord, JobStatus }
 
 /** トーストの自動消去時間。エラーは通常の3倍表示する（W11） */
 const TOAST_DISMISS_MS = 5000
 const ERROR_TOAST_DISMISS_MS = TOAST_DISMISS_MS * 3
-
-export type JobStatus = 'waiting' | 'running' | 'success' | 'failed' | 'partial' | 'aborted'
-
-export interface JobRecord {
-  jobId: string
-  type: string
-  status: JobStatus
-  progress: number
-  message: string | null
-  error: ApiError | null
-  createdAt?: string
-  startedAt?: string | null
-  completedAt?: string | null
-}
 
 export interface NotificationItem {
   id: number

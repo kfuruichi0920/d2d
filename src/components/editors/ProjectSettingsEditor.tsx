@@ -1,6 +1,7 @@
 /** Project Settings Editor（P7-1、CORE-012、LLM-042）。 */
 import { useCallback, useEffect, useState } from 'react'
 import { invoke } from '../../services/backend'
+import type { ApiMethod } from '../../types/api-methods'
 import { useJobsStore } from '../../stores/jobs-store'
 import { confirmDialog } from '../common/ConfirmDialog'
 interface Artifact {
@@ -90,7 +91,7 @@ export function ProjectSettingsEditor(): React.JSX.Element {
       await load()
     }
   }
-  const remove = async (method: string, uid: string, label: string): Promise<void> => {
+  const remove = async (method: ApiMethod, uid: string, label: string): Promise<void> => {
     const accepted = await confirmDialog({
       message: `${label}を削除します。関連する中間データも復旧不能になります。よろしいですか？`,
       okLabel: '削除',

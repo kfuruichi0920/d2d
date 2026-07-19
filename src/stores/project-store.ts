@@ -1,24 +1,8 @@
 import { create } from 'zustand'
 import { invoke } from '../services/backend'
+import type { PipelineStats, ProjectInfo } from '../types/api-contract'
 
-export interface ProjectInfo {
-  projectUid: string
-  name: string
-  description: string | null
-  rootPath: string
-  schemaVersion: string
-  code: string | null
-}
-
-/** Pipeline Navigator 用のステージ集計（sdd_ui_design §3.1） */
-export interface PipelineStats {
-  sources: number
-  extracted: number
-  intermediate: number
-  designElements: number
-  traceLinks: number
-  candidates: number
-}
+export type { PipelineStats, ProjectInfo }
 
 interface ProjectState {
   project: ProjectInfo | null
@@ -26,7 +10,13 @@ interface ProjectState {
   setProject(project: ProjectInfo | null): void
   refresh(): Promise<void>
   refreshStats(): Promise<void>
+  /** Backendイベント起点の再集計要求。短時間に連続するイベントを1回の取得へ集約する */
+  requestStatsRefresh(): void
 }
+
+/** イベント連続発生時（取込ジョブ等）の集約待ち時間（改善対応3） */
+export const STATS_REFRESH_COALESCE_MS = 300
+let statsRefreshTimer: ReturnType<typeof setTimeout> | null = null
 
 export const useProjectStore = create<ProjectState>((set, get) => ({
   project: null,
@@ -46,7 +36,15 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   refreshStats: async () => {
-    const res = await invoke<PipelineStats>('project.getPipelineStats')
+    const res = await invoke('project.getPipelineStats')
     if (res.ok) set({ stats: res.result })
+  },
+
+  requestStatsRefresh: () => {
+    if (statsRefreshTimer !== null) return
+    statsRefreshTimer = setTimeout(() => {
+      statsRefreshTimer = null
+      void get().refreshStats()
+    }, STATS_REFRESH_COALESCE_MS)
   }
 }))

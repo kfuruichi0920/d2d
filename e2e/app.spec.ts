@@ -696,8 +696,19 @@ test('原本取込→Word抽出→レビュー→②正本確定の全経路（P
   await expect(page.getByTestId('review-markdown').getByRole('img')).toBeVisible()
   await page.getByTestId('extraction-preview-structure').click()
   await expect(page.getByTestId('extraction-structure-json')).toContainText('elements')
+  await expect(page.getByTestId('extraction-structure-json')).toContainText('source_sha256')
+  await expect(page.getByTestId('extraction-structure-json')).toContainText('package')
+  await expect(page.getByTestId('extraction-structure-json')).toContainText('unsupported_elements')
   await expect(page.getByTestId('extraction-structure-json').locator('.structured-json-key').first()).toBeVisible()
   await page.getByTestId('extraction-preview-visual').click()
+  await expect(page.getByTestId('word-story-header')).toContainText('D2D仕様書ヘッダ')
+  await expect(page.getByTestId('word-story-footer')).toContainText('PAGE')
+  await expect(page.getByTestId('word-shape-preview').filter({ hasText: '入力処理' })).toBeVisible()
+  await expect(page.getByTestId('word-connector-preview')).toBeVisible()
+  const decoratedRun = page.getByTestId('rich-text-run').filter({ hasText: 'REQ-001' })
+  await expect(decoratedRun).toHaveCSS('font-weight', '700')
+  await expect(decoratedRun).toHaveCSS('background-color', 'rgb(255, 245, 157)')
+  await expect(decoratedRun).toHaveCSS('text-decoration-line', /underline.*line-through|line-through.*underline/)
   await expect(page.getByTestId('preview-item-e1')).toHaveClass(/selected/)
   const extractionActionIcons = await page
     .getByTestId('extraction-review-editor')
@@ -2324,6 +2335,45 @@ test('LLMログの生送受信表示と候補再作成（W12）', async () => {
       { timeout: 30_000 }
     )
     .toBe(0)
+})
+
+test('トースト通知の自動消去（W11、info 5秒）', async () => {
+  // ①ステージ一覧のアーカイブ操作で info トーストを発生させる
+  await page.getByTestId('stage-source').click()
+  const row = page.getByTestId('stage-source-row-DOC-000002')
+  await expect(row).toBeVisible()
+  await row.getByRole('button', { name: 'アーカイブ' }).click()
+  const notifications = page.getByTestId('notifications')
+  await expect(notifications).toContainText('アーカイブしました')
+  // info トーストは5秒で自動消去される（jobs-store の TOAST_DISMISS_MS）
+  await expect(notifications).not.toContainText('アーカイブしました', { timeout: 7_000 })
+  // 後続テストへ影響しないよう表示状態を元へ戻す
+  await row.getByRole('button', { name: '解除' }).click()
+  await expect(row.getByRole('button', { name: 'アーカイブ' })).toBeVisible()
+})
+
+test('Workbenchレイアウトの永続化（UI-041、Primary幅の再読込復元）', async () => {
+  // Primary Side Bar を表示し、リサイズ境界の矢印キー操作で幅を変更する
+  if (
+    !(await page
+      .getByTestId('primary-sidebar')
+      .isVisible()
+      .catch(() => false))
+  ) {
+    await page.getByTestId('activity-explorer').click()
+  }
+  const handle = page.getByTestId('primary-resize-handle')
+  await handle.focus()
+  for (let i = 0; i < 3; i++) await page.keyboard.press('ArrowRight')
+  const width = await page.locator('.wb-primary-slot').evaluate((el) => (el as HTMLElement).style.width)
+
+  // 再読込後、プロジェクト単位の保存レイアウト（localStorage）から同じ幅を復元する
+  await page.reload()
+  await expect(page.getByTestId('workbench')).toBeVisible({ timeout: 15_000 })
+  await expect(page.getByTestId('primary-sidebar')).toBeVisible()
+  await expect
+    .poll(async () => page.locator('.wb-primary-slot').evaluate((el) => (el as HTMLElement).style.width))
+    .toBe(width)
 })
 
 test('スクリーンショットを保存する', async () => {
