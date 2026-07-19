@@ -5,9 +5,9 @@
  * APIキー実値は渡さず api_key_ref のみ渡す（§11.1）。
  */
 import { spawn } from 'node:child_process'
-import { join } from 'node:path'
 import { existsSync } from 'node:fs'
 import { BackendError } from '../api/errors'
+import { resolveWorkerLaunch } from '../runtime-paths'
 
 export interface WorkerRequest {
   job_id: string
@@ -54,16 +54,16 @@ export interface RunWorkerOptions {
 
 const DEFAULT_TIMEOUT_MS = 10 * 60_000
 
-/** 実行する Python コマンドを解決する（sdd_tech_stack §5.2） */
+/** 実行する Python コマンドを解決する（sdd_tech_stack §5.2）。テスト用エントリ差替時に使用 */
 export function resolvePythonCommand(): string {
   if (process.env.D2D_PYTHON) return process.env.D2D_PYTHON
   return process.platform === 'win32' ? 'python' : 'python3'
 }
 
 export function defaultWorkerEntry(): string {
-  // 開発時: リポジトリ直下の workers/python/main.py
-  // パッケージ済み: resources/workers/python/d2d-worker.exe（P14-5 で対応）
-  return join(process.cwd(), 'workers', 'python', 'main.py')
+  // 開発時: python workers/python/main.py
+  // パッケージ済み: resources/workers/python/d2d-worker(.exe) を直接起動（P14-5、sdd_tech_stack §5.4）
+  return resolveWorkerLaunch().entryPath
 }
 
 /**
@@ -71,13 +71,16 @@ export function defaultWorkerEntry(): string {
  * ワーカーの error 出力・異常終了は worker 分類の BackendError へ変換する（§2.3）。
  */
 export function runWorker(options: RunWorkerOptions): Promise<WorkerResult> {
-  const entry = options.workerEntryPath ?? defaultWorkerEntry()
-  if (!existsSync(entry)) {
-    return Promise.reject(new BackendError('worker', 'ワーカーエントリポイントが見つかりません', entry))
+  // テストは .py エントリを差し替えて Python 実行、通常は環境に応じて python / d2d-worker.exe を解決
+  const launch = options.workerEntryPath
+    ? { command: resolvePythonCommand(), args: [options.workerEntryPath], entryPath: options.workerEntryPath }
+    : resolveWorkerLaunch()
+  if (!existsSync(launch.entryPath)) {
+    return Promise.reject(new BackendError('worker', 'ワーカーエントリポイントが見つかりません', launch.entryPath))
   }
 
   return new Promise<WorkerResult>((resolve, reject) => {
-    const child = spawn(resolvePythonCommand(), [entry], {
+    const child = spawn(launch.command, launch.args, {
       stdio: ['pipe', 'pipe', 'pipe'],
       env: {
         ...process.env,
