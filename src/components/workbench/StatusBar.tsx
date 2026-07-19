@@ -11,7 +11,6 @@ export function StatusBar(): React.JSX.Element {
   const openPanel = useWorkbenchStore((s) => s.openPanel)
   const jobs = useJobsStore((s) => s.jobs)
   const runningCount = useJobsStore((s) => s.runningCount)
-  const theme = useWorkbenchStore((s) => s.theme)
 
   const failedCount = jobs.filter((j) => j.status === 'failed').length
 
@@ -26,18 +25,15 @@ export function StatusBar(): React.JSX.Element {
         className="item clickable"
         data-testid="status-jobs"
         onClick={() => openPanel('jobs')}
-        title="クリックで Jobs Panel を開く"
+        title="クリックでジョブパネルを開く"
       >
         {runningCount > 0 ? `⟳ ジョブ ${runningCount} 実行中` : 'ジョブ待機'}
       </span>
       {failedCount > 0 && (
-        <span className="item clickable" style={{ color: '#ffd2d2' }} onClick={() => openPanel('jobs')}>
+        <span className="item clickable status-failed" onClick={() => openPanel('jobs')}>
           ⚠ 失敗 {failedCount}
         </span>
       )}
-      <span className="item" data-testid="status-theme">
-        {theme.colorTheme}/{theme.displayMode}
-      </span>
     </footer>
   )
 }

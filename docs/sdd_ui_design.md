@@ -573,7 +573,8 @@ M3では、入力となる③中間データ、正規化結果、設計要素候
 | 関連項目限定 | 起点列は全項目を維持し、その左右は選択関係で起点集合から到達できる項目だけを表示する。選択が空の場合は通常表示へ戻す |
 | 階層 | ②・③の`structure_json.elements`の文書順、見出しlevel、list levelから親子と表示深さを導出する。折畳中の子を端点とするリンクは最寄りの表示中祖先へ集約し、集約件数を示す |
 | 選択連携 | 各列の項目は上下キーで移動し、Shift+上下キーでアンカーから連続範囲を選択する。最後に操作した項目をWorkbench共通Selectionへ通知してSecondary Side BarのProperties／Relations／Reviewを更新する |
-| スクロール・描画負荷 | 各列の項目領域へ独立した縦スクロールを設ける。各列scrollと横viewport scrollによる項目配置計測・リンク再描画はequestAnimationFrameで1フレームに集約する。表示領域と前後のoverscan内に端点を持つリンクだけをSVGへ描画し、画面外端点は列の表示領域端へクランプする |
+| スクロール・描画負荷 | 各列の項目領域へ独立した縦スクロールを設ける。各列scrollと横viewport scrollによる項目配置計測・リンク再描画は
+equestAnimationFrameで1フレームに集約する。表示領域と前後のoverscan内に端点を持つリンクだけをSVGへ描画し、画面外端点は列の表示領域端へクランプする |
 | 構成保存 | 列順、列ごとのスコープ、列間隔、関係種別、リンク表示状態を名前付き構成としてプロジェクト別localStorageへ複数保存する。選択した構成は現在のタブへ復元し、正本DBは変更しない |
 | 複数タブ | Trace Side Barの「新しい分析ビュー」「新しいトレースマトリクス」は毎回固有の`view-id`を含むResource URIを開く。同種Editorを分割せず同一Group内の別タブとして複数保持できる |
 
@@ -872,12 +873,12 @@ Secondary Side BarのProperties、Relations、Review、Dictionaryは定義順で
 - ボタンに加えて input／select／textarea も `GlobalButtonTooltips` が Tooltip を保証する。明示 `title`（説明＋例）を最優先し、未設定時は label／aria-label／placeholder から補完する。
 - Editor の表示Resource遷移は `navigation-history` が記録し、`nav.back`／`nav.forward`（Alt+←／Alt+→）で行き来する。閉じたタブは同一URI・タイトルで開き直す。履歴はメモリのみで、プロジェクト切替時に破棄する。
 - モーダルダイアログの Escape クローズは共通フック `useEscapeToClose(active, onClose)` を使う（document capture + スタックで最前面だけを閉じる）。ダイアログ要素個別の onKeyDown で Escape を実装しない。
-- トースト通知はすべて自動消去（info/warning 5秒、error はその3倍の15秒）。通知は `logs-store`（動作ログ、最大500件）へ記録され、Panel Output タブの「動作ログ」で参照する。あわせて `log.append` でデバッグログファイルにも残す。
+- トースト通知はすべて自動消去（info/warning 5秒、error はその3倍の15秒）。通知は `logs-store`（動作ログ、最大500件）へ記録され、Panel「出力」タブ（id: output）の「動作ログ」で参照する。下段Panelタブの表示名は日本語（問題／出力／ジョブ／検証／LLMログ）へ統一し、testid は英語ID（panel-tab-problems 等）を維持する。あわせて `log.append` でデバッグログファイルにも残す。
 
 ### A.2 Explorer・Pipeline Navigator・Search
 
 - SearchのMeCab未使用時はNFKC正規化したFTS結果と全文部分一致結果を常に併合する。FTSが1件以上返した場合もLIKE結果を省略しない。MeCab使用時は形態素解析により時間がかかる場合がある旨をSearch Activityへ表示する。
-- Pipeline Navigatorは `①原本-(抽出)->②抽出-(統合)->③中間-(モデル化)->④モデル`、分析、用語集、Resourceアドレスバーを固定順で表示する。選択表示はactiveなステージURIだけを基準とし、①〜④を排他的に表示する。分析は全抽出／全中間／全モデルの3列で汎用インパクト分析を開く。アドレスバーは既知URIだけを受理し、不正時は通知して遷移しない。Status Barには作業モード名とResource URIを表示しない。①〜④の一覧行は薄青背景で選択を示し、上下矢印で選択行を移動、Enter／Spaceでクリックと同じ操作を実行する。④モデルは単一クリックで開く。①〜③の一覧／プレビュー境界は共通 `ResizablePaneGroup` で変更する。
+- Pipeline Navigatorは `①原本-(抽出)->②抽出-(統合)->③中間-(モデル化)->④モデル`、分析、用語集、Resourceアドレスバーを固定順で表示する。選択表示はactiveなステージURIだけを基準とし、①〜④を排他的に表示する。分析は全抽出／全中間／全モデルの3列で汎用インパクト分析を開く。アドレスバーは既知URIだけを受理し、不正時は通知して遷移しない。Status Barには作業モード名・Resource URI・テーマ名を表示しない（プロジェクト名とジョブ状態のみ）。①〜④の一覧行は薄青背景で選択を示し、上下矢印で選択行を移動、Enter／Spaceでクリックと同じ操作を実行する。④モデルは単一クリックで開く。①〜③の一覧／プレビュー境界は共通 `ResizablePaneGroup` で変更する。
 - Explorer未確定Badgeは文書状態ではなく要素単位で集計し、extracted_itemはresource_uid、intermediate_itemはitem uidに対応するentity_registry.statusがapproved／deleted以外の件数を表示する。削除済みを除く子要素が1件以上かつ全件approvedの場合だけ抽出／中間文書もapprovedとし、それ以外はdraftへ同期する。
 - Explorerはプロジェクト名をルートとするVS Code風の単一Treeとし、①〜④、③のフェーズ階層、成果物配下の統合元を折りたためる。上下矢印で表示ノードを移動し、右矢印で展開、左矢印で折畳または親へ移動する。プロジェクト行に全展開／全折畳を置き、文字強調はプロジェクト行だけとする。原本・抽出・中間・設計モデル・統合元はResource種別別ファイル系アイコンを名称左へ、状態・形式・分類・件数タグを名称右へ表示する。③成果物は「成果物」Badgeを表示せず、レビュー状態・未確定数・要素数を表示し、統合元0件の代替行は表示しない。Explorerには常設の取込・名称変更・チャンク・モデル追加ボタンを置かないが、右クリックは①原本フォルダの「取込」、③中間フォルダの「中間データへ取込」、③成果物の取込先初期選択済み「取込」だけを提供し、②抽出フォルダには提供しない。Pipeline Navigatorの各ステージはEditor Areaにソート可能な一覧を開き、①は一覧上部の取込からWindows複数ファイル選択を直接開く読取専用詳細、②は独自プレビューとExplorer選択案内、③は一覧上部の取込とフェーズ－成果物階層、④はモデル一覧と追加操作を表示する。原本はファイルごとに独立した `import.source` Jobへ登録する（実行はJob Managerの直列制約を維持）。
 - ①原本はPipeline NavigatorとExplorerのどちらから選択しても「OSアプリで開く」と「②抽出データの生成（抽出ジョブ実行）」を表示する。`source_document.uid`を参照する`extracted_document`が存在する場合は抽出実行を無効表示し、Backendも重複実行を拒否する。

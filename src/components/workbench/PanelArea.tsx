@@ -5,12 +5,13 @@ import { LlmLogsPanel } from '../views/LlmViews'
 import { ProblemsView } from '../views/TraceViews'
 import { LogsPanel } from '../views/LogsPanel'
 
+// 表示名は他UIと同じ日本語へ統一する（UI点検対応。testid は英語IDのまま維持）
 const LABELS: Record<PanelTab, string> = {
-  problems: 'Problems',
-  output: 'Output',
-  jobs: 'Jobs',
-  validation: 'Validation',
-  llm: 'LLM Logs'
+  problems: '問題',
+  output: '出力',
+  jobs: 'ジョブ',
+  validation: '検証',
+  llm: 'LLMログ'
 }
 
 export function PanelArea(): React.JSX.Element {

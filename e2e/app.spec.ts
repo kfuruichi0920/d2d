@@ -424,8 +424,8 @@ test('ジョブ実行が Jobs Panel と Status Bar に反映される（P3-5）'
     timeout: 30_000
   })
 
-  // ジョブログを開く（V-16）
-  await page.getByRole('button', { name: 'ログ' }).first().click()
+  // ジョブログを開く（V-16）。Panelタブ「LLMログ」等と部分一致しないよう一覧内へ限定する
+  await page.getByTestId('jobs-list').getByRole('button', { name: 'ログ' }).first().click()
   await expect(page.getByTestId('job-log-editor')).toBeVisible()
   await expect(page.getByTestId('job-log-editor')).toContainText('ジョブ開始')
 })
@@ -536,7 +536,8 @@ test('原本取込→Word抽出→レビュー→②正本確定の全経路（P
     [docxPath, secondDocxPath]
   )
   expect(imported).toHaveLength(2)
-  expect(imported.every((result) => result.ok)).toBe(true)
+  // 失敗時に error 内容が読めるよう、ok だけでなくエラー本文を比較する
+  expect(imported.map((result) => (result.ok ? 'ok' : JSON.stringify(result.error)))).toEqual(['ok', 'ok'])
 
   // Explorer ①原本ツリーへ出現（source.imported イベント）。
   // Activity 再クリックはトグルのため、非表示時のみクリックして Explorer を確実に開く

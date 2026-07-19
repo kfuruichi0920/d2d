@@ -16,6 +16,7 @@ import { OriginalViewer } from '../views/DocumentsTree'
 import { LlmRunViewer } from '../views/LlmViews'
 import { IntermediateDocumentEditor } from '../editors/IntermediateDocumentEditor'
 import { CandidateSetReviewEditor } from '../editors/CandidateSetReviewEditor'
+import { TabIcon } from './tab-icons'
 import { DesignElementViewer } from '../views/DesignModelViews'
 import { TraceGraphEditor } from '../views/TraceViews'
 import { TraceMatrixEditor } from '../editors/TraceMatrixEditor'
@@ -205,6 +206,7 @@ function GroupView({ group }: { group: EditorGroup }): React.JSX.Element {
             }
             title={tab.title}
           >
+            <TabIcon uri={tab.uri} />
             <button
               type="button"
               className={'tab-pin ' + (tab.pinned ? 'pinned' : '')}
