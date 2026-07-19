@@ -12,6 +12,9 @@ import type {
 import { SEMANTIC_RELATIONS } from '../../types/semantic'
 import { LlmRequestDialog, type LlmRequestMessage, type PreparedLlmRequest } from './LlmRequestDialog'
 import { useEscapeToClose } from './useEscapeToClose'
+import { CodeEditor } from './CodeEditor'
+import { DiffEditor } from './DiffEditor'
+import { MarkdownPreview } from './MarkdownPreview'
 interface CandidateGroups {
   query: string
   tooBroad: boolean
@@ -96,7 +99,7 @@ export function SemanticTextInput({
 }): React.JSX.Element {
   const inputRef = useRef<HTMLTextAreaElement | HTMLInputElement>(null),
     openResource = useEditorStore((s) => s.openResource)
-  const [mode, setMode] = useState<'edit' | 'preview' | 'structure'>('edit'),
+  const [mode, setMode] = useState<'preview' | 'structure' | 'proofread'>('preview'),
     [groups, setGroups] = useState<CandidateGroups | null>(null),
     [candidateMap, setCandidateMap] = useState<Record<string, SemanticCandidate>>({}),
     [analysis, setAnalysis] = useState<Analysis | null>(null),
@@ -104,11 +107,18 @@ export function SemanticTextInput({
     [validation, setValidation] = useState<string>(''),
     [llmBusy, setLlmBusy] = useState(false),
     [llmRequest, setLlmRequest] = useState<PreparedLlmRequest | null>(null),
-    [editing, setEditing] = useState(false)
+    [llmPurpose, setLlmPurpose] = useState<'terms' | 'proofread'>('terms'),
+    [proofread, setProofread] = useState<{
+      revisedText: string
+      issues: Array<{ kind: string; message: string }>
+    } | null>(null),
+    [editing, setEditing] = useState(false),
+    [selected, setSelected] = useState(false)
   const activeRefs = useMemo(() => document.references.filter((r) => r.status !== 'rejected'), [document.references])
   const editorTestId = testId ? `${testId}-editor` : undefined
   const openEditor = (): void => {
-    setMode('edit')
+    setMode('preview')
+    setSelected(false)
     setEditing(true)
   }
   const closeEditor = (): void => {
@@ -116,10 +126,10 @@ export function SemanticTextInput({
     setEditing(false)
   }
   // モーダル最前面だけを閉じる共通 Escape（W10）。フォーカスが外れていても効く。
-  useEscapeToClose(editing, closeEditor)
+  useEscapeToClose(editing && !llmRequest, closeEditor)
   useEffect(() => {
-    if (editing && mode === 'edit') inputRef.current?.focus()
-  }, [editing, mode])
+    if (editing && !multiline) inputRef.current?.focus()
+  }, [editing, multiline])
   const updateText = (value: string): void => {
     onChange(value)
     onDocumentChange({
@@ -131,12 +141,11 @@ export function SemanticTextInput({
     })
     setRaw(structured({ ...document, displayText: value, references: [] }))
   }
-  const search = async (): Promise<void> => {
+  const search = async (prefixOverride?: string): Promise<void> => {
     const el = inputRef.current
-    if (!el) return
-    const caret = el.selectionStart ?? document.displayText.length,
+    const caret = el?.selectionStart ?? document.displayText.length,
       before = document.displayText.slice(0, caret),
-      prefix = before.match(/[\p{L}\p{N}_./-]+$/u)?.[0] ?? ''
+      prefix = prefixOverride ?? before.match(/[\p{L}\p{N}_./-]+$/u)?.[0] ?? ''
     const result = await invoke<CandidateGroups>('semantic.search', { prefix, policy: document.policy })
     if (result.ok) {
       setGroups(result.result)
@@ -288,12 +297,13 @@ export function SemanticTextInput({
   const openLlmAnalysis = async (): Promise<void> => {
     const prepared = await invoke<PreparedLlmRequest>('llm.prepareRequest', {
       operation: 'semantic-terms',
-      context: { text: document.displayText }
+      context: { text: document.displayText, ownerUid: document.ownerUid }
     })
     if (!prepared.ok) {
       setValidation(prepared.error.message)
       return
     }
+    setLlmPurpose('terms')
     setLlmRequest(prepared.result)
   }
   const analyzeWithLlm = async (messages: LlmRequestMessage[], promptTemplateUid?: string): Promise<void> => {
@@ -301,7 +311,7 @@ export function SemanticTextInput({
     try {
       const started = await invoke<{ jobId: string }>('llm.runConfirmed', {
         operation: 'semantic-terms',
-        context: { text: document.displayText },
+        context: { text: document.displayText, ownerUid: document.ownerUid },
         messages,
         promptTemplateUid
       })
@@ -340,6 +350,61 @@ export function SemanticTextInput({
       setLlmBusy(false)
     }
   }
+  const openProofread = async (): Promise<void> => {
+    const prepared = await invoke<PreparedLlmRequest>('llm.prepareRequest', {
+      operation: 'semantic-proofread',
+      context: { text: document.displayText, ownerUid: document.ownerUid }
+    })
+    if (!prepared.ok) return setValidation(prepared.error.message)
+    setLlmPurpose('proofread')
+    setLlmRequest(prepared.result)
+  }
+  const proofreadWithLlm = async (messages: LlmRequestMessage[], promptTemplateUid?: string): Promise<void> => {
+    setLlmBusy(true)
+    try {
+      const started = await invoke<{ jobId: string }>('llm.runConfirmed', {
+        operation: 'semantic-proofread',
+        context: { text: document.displayText, ownerUid: document.ownerUid },
+        messages,
+        promptTemplateUid
+      })
+      if (!started.ok) return setValidation(started.error.message)
+      for (let index = 0; index < 240; index++) {
+        const job = await invoke<{ status: string; output?: { content?: string }; error?: { message: string } }>(
+          'job.get',
+          { jobId: started.result.jobId }
+        )
+        if (job.ok && job.result.status === 'success') {
+          try {
+            const parsed = JSON.parse(job.result.output?.content ?? '{}') as {
+              revisedText?: string
+              issues?: Array<{ kind?: string; message?: string }>
+            }
+            if (typeof parsed.revisedText !== 'string') throw new Error('revisedText missing')
+            setProofread({
+              revisedText: parsed.revisedText,
+              issues: (parsed.issues ?? []).map((issue) => ({
+                kind: issue.kind ?? 'review',
+                message: issue.message ?? ''
+              }))
+            })
+            setMode('proofread')
+          } catch {
+            setValidation('校正・正規化結果のJSON形式を解釈できませんでした')
+          }
+          return
+        }
+        if (job.ok && ['failed', 'aborted', 'partial'].includes(job.result.status)) {
+          setValidation(job.result.error?.message ?? '校正・正規化に失敗しました')
+          return
+        }
+        await new Promise((resolve) => setTimeout(resolve, 500))
+      }
+      setValidation('校正・正規化がタイムアウトしました')
+    } finally {
+      setLlmBusy(false)
+    }
+  }
   const patchRef = (index: number, patch: Partial<SemanticReference>): void =>
     onDocumentChange({
       ...document,
@@ -348,34 +413,72 @@ export function SemanticTextInput({
   return (
     <div className="semantic-input" data-testid={`semantic-input-${document.fieldName}`}>
       <div className="semantic-preview-field">
-        <div
-          className="semantic-preview-focus"
-          data-testid={testId}
-          role="textbox"
-          aria-readonly="true"
-          aria-label={`${document.fieldName} プレビュー。EnterまたはF2で編集`}
-          tabIndex={0}
-          title="EnterまたはF2でセマンティック編集ダイアログを開きます"
-          onDoubleClick={openEditor}
-          onKeyDown={(event) => {
-            if (event.target === event.currentTarget && isSemanticEditShortcut(event.key)) {
-              event.preventDefault()
-              openEditor()
-            }
-          }}
-        >
-          {renderText(document, candidateMap, openResource)}
-        </div>
+        {selected ? (
+          <div className="semantic-inline-editor">
+            {multiline ? (
+              <CodeEditor
+                value={document.displayText}
+                language="markdown"
+                height={120}
+                autoFocus
+                testId={testId ? `${testId}-inline-editor` : 'semantic-inline-editor'}
+                onChange={updateText}
+                onBlur={() => setSelected(false)}
+                onCtrlSpace={(prefix) => void search(prefix)}
+              />
+            ) : (
+              <input
+                ref={inputRef as React.RefObject<HTMLInputElement>}
+                autoFocus
+                value={document.displayText}
+                data-testid={testId ? `${testId}-inline-editor` : undefined}
+                onChange={(event) => updateText(event.target.value)}
+                onBlur={() => setSelected(false)}
+                onKeyDown={(event) => {
+                  if (event.ctrlKey && event.code === 'Space') {
+                    event.preventDefault()
+                    void search()
+                  }
+                }}
+              />
+            )}
+          </div>
+        ) : (
+          <div
+            className="semantic-preview-focus"
+            data-testid={testId}
+            role="textbox"
+            aria-readonly="true"
+            aria-label={`${document.fieldName} プレビュー。選択すると直接編集`}
+            tabIndex={0}
+            title="選択すると直接編集できます。Ctrl+Spaceで入力補完、編集ボタンでセマンティック編集を開きます"
+            onClick={() => setSelected(true)}
+            onDoubleClick={openEditor}
+            onKeyDown={(event) => {
+              if (event.target !== event.currentTarget) return
+              if (event.key === 'Enter') {
+                event.preventDefault()
+                setSelected(true)
+              } else if (event.key === 'F2') {
+                event.preventDefault()
+                openEditor()
+              }
+            }}
+          >
+            {renderText(document, candidateMap, openResource)}
+          </div>
+        )}
         <button
           type="button"
           className="d2d-btn small semantic-edit-trigger"
-          title="セマンティック編集ダイアログを開きます（Enter / F2）"
+          title="セマンティック編集ダイアログを開きます（F2）"
           data-testid={`semantic-edit-${document.fieldName}`}
+          onMouseDown={(event) => event.preventDefault()}
           onClick={openEditor}
         >
           編集
         </button>
-      </div>
+      </div>{' '}
       {editing && (
         <div
           className="semantic-edit-dialog"
@@ -384,12 +487,13 @@ export function SemanticTextInput({
           aria-labelledby={`semantic-edit-title-${document.fieldName}`}
           data-testid={`semantic-edit-dialog-${document.fieldName}`}
           onKeyDown={(event) => {
-            if (event.key === 'Escape') closeEditor()
+            if (event.key === 'Escape' && !llmRequest) closeEditor()
           }}
         >
           <div className="semantic-edit-panel">
             <div className="semantic-edit-dialog-title">
               <b id={`semantic-edit-title-${document.fieldName}`}>{document.fieldName} のセマンティック編集</b>
+
               <button
                 type="button"
                 className="d2d-btn small"
@@ -404,84 +508,125 @@ export function SemanticTextInput({
               </button>
             </div>
             <div className="semantic-edit-dialog-body">
-              <div className="semantic-toolbar">
-                <button type="button" onClick={() => setMode('edit')} className={mode === 'edit' ? 'active' : ''}>
-                  編集
-                </button>
-                <button type="button" onClick={() => setMode('preview')} className={mode === 'preview' ? 'active' : ''}>
-                  プレビュー
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setRaw(structured(document))
-                    setMode('structure')
-                  }}
-                  className={mode === 'structure' ? 'active' : ''}
-                >
-                  構造化データ
-                </button>
-                <button
-                  type="button"
-                  title="登録済み用語・モデルを文章から抽出し、承認待ち候補として表示します"
-                  onClick={() => void analyze()}
-                >
-                  既存文を解析
-                </button>
-                <button type="button" title="Ctrl+Spaceでも候補を開けます" onClick={() => void search()}>
-                  入力候補
-                </button>
-                <button
-                  type="button"
-                  title="設定済みLLMへ送信し、未登録用語の候補だけを抽出します。外部送信設定とマスキングが適用されます"
-                  disabled={llmBusy}
-                  onClick={() => void openLlmAnalysis()}
-                >
-                  {llmBusy ? 'LLM解析中…' : 'LLMで用語候補'}
-                </button>
-              </div>
-              {mode === 'edit' &&
-                (multiline ? (
-                  <textarea
-                    ref={inputRef as React.RefObject<HTMLTextAreaElement>}
-                    value={document.displayText}
-                    data-testid={editorTestId}
-                    onChange={(e) => updateText(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.ctrlKey && e.code === 'Space') {
-                        e.preventDefault()
-                        void search()
-                      }
+              <div className="semantic-two-panel-controls">
+                <div className="semantic-toolbar semantic-toolbar-left">
+                  <b>左</b>
+                  <button type="button" className="active">
+                    編集
+                  </button>
+                  <button
+                    type="button"
+                    title="登録済み用語・モデルを文章から抽出し、承認待ち候補として表示します"
+                    onClick={() => void analyze()}
+                  >
+                    用語候補
+                  </button>
+                  <button
+                    type="button"
+                    title="設定済みLLMへ送信し、未登録用語の候補だけを抽出します"
+                    disabled={llmBusy}
+                    onClick={() => void openLlmAnalysis()}
+                  >
+                    用語候補(LLM)
+                  </button>
+                  <small>入力補完: Ctrl+Space</small>
+                </div>
+                <div className="semantic-toolbar semantic-toolbar-right">
+                  <b>右</b>
+                  <button
+                    type="button"
+                    onClick={() => setMode('preview')}
+                    className={mode === 'preview' ? 'active' : ''}
+                  >
+                    プレビュー
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRaw(structured(document))
+                      setMode('structure')
                     }}
-                  />
-                ) : (
-                  <input
-                    ref={inputRef as React.RefObject<HTMLInputElement>}
-                    value={document.displayText}
-                    data-testid={editorTestId}
-                    onChange={(e) => updateText(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.ctrlKey && e.code === 'Space') {
-                        e.preventDefault()
-                        void search()
-                      }
-                    }}
-                  />
-                ))}
-              {mode === 'preview' && renderText(document, candidateMap, openResource)}
-              {mode === 'structure' && (
-                <div>
-                  <textarea
-                    className="semantic-structured"
-                    value={raw}
-                    onChange={(e) => setRaw(e.target.value)}
-                    spellCheck={false}
-                  />
-                  <button type="button" className="d2d-btn" onClick={() => void validateRaw()}>
-                    検証して反映
+                    className={mode === 'structure' ? 'active' : ''}
+                  >
+                    構造化データ
+                  </button>
+                  <button
+                    type="button"
+                    disabled={llmBusy}
+                    onClick={() => void openProofread()}
+                    className={mode === 'proofread' ? 'active' : ''}
+                  >
+                    校正・正規化(LLM)
                   </button>
                 </div>
-              )}
+              </div>
+              <div className="semantic-two-panel-body">
+                <div className="semantic-left-panel">
+                  {multiline ? (
+                    <CodeEditor
+                      value={document.displayText}
+                      language="markdown"
+                      height={300}
+                      autoFocus
+                      testId={editorTestId}
+                      onChange={updateText}
+                      onCtrlSpace={(prefix) => void search(prefix)}
+                    />
+                  ) : (
+                    <input
+                      ref={inputRef as React.RefObject<HTMLInputElement>}
+                      value={document.displayText}
+                      data-testid={editorTestId}
+                      onChange={(event) => updateText(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.ctrlKey && event.code === 'Space') {
+                          event.preventDefault()
+                          void search()
+                        }
+                      }}
+                    />
+                  )}
+                </div>
+                <div className="semantic-right-panel">
+                  {mode === 'preview' && (
+                    <div>
+                      <MarkdownPreview markdown={document.displayText} />
+                      {activeRefs.length > 0 && renderText(document, candidateMap, openResource)}
+                    </div>
+                  )}
+                  {mode === 'structure' && (
+                    <div>
+                      <textarea
+                        className="semantic-structured"
+                        value={raw}
+                        onChange={(event) => setRaw(event.target.value)}
+                        spellCheck={false}
+                      />
+                      <button type="button" className="d2d-btn" onClick={() => void validateRaw()}>
+                        検証して反映
+                      </button>
+                    </div>
+                  )}
+                  {mode === 'proofread' && proofread && (
+                    <div className="semantic-proofread-result">
+                      <DiffEditor
+                        original={document.displayText}
+                        modified={proofread.revisedText}
+                        language="markdown"
+                        height={300}
+                      />
+                      {proofread.issues.map((issue, index) => (
+                        <div key={`${issue.kind}-${index}`}>
+                          <b>{issue.kind}</b>: {issue.message}
+                        </div>
+                      ))}
+                      <button type="button" className="d2d-btn" onClick={() => updateText(proofread.revisedText)}>
+                        校正候補を編集へ反映
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>{' '}
               {groups && (
                 <div className="semantic-candidates" role="listbox">
                   {groups.tooBroad ? (
@@ -670,10 +815,10 @@ export function SemanticTextInput({
       {llmRequest && (
         <LlmRequestDialog
           request={llmRequest}
-          screenId={`semantic.${document.fieldName}.terms`}
-          title="LLM用語候補"
+          screenId={`semantic.${document.fieldName}.${llmPurpose}`}
+          title={llmPurpose === 'terms' ? '用語候補(LLM)' : '校正・正規化(LLM)'}
           onClose={() => setLlmRequest(null)}
-          onConfirmed={analyzeWithLlm}
+          onConfirmed={llmPurpose === 'terms' ? analyzeWithLlm : proofreadWithLlm}
         />
       )}
     </div>

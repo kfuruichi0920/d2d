@@ -137,6 +137,7 @@ function GroupView({ group }: { group: EditorGroup }): React.JSX.Element {
   const activateTab = useEditorStore((state) => state.activateTab)
   const closeTab = useEditorStore((state) => state.closeTab)
   const pinTab = useEditorStore((state) => state.pinTab)
+  const togglePinTab = useEditorStore((state) => state.togglePinTab)
   const splitGroup = useEditorStore((state) => state.splitGroup)
   const moveTab = useEditorStore((state) => state.moveTab)
   const refreshVersion = useEditorStore((state) => state.refreshVersion)
@@ -194,9 +195,8 @@ function GroupView({ group }: { group: EditorGroup }): React.JSX.Element {
                 },
                 { separator: true },
                 {
-                  label: 'タブを固定表示にする',
-                  disabled: !tab.preview,
-                  run: () => pinTab(tab.uri)
+                  label: tab.pinned ? 'ピン止めを解除' : 'タブをピン止め',
+                  run: () => togglePinTab(tab.uri)
                 },
                 { separator: true },
                 { label: 'Editorを左右に分割', run: () => splitGroup(group.id, 'horizontal') },
@@ -205,6 +205,19 @@ function GroupView({ group }: { group: EditorGroup }): React.JSX.Element {
             }
             title={tab.title}
           >
+            <button
+              type="button"
+              className={'tab-pin ' + (tab.pinned ? 'pinned' : '')}
+              title={tab.pinned ? 'ピン止めを解除' : 'タブをピン止め'}
+              aria-label={tab.pinned ? `${tab.title} のピン止めを解除` : `${tab.title} をピン止め`}
+              data-testid={`tab-pin-${tab.uri}`}
+              onClick={(event) => {
+                event.stopPropagation()
+                togglePinTab(tab.uri)
+              }}
+            >
+              {tab.pinned ? '●' : '○'}
+            </button>
             <span className={'wb-tab-title ' + (tab.preview ? 'preview' : '')}>{tab.title}</span>
             {tab.dirty && <span className="dirty-dot">●</span>}
             <button

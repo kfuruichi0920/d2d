@@ -10,6 +10,8 @@ import { registerEntity } from '../store/entity-registry'
 import {
   getResource,
   getResourceMergeContext,
+  getResourceOutlineContext,
+  linkDerivedResource,
   mergeResourceValues,
   parseLlmMergeCandidate,
   RESOURCE_TYPE_DEFINITIONS,
@@ -64,6 +66,127 @@ describe('共通Resource Editor（P7-2/P7-3、MID-002/004/005）', () => {
     expect(RESOURCE_TYPE_DEFINITIONS).toHaveLength(14)
     expect(RESOURCE_TYPE_DEFINITIONS.map((definition) => definition.type)).toContain('resource_state_transition')
     expect(getResource(db, resourceUid).values.text_body).toBe('変更前本文')
+  })
+
+  it('編集定義は廃止フィールドを除外し、管理特記事項・Markdown・図・数式の新定義を提供する', () => {
+    const label = RESOURCE_TYPE_DEFINITIONS.find((item) => item.type === 'resource_label')!
+    const text = RESOURCE_TYPE_DEFINITIONS.find((item) => item.type === 'resource_text')!
+    const list = RESOURCE_TYPE_DEFINITIONS.find((item) => item.type === 'resource_list')!
+    const figure = RESOURCE_TYPE_DEFINITIONS.find((item) => item.type === 'resource_figure')!
+    const table = RESOURCE_TYPE_DEFINITIONS.find((item) => item.type === 'resource_table')!
+    const formula = RESOURCE_TYPE_DEFINITIONS.find((item) => item.type === 'resource_formula')!
+    const code = RESOURCE_TYPE_DEFINITIONS.find((item) => item.type === 'resource_code')!
+    expect(label.fields.some((field) => field.name === 'style_name')).toBe(false)
+    expect(text.fields.map((field) => field.name)).toEqual([
+      'text_body',
+      'text_role',
+      'language',
+      'target_resource_uid'
+    ])
+    expect(list.fields.find((field) => field.name === 'items_json')).toMatchObject({
+      kind: 'multiline',
+      preview: 'markdown'
+    })
+    expect(figure.fields.map((field) => field.name)).toEqual(
+      expect.arrayContaining(['image_hash', 'figure_number', 'caption', 'description'])
+    )
+    expect(figure.fields.map((field) => field.name)).not.toContain('caption_uid')
+    expect(table.fields.find((field) => field.name === 'table_title')?.label).toBe('キャプション')
+    expect(table.fields.find((field) => field.name === 'cells_json')?.kind).toBe('table')
+    expect(table.fields.map((field) => field.name)).toContain('description')
+    expect(code.fields.map((field) => field.name)).not.toEqual(
+      expect.arrayContaining(['symbols_json', 'syntax_tree_json', 'parse_status'])
+    )
+    expect(code.fields.map((field) => field.name)).toContain('description')
+    expect(formula.fields.map((field) => field.name)).not.toContain('variables_json')
+    expect(formula.fields.find((field) => field.name === 'formula_text')).toMatchObject({ language: 'latex' })
+    expect(RESOURCE_TYPE_DEFINITIONS.every((item) => item.fields.every((field) => field.description))).toBe(true)
+  })
+
+  it('表のスプレッドシート保存はセル行を同期し、同じ座標のUIDを維持する', () => {
+    const values = {
+      table_title: '性能表',
+      row_count: 2,
+      column_count: 2,
+      table_kind: 'data',
+      header_rows_json: '[0]',
+      header_columns_json: '[]',
+      cells_json: JSON.stringify([
+        [{ text: '項目' }, { text: '値' }],
+        [{ text: '応答時間' }, { text: '100ms以内' }]
+      ]),
+      source_range: '',
+      description: '性能要求を示す表'
+    }
+    const created = reviseResource(db, projectUid, {
+      resourceUid,
+      targetType: 'resource_table',
+      values,
+      intermediateDocumentUid: documentUid,
+      intermediateItemUid: itemUid,
+      elementId
+    })
+    const first = db
+      .prepare(`SELECT uid,cell_text,is_header FROM resource_table_cell WHERE table_uid=? AND row_no=0 AND col_no=0`)
+      .get(created.uid) as { uid: string; cell_text: string; is_header: number }
+    expect(first).toMatchObject({ cell_text: '項目', is_header: 1 })
+    reviseResource(db, projectUid, {
+      resourceUid: created.uid,
+      targetType: 'resource_table',
+      values: { ...values, cells_json: String(values.cells_json).replace('100ms以内', '150ms以内') },
+      intermediateDocumentUid: documentUid,
+      intermediateItemUid: itemUid,
+      elementId
+    })
+    expect(
+      db
+        .prepare(`SELECT uid,cell_text FROM resource_table_cell WHERE table_uid=? AND row_no=0 AND col_no=0`)
+        .get(created.uid)
+    ).toEqual({ uid: first.uid, cell_text: '項目' })
+    expect(
+      db
+        .prepare(`SELECT cell_text FROM resource_table_cell WHERE table_uid=? AND row_no=1 AND col_no=1`)
+        .get(created.uid)
+    ).toEqual({ cell_text: '150ms以内' })
+  })
+
+  it('アウトライン文脈をResourceから復元し、管理特記事項を設計値と分離して保存する', () => {
+    const context = getResourceOutlineContext(db, resourceUid)
+    expect(context).toMatchObject({ documentUid, outlineIndex: 0 })
+    reviseResource(db, projectUid, {
+      resourceUid,
+      targetType: 'resource_text',
+      values: {
+        text_body: '変更後',
+        text_role: 'body',
+        language: 'ja',
+        target_resource_uid: `resource://${resourceUid}`
+      },
+      intermediateItemUid: itemUid,
+      administrativeNotes: 'レビュー担当だけが参照'
+    })
+    const loaded = getResource(db, resourceUid)
+    expect(loaded.administrativeNotes).toBe('レビュー担当だけが参照')
+    expect(loaded.values).not.toHaveProperty('administrative_notes')
+    expect(loaded.values.target_resource_uid).toBe(resourceUid)
+  })
+
+  it('図・数式から派生Resourceを新規追加または既存参照して関係を保持する', () => {
+    const created = linkDerivedResource(db, projectUid, {
+      sourceUid: resourceUid,
+      relationType: 'relates_to',
+      newText: '図から読み取れる制約'
+    })
+    expect(created.created).toBe(true)
+    const existing = linkDerivedResource(db, projectUid, {
+      sourceUid: resourceUid,
+      relationType: 'uses',
+      targetUid: created.targetUid
+    })
+    expect(existing.created).toBe(false)
+    expect(db.prepare('SELECT COUNT(*) AS count FROM trace_link WHERE from_uid=?').get(resourceUid)).toEqual({
+      count: 2
+    })
   })
 
   it('画面追加した中間要素は現在Resourceを編集可能なマージ元として返す', () => {

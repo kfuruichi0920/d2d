@@ -60,6 +60,27 @@ describe('LLM Provider クライアント（P6-1）', () => {
     expect(res).toEqual({ content: '応答です', inputTokens: 12, outputTokens: 34 })
   })
 
+  it('OpenAI: 図説明の画像添付をimage_url形式へ変換する', async () => {
+    responder = () => ({ status: 200, body: { choices: [{ message: { content: '{"description":"構成図"}' } }] } })
+    const config: ProviderConfig = { provider: 'openai', model: 'gpt-4o', endpoint: baseUrl, apiKey: 'sk-test' }
+    await chat(config, {
+      model: 'gpt-4o',
+      messages: [
+        {
+          role: 'user',
+          content: '図を説明してください',
+          attachments: [{ mediaType: 'image/png', data: 'aW1hZ2U=' }]
+        }
+      ]
+    })
+    const body = captured!.body as {
+      messages: Array<{ content: Array<{ type: string; image_url?: { url: string } }> }>
+    }
+    expect(body.messages[0]!.content[1]).toEqual({
+      type: 'image_url',
+      image_url: { url: 'data:image/png;base64,aW1hZ2U=' }
+    })
+  })
   it('Azure OpenAI: api-key ヘッダと deployment パス（LLM-004）', async () => {
     responder = () => ({
       status: 200,

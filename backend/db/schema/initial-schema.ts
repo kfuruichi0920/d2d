@@ -124,6 +124,7 @@ CREATE TABLE entity_registry (
     memo_json TEXT,
     created_by TEXT,
     updated_by TEXT,
+    administrative_notes TEXT,
     batch_operation_uid TEXT,
     source_hash TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -205,7 +206,9 @@ CREATE TABLE resource_text (
     language TEXT,
     sentences_json TEXT,
     context_json TEXT,
-    FOREIGN KEY (uid) REFERENCES entity_registry(uid) ON DELETE CASCADE
+    target_resource_uid TEXT,
+    FOREIGN KEY (uid) REFERENCES entity_registry(uid) ON DELETE CASCADE,
+    FOREIGN KEY (target_resource_uid) REFERENCES entity_registry(uid) ON DELETE SET NULL
 );
 
 CREATE TABLE resource_list (
@@ -221,12 +224,17 @@ CREATE TABLE resource_figure (
     uid TEXT PRIMARY KEY,
     image_uri TEXT NOT NULL,
     image_hash TEXT,
+    figure_number TEXT,
+    caption TEXT,
     figure_kind TEXT CHECK (figure_kind IS NULL OR figure_kind IN ('architecture', 'flow', 'screen', 'state', 'layout', 'other')),
     width INTEGER CHECK (width IS NULL OR width > 0),
     height INTEGER CHECK (height IS NULL OR height > 0),
     ocr_texts_json TEXT,
     objects_json TEXT,
     caption_uid TEXT,
+    byte_size INTEGER CHECK (byte_size IS NULL OR byte_size >= 0),
+    image_format TEXT,
+    description TEXT,
     FOREIGN KEY (uid) REFERENCES entity_registry(uid) ON DELETE CASCADE,
     FOREIGN KEY (caption_uid) REFERENCES entity_registry(uid) ON DELETE SET NULL
 );
@@ -241,6 +249,7 @@ CREATE TABLE resource_table (
     header_columns_json TEXT,
     cells_json TEXT,
     source_range TEXT,
+    description TEXT,
     FOREIGN KEY (uid) REFERENCES entity_registry(uid) ON DELETE CASCADE
 );
 
@@ -252,6 +261,7 @@ CREATE TABLE resource_formula (
     variables_json TEXT,
     units_json TEXT,
     references_json TEXT,
+    description TEXT,
     FOREIGN KEY (uid) REFERENCES entity_registry(uid) ON DELETE CASCADE
 );
 
@@ -264,6 +274,7 @@ CREATE TABLE resource_code (
     symbols_json TEXT,
     syntax_tree_json TEXT,
     parse_status TEXT NOT NULL DEFAULT 'not_parsed' CHECK (parse_status IN ('not_parsed', 'success', 'failed', 'partial')),
+    description TEXT,
     FOREIGN KEY (uid) REFERENCES entity_registry(uid) ON DELETE CASCADE
 );
 

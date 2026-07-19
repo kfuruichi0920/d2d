@@ -400,6 +400,8 @@ export interface AdoptCandidatesInput {
   /** 根拠となる③中間文書（based_on の対象。MODEL-009 の根拠リンク） */
   intermediateDocumentUid: string
   llmRunUid?: string
+  /** LLM候補生成元チャンク。LLM採用時のbased_on対象。 */
+  chunkUid?: string
 }
 
 export interface AdoptCandidatesResult {
@@ -424,6 +426,16 @@ export function adoptCandidates(db: Database, projectUid: string, input: AdoptCa
       input.intermediateDocumentUid
     )
   }
+  const evidenceUid = input.chunkUid ?? input.intermediateDocumentUid
+  if (input.llmRunUid && !input.chunkUid) {
+    throw new BackendError('validation', 'LLM候補の生成元チャンクがありません（根拠リンク不足）', input.llmRunUid)
+  }
+  if (input.chunkUid) {
+    const chunk = db
+      .prepare('SELECT uid FROM chunk WHERE uid=? AND intermediate_document_uid=?')
+      .get(input.chunkUid, input.intermediateDocumentUid)
+    if (!chunk) throw new BackendError('validation', '生成元チャンクが中間文書に属していません', input.chunkUid)
+  }
 
   const txn = db.transaction((): AdoptCandidatesResult => {
     // 1) 要素候補 → 一時ID→UUIDv7 変換して正本登録
@@ -445,13 +457,13 @@ export function adoptCandidates(db: Database, projectUid: string, input: AdoptCa
       uidByTempId.set(element.temp_id, { ...created, category: element.category })
     }
 
-    // 2) 根拠リンク: 要素 → ③中間文書（based_on、basis_kind=inferred、llm_run 参照）
+    // 2) 根拠リンク: LLM採用は設計要素 → チャンク、手動採用は設計要素 → ③中間文書
     let basedOnCount = 0
     for (const [tempId, element] of uidByTempId) {
       const evidence = candidateSet.elements.find((e) => e.temp_id === tempId)?.evidence ?? null
       createTraceLink(db, projectUid, {
         fromUid: element.uid,
-        toUid: input.intermediateDocumentUid,
+        toUid: evidenceUid,
         relationType: 'based_on',
         attributes: { basisKind: 'inferred', evidenceSpan: evidence },
         createdBy: 'llm',

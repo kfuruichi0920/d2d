@@ -32,6 +32,11 @@ export interface CodeEditorProps {
   readOnly?: boolean
   onChange?: (value: string) => void
   height?: number | string
+  onCtrlSpace?: (prefix: string) => void
+  autoFocus?: boolean
+  onFocus?: () => void
+  onBlur?: () => void
+  testId?: string
 }
 
 export function CodeEditor({
@@ -39,13 +44,26 @@ export function CodeEditor({
   language = 'markdown',
   readOnly = false,
   onChange,
-  height = '100%'
+  height = '100%',
+  onCtrlSpace,
+  autoFocus = false,
+  onFocus,
+  onBlur,
+  testId = 'code-editor'
 }: CodeEditorProps): React.JSX.Element {
   const fontSize = useWorkbenchStore((state) => state.theme.fontSize)
   const containerRef = useRef<HTMLDivElement>(null)
   const editorRef = useRef<MonacoTypes.editor.IStandaloneCodeEditor | null>(null)
   const onChangeRef = useRef(onChange)
+  const onCtrlSpaceRef = useRef(onCtrlSpace)
+  const valueRef = useRef(value)
+  const onFocusRef = useRef(onFocus)
+  const onBlurRef = useRef(onBlur)
   onChangeRef.current = onChange
+  onCtrlSpaceRef.current = onCtrlSpace
+  valueRef.current = value
+  onFocusRef.current = onFocus
+  onBlurRef.current = onBlur
 
   useEffect(() => {
     let disposed = false
@@ -53,17 +71,33 @@ export function CodeEditor({
       if (disposed || !containerRef.current) return
       const isDark = document.documentElement.getAttribute('data-d2d-mode') !== 'light'
       const editor = monaco.editor.create(containerRef.current, {
-        value,
+        value: valueRef.current,
         language,
         readOnly,
         theme: isDark ? 'vs-dark' : 'vs',
         minimap: { enabled: false },
         fontSize,
         automaticLayout: true,
+        editContext: false,
         scrollBeyondLastLine: false
       })
       editor.onDidChangeModelContent(() => onChangeRef.current?.(editor.getValue()))
+      editor.onDidFocusEditorWidget(() => onFocusRef.current?.())
+      editor.onDidBlurEditorWidget(() => onBlurRef.current?.())
+      editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Space, () => {
+        const position = editor.getPosition()
+        const model = editor.getModel()
+        if (!position || !model) return
+        const before = model.getValueInRange({
+          startLineNumber: position.lineNumber,
+          startColumn: 1,
+          endLineNumber: position.lineNumber,
+          endColumn: position.column
+        })
+        onCtrlSpaceRef.current?.(before.match(/[\\p{L}\\p{N}_./-]+$/u)?.[0] ?? '')
+      })
       editorRef.current = editor
+      if (autoFocus) editor.focus()
     })
     return () => {
       disposed = true
@@ -85,5 +119,5 @@ export function CodeEditor({
     }
   }, [value])
 
-  return <div ref={containerRef} style={{ height, width: '100%' }} data-testid="code-editor" />
+  return <div ref={containerRef} style={{ height, width: '100%' }} data-testid={testId} />
 }

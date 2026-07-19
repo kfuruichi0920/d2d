@@ -2,18 +2,21 @@
  * LLM API（P6）。実行はジョブ経由（llm.run）で行い、送信前確認は llm.preview で行う。
  */
 import { readFileSync, existsSync } from 'node:fs'
-import { join } from 'node:path'
+import { extname, join, resolve, sep } from 'node:path'
 import type { ApiRouter } from './router'
 import { BackendError } from './errors'
 import type { JobManager } from '../jobs/job-manager'
 import type { SettingsService } from '../settings/settings-service'
 import { requireProject } from '../project/project-service'
+import { getResourceOutlineContext } from '../resource/resource-service'
 import { previewLlm, resolveLlmSettings } from '../llm/llm-service'
 import type { ChatMessage } from '../llm/providers'
 import {
   buildConnectionTestMessages,
   buildDesignCandidateMessages,
+  buildResourceDescriptionMessages,
   buildResourceMergeMessages,
+  buildSemanticProofreadMessages,
   buildSemanticTermMessages,
   type LlmRequestOperation,
   type ResourceMergeSource
@@ -38,11 +41,17 @@ function asMessages(value: unknown): ChatMessage[] {
     throw new BackendError('validation', 'messages は必須の配列です', '')
   }
   return value.map((m) => {
-    const r = m as { role?: string; content?: string }
+    const r = m as { role?: string; content?: string; attachments?: Array<{ mediaType?: string; data?: string }> }
     if (!r.role || !['system', 'user', 'assistant'].includes(r.role) || typeof r.content !== 'string') {
       throw new BackendError('validation', 'messages の形式が不正です', JSON.stringify(m).slice(0, 200))
     }
-    return { role: r.role as ChatMessage['role'], content: r.content }
+    const attachments = r.attachments?.map((attachment) => {
+      if (typeof attachment.mediaType !== 'string' || typeof attachment.data !== 'string') {
+        throw new BackendError('validation', 'LLM添付データの形式が不正です', '')
+      }
+      return { mediaType: attachment.mediaType, data: attachment.data }
+    })
+    return { role: r.role as ChatMessage['role'], content: r.content, ...(attachments?.length ? { attachments } : {}) }
   })
 }
 
@@ -67,7 +76,7 @@ export function registerLlmApi(router: ApiRouter, jobs: JobManager, settings: Se
     const p = asRecord(params)
     const operation = String(p.operation ?? '') as LlmRequestOperation
     const context = asRecord(p.context ?? {})
-    const { db } = requireProject()
+    const { db, paths } = requireProject()
     if (operation === 'connection-test') {
       return {
         operation,
@@ -83,7 +92,22 @@ export function registerLlmApi(router: ApiRouter, jobs: JobManager, settings: Se
         purpose: 'glossary',
         processName: 'semantic-term-candidates',
         jsonMode: true,
-        messages: buildSemanticTermMessages(String(context.text ?? ''))
+        messages: buildSemanticTermMessages(
+          String(context.text ?? ''),
+          typeof context.ownerUid === 'string' ? getResourceOutlineContext(db, context.ownerUid) : null
+        )
+      }
+    }
+    if (operation === 'semantic-proofread') {
+      return {
+        operation,
+        purpose: 'normalize',
+        processName: 'semantic-proofread',
+        jsonMode: true,
+        messages: buildSemanticProofreadMessages(
+          String(context.text ?? ''),
+          typeof context.ownerUid === 'string' ? getResourceOutlineContext(db, context.ownerUid) : null
+        )
       }
     }
     if (operation === 'design-candidates') {
@@ -97,15 +121,55 @@ export function registerLlmApi(router: ApiRouter, jobs: JobManager, settings: Se
         messages: buildDesignCandidateMessages(db, chunkUid)
       }
     }
+    if (operation === 'resource-description') {
+      const resourceType = String(context.resourceType ?? '')
+      const resourceUid = String(context.resourceUid ?? '')
+      const values = asRecord(context.values ?? {})
+      let attachment: { mediaType: string; data: string } | undefined
+      if (resourceType === 'resource_figure') {
+        const imageUri = String(values.image_uri ?? '')
+        const root = resolve(paths.root)
+        const filePath = resolve(root, imageUri)
+        if (imageUri && (filePath === root || filePath.startsWith(`${root}${sep}`)) && existsSync(filePath)) {
+          const mediaType =
+            (
+              {
+                '.png': 'image/png',
+                '.jpg': 'image/jpeg',
+                '.jpeg': 'image/jpeg',
+                '.gif': 'image/gif',
+                '.webp': 'image/webp'
+              } as Record<string, string>
+            )[extname(filePath).toLowerCase()] ?? 'application/octet-stream'
+          attachment = { mediaType, data: readFileSync(filePath).toString('base64') }
+        }
+      }
+      return {
+        operation,
+        purpose: 'other',
+        processName: 'resource-description',
+        jsonMode: true,
+        messages: buildResourceDescriptionMessages(
+          resourceType,
+          values,
+          resourceUid ? getResourceOutlineContext(db, resourceUid) : null,
+          attachment
+        )
+      }
+    }
     if (operation === 'resource-merge') {
       const targetType = String(context.targetType ?? '')
       const sources = Array.isArray(context.sources) ? (context.sources as ResourceMergeSource[]) : []
+      const enrichedSources = sources.map((source) => ({
+        ...source,
+        outlineContext: source.resourceUid ? getResourceOutlineContext(db, source.resourceUid) : null
+      }))
       return {
         operation,
         purpose: 'other',
         processName: 'resource-merge',
         jsonMode: true,
-        messages: buildResourceMergeMessages(targetType, sources)
+        messages: buildResourceMergeMessages(targetType, enrichedSources)
       }
     }
     throw new BackendError('validation', `未対応のLLM問い合わせです: ${operation}`, '')
@@ -119,14 +183,27 @@ export function registerLlmApi(router: ApiRouter, jobs: JobManager, settings: Se
     const messages = asMessages(p.messages)
     const promptTemplateUid = typeof p.promptTemplateUid === 'string' ? p.promptTemplateUid : undefined
     requireProject()
-    if (operation === 'connection-test' || operation === 'semantic-terms') {
+    if (
+      operation === 'connection-test' ||
+      operation === 'semantic-terms' ||
+      operation === 'semantic-proofread' ||
+      operation === 'resource-description'
+    ) {
       return jobs.enqueue('llm.run', {
         messages,
-        processName: operation === 'connection-test' ? 'connection-test' : 'semantic-term-candidates',
-        jsonMode: operation === 'semantic-terms',
+        processName:
+          operation === 'connection-test'
+            ? 'connection-test'
+            : operation === 'semantic-proofread'
+              ? 'semantic-proofread'
+              : operation === 'resource-description'
+                ? 'resource-description'
+                : 'semantic-term-candidates',
+        jsonMode: operation !== 'connection-test',
         promptTemplateUid
       })
     }
+
     if (operation === 'design-candidates') {
       const chunkUid = String(context.chunkUid ?? '')
       if (!chunkUid) throw new BackendError('validation', 'chunkUidは必須です', '')
@@ -136,6 +213,7 @@ export function registerLlmApi(router: ApiRouter, jobs: JobManager, settings: Se
       const targetType = String(context.targetType ?? '')
       const sources = Array.isArray(context.sources) ? (context.sources as ResourceMergeSource[]) : []
       buildResourceMergeMessages(targetType, sources)
+
       return jobs.enqueue('resource.mergeCandidate', { targetType, sources, messages, promptTemplateUid })
     }
     throw new BackendError('validation', `未対応のLLM問い合わせです: ${operation}`, '')

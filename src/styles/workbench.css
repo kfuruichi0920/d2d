@@ -3522,3 +3522,128 @@ mark.d2d-term {
     display: none !important;
   }
 }
+
+/* Resource／Semantic Editor拡張（EDIT-074〜086、UI-055） */
+.wb-tab .tab-pin {
+  border: 0;
+  background: transparent;
+  color: var(--d2d-fg-muted);
+  padding: 0 2px;
+  cursor: pointer;
+  font-size: 9px;
+}
+.wb-tab .tab-pin.pinned {
+  color: var(--d2d-accent);
+}
+.resource-editor-fields label > span {
+  cursor: help;
+}
+.resource-field-preview,
+.resource-formula-preview {
+  border: 1px solid var(--d2d-border);
+  padding: 8px;
+  min-height: 48px;
+  overflow: auto;
+}
+.resource-figure-preview {
+  display: block;
+  max-width: 100%;
+  max-height: 420px;
+  margin: 8px auto;
+  object-fit: contain;
+}
+.resource-administrative-notes {
+  display: grid;
+  gap: 4px;
+  margin: 12px 0;
+  color: var(--d2d-fg-muted);
+}
+.resource-administrative-notes textarea {
+  min-height: 72px;
+}
+.semantic-two-panel-controls,
+.semantic-two-panel-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+}
+.semantic-toolbar-left,
+.semantic-toolbar-right,
+.semantic-left-panel,
+.semantic-right-panel {
+  min-width: 0;
+  border: 1px solid var(--d2d-border);
+  padding: 6px;
+}
+.semantic-left-panel,
+.semantic-right-panel {
+  min-height: 320px;
+  overflow: auto;
+}
+.semantic-right-panel .d2d-markdown,
+.semantic-preview {
+  white-space: pre-wrap;
+  min-height: 6em;
+}
+.semantic-proofread-result {
+  display: grid;
+  gap: 6px;
+}
+@media (max-width: 900px) {
+  .semantic-two-panel-controls,
+  .semantic-two-panel-body {
+    grid-template-columns: 1fr;
+  }
+}
+/* セマンティック直接編集・Resource表グリッド（EDIT-087〜091） */
+.semantic-inline-editor {
+  min-width: 0;
+  flex: 1;
+  border: 1px solid var(--d2d-accent);
+  border-radius: var(--d2d-radius);
+  overflow: hidden;
+}
+.semantic-inline-editor > input {
+  width: 100%;
+}
+.resource-table-grid-field {
+  grid-column: 1 / -1;
+}
+.resource-table-header-controls {
+  display: flex;
+  gap: 12px;
+  margin: 4px 0 6px;
+}
+.resource-table-header-controls label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.resource-table-header-controls input {
+  width: 72px;
+}
+.resource-table-grid {
+  max-width: 100%;
+  overflow: auto;
+  border: 1px solid var(--d2d-border);
+}
+.resource-table-grid table {
+  min-width: 100%;
+  border-collapse: collapse;
+}
+.resource-table-grid th,
+.resource-table-grid td {
+  min-width: 150px;
+  padding: 3px;
+  border: 1px solid var(--d2d-border);
+  vertical-align: top;
+}
+.resource-table-grid th {
+  background: var(--d2d-surface-raised);
+}
+.resource-table-grid .semantic-preview-field {
+  min-height: 34px;
+}
+.resource-description-llm {
+  margin-left: 8px;
+}

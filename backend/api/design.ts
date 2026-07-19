@@ -176,7 +176,7 @@ export function registerDesignApi(router: ApiRouter, jobs: JobManager): void {
     const validation = validateCandidateOutput(context.rawContent)
     return {
       llmRunUid: context.llmRunUid,
-      chunkUid: context.chunkUid,
+      chunkUid: context.chunkUid ?? undefined,
       intermediateDocumentUid: context.intermediateDocumentUid,
       candidateSet: validation.candidateSet,
       errors: validation.errors,
@@ -213,6 +213,7 @@ export function registerDesignApi(router: ApiRouter, jobs: JobManager): void {
     return adoptCandidates(db, info.projectUid, {
       candidateSet: validation.candidateSet,
       intermediateDocumentUid,
+      chunkUid: context.chunkUid ?? undefined,
       llmRunUid
     })
   })

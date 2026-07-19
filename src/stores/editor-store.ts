@@ -9,6 +9,7 @@ export interface EditorTab {
   title: string
   preview: boolean
   dirty: boolean
+  pinned: boolean
 }
 
 export interface EditorGroup {
@@ -46,6 +47,7 @@ interface EditorState {
   closeTab(uri: string, groupId?: number): void
   activateTab(uri: string, groupId: number): void
   pinTab(uri: string): void
+  togglePinTab(uri: string): void
   setDirty(uri: string, dirty: boolean): void
   splitActiveGroup(direction?: EditorSplitDirection): void
   splitGroup(groupId: number, direction: EditorSplitDirection): void
@@ -145,7 +147,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const existing = group.tabs.find((tab) => tab.uri === uri)
     if (!existing) {
       const preview = options?.preview ?? false
-      const tab: EditorTab = { uri, title, preview, dirty: false }
+      const tab: EditorTab = { uri, title, preview, dirty: false, pinned: false }
       if (preview) {
         const previewIndex = group.tabs.findIndex((candidate) => candidate.preview)
         if (previewIndex >= 0) group.tabs[previewIndex] = tab
@@ -185,7 +187,15 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   pinTab: (uri) => {
     const groups = get().groups.map((group) => ({
       ...group,
-      tabs: group.tabs.map((tab) => (tab.uri === uri ? { ...tab, preview: false } : tab))
+      tabs: group.tabs.map((tab) => (tab.uri === uri ? { ...tab, preview: false, pinned: true } : tab))
+    }))
+    commit(set, get, { groups })
+  },
+
+  togglePinTab: (uri) => {
+    const groups = get().groups.map((group) => ({
+      ...group,
+      tabs: group.tabs.map((tab) => (tab.uri === uri ? { ...tab, preview: false, pinned: !tab.pinned } : tab))
     }))
     commit(set, get, { groups })
   },
@@ -325,7 +335,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const activeGroup = data.groups.find((group) => group.id === data.activeGroupId) ?? data.groups[0]!
     set({
       persistKey,
-      groups: cloneGroups(data.groups),
+      groups: cloneGroups(data.groups).map((group) => ({
+        ...group,
+        tabs: group.tabs.map((tab) => ({ ...tab, pinned: tab.pinned ?? false }))
+      })),
       layout,
       activeGroupId: activeGroup.id,
       activeUri: activeGroup.activeUri

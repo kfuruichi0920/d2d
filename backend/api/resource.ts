@@ -7,6 +7,7 @@ import {
   getResource,
   getResourceMergeContext,
   mergeResourceValues,
+  linkDerivedResource,
   RESOURCE_TYPE_DEFINITIONS,
   reviseResource
 } from '../resource/resource-service'
@@ -59,6 +60,19 @@ export function registerResourceApi(router: ApiRouter, jobs: JobManager): void {
       }))
     })
   })
+  router.register('resource.linkDerived', (params) => {
+    const p = record(params)
+    const { db, info } = requireProject()
+    const relationType = String(p.relationType ?? 'relates_to')
+    if (!['contains', 'decomposes', 'uses', 'relates_to'].includes(relationType))
+      throw new BackendError('validation', '未対応の関係種別です', relationType)
+    return linkDerivedResource(db, info.projectUid, {
+      sourceUid: stringValue(p, 'sourceUid'),
+      relationType: relationType as 'contains' | 'decomposes' | 'uses' | 'relates_to',
+      targetUid: typeof p.targetUid === 'string' && p.targetUid ? p.targetUid.replace(/^resource:\/\//, '') : undefined,
+      newText: typeof p.newText === 'string' ? p.newText : undefined
+    })
+  })
   router.register('resource.revise', (params) => {
     const p = record(params)
     const { db, info } = requireProject()
@@ -71,7 +85,8 @@ export function registerResourceApi(router: ApiRouter, jobs: JobManager): void {
       elementId: typeof p.elementId === 'string' ? p.elementId : undefined,
       basedOnResourceUids: Array.isArray(p.basedOnResourceUids) ? p.basedOnResourceUids.map(String) : undefined,
       transformNote: p.transformNote === 'merge' || p.transformNote === 'llm-merge' ? p.transformNote : 'edit-resource',
-      llmRunUid: typeof p.llmRunUid === 'string' ? p.llmRunUid : undefined
+      llmRunUid: typeof p.llmRunUid === 'string' ? p.llmRunUid : undefined,
+      administrativeNotes: typeof p.administrativeNotes === 'string' ? p.administrativeNotes : undefined
     })
   })
 }

@@ -98,6 +98,17 @@ describe('editor-store（P3-1、UI-006/039/040）', () => {
     expect(useEditorStore.getState().refreshVersion).toBe(version + 1)
   })
 
+  it('タブのピン止め／解除を明示的に切り替え、プレビュー置換から保護する（UI-055）', () => {
+    const state = useEditorStore.getState()
+    state.openResource('a://1', 'A', { preview: true })
+    state.togglePinTab('a://1')
+    expect(useEditorStore.getState().groups[0]!.tabs[0]).toMatchObject({ pinned: true, preview: false })
+    state.openResource('b://2', 'B', { preview: true })
+    expect(useEditorStore.getState().groups[0]!.tabs.map((tab) => tab.uri)).toEqual(['a://1', 'b://2'])
+    state.togglePinTab('a://1')
+    expect(useEditorStore.getState().groups[0]!.tabs[0]!.pinned).toBe(false)
+  })
+
   it('dirty状態を管理できる', () => {
     useEditorStore.getState().openResource('a://1', 'A')
     useEditorStore.getState().setDirty('a://1', true)

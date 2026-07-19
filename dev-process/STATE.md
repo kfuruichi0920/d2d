@@ -8,7 +8,7 @@
 - 完了: P0〜P13（クリティカルパス完走、MS6 相当まで）
 - 残り: **P14**（性能・オフライン確認・残 TBD-06〜08・パッケージング・商用版）、
   **P5 の他形式抽出**（Excel / PowerPoint / PDF / Visio / テキスト系、EXT-014/015）
-- テスト規模: ユニット 231 件 / pytest 10 件 / E2E 25 件（すべて成功の状態で引き渡し）
+- テスト規模: ユニット 241 件 / pytest 10 件 / E2E 25 件（すべて成功の状態で引き渡し）
 
 ## フェーズ履歴（要点のみ）
 
@@ -57,6 +57,8 @@
 | P3/P7/P9/P11/P12追加 | メニュー固定順・Title Bar簡素化・Command Palette初期候補／追従、③構成アウトライン、分析の全件集約、FTS＋全文部分一致、History順序・作業差分・Git項目差分（Unit 227／E2E 25）              | 本コミット      |
 | P3/P7/P11追加        | ③structure_json復元・level準拠Tree／プレビュー／一覧scroll連動、Workbench zoom・レスポンシブボタン・共通タブ移動、Search選択scroll・メニュー幅制御（Unit 232／E2E 25）                    | 本コミット      |
 | P3/P7追加            | zoom縮小余白解消、共通ボタンレスポンシブ撤回、抽出／中間限定の明示アイコン、Activity Barコンパクト化、プレビュー上下キー／一覧中央scroll（Unit 231／E2E 25）                              | 本コミット      |
+| P3/P7/P10追加        | Editorタブ固定、Resource／テキスト編集のEditor統合・アドレスコピー、LLMアウトライン文脈、管理用特記事項、種別別定義、Monaco校正差分（schema 1.9.0、Unit 237／pytest 10／E2E 25）          | 本コミット      |
+| P7/P8/P10追加        | セマンティック非選択プレビュー／選択時直接編集・Editor統合撤回、チャンク由来based_on、図／表／コードの説明・派生Resource・画像LLM入力、表セルUI（schema 1.10.0、Unit 241／E2E 25）        | 本コミット      |
 
 ## 恒久制約（違反するとビルド/実行が壊れる、または設計方針違反）
 
@@ -65,13 +67,13 @@
   `npm run rebuild:electron`。※P11 マージ以降 `rebuild:node` スクリプトは無く、
   `postinstall` が rebuild:electron を実行する（npm install 直後は Electron ABI）。
 - **候補と正本の区別は entity_registry.status**（draft=候補 / approved=正本）。
-- **セマンティック入力は表示文章と構造化参照を分離する**。`semantic_text` に外部原文・表示文章・入力欄ポリシー、`semantic_reference` に文字範囲・参照UID・表示方法・関係種別・承認状態、`semantic_normalization_history` に差分・承認・取消履歴を保持する。自動認識は弱い `relates_to` の候補に限定し、承認済み参照だけを関係ルール検証後に `trace_link` へ確定する。辞書候補はスコープ・版・廃止・権限を考慮し、辞書登録は承認待ちで作成する。通常時のtext／multiline欄は専用背景のプレビューと編集ボタンだけを表示し、`Enter`／`F2`または編集ボタンで全編集機能を集約したモーダルダイアログを開く。
+- **セマンティック入力は表示文章と構造化参照を分離する**。`semantic_text` に外部原文・表示文章・入力欄ポリシー、`semantic_reference` に文字範囲・参照UID・表示方法・関係種別・承認状態、`semantic_normalization_history` に差分・承認・取消履歴を保持する。自動認識は弱い `relates_to` の候補に限定し、承認済み参照だけを関係ルール検証後に `trace_link` へ確定する。辞書候補はスコープ・版・廃止・権限を考慮し、辞書登録は承認待ちで作成する。通常時のtext／multiline欄は非選択時に専用背景のプレビュー、選択時に直接編集欄を表示し、`F2`または編集ボタンで全編集機能を集約したモーダルダイアログを開く。セマンティック編集はEditor Areaへ統合しない。
 - **抽出由来・共有正本は破壊しない**: 編集・マージ・分割・表編集は新リソース + `based_on` trace_link
   （transform_note = edit / merge / split / edit-table）で由来を残し、旧リソースを保護する。
 - **Main は Gateway/Shell のみ**。業務ロジックは backend/（utilityProcess）に置く。
   safeStorage は Main 専用 → backend からは main-bridge（逆方向 RPC）経由。
 - **API キー等の秘密情報は平文で保存・ログ出力しない**（settings-service が強制）。
-- スキーマ変更は `backend/db/migrations.ts` に追記（バックアップ → DDL → 版数更新）。現在 1.8.0（llm_run_ref へ raw_request_blob_uid / raw_response_blob_uid を追加）。
+- スキーマ変更は `backend/db/migrations.ts` に追記（バックアップ → DDL → 版数更新）。現在 1.10.0（図番号／キャプション、表／コード説明を追加）。
 - ②抽出レビューの選択・状態更新・構造プレビュー・Properties は `ReviewElement` 共通契約で実装し、
   Word 固有にしない。今後の Excel / PowerPoint / PDF / Visio / テキスト系も同じ操作体系へ接続する。
 - Python ワーカーは stdin/stdout とも UTF-8 ラップ必須（CP932 化け）。pytest はシステム Python
@@ -137,6 +139,10 @@
 - Resource編集は4.6の14種を定義駆動で共通化し、`resource://<uid>` からも開ける。保存直前にDBで所有・参照状況を判定する。③で新規作成され現在の `intermediate_item` だけが参照するResourceは、同種なら同じUIDへ上書きし、異種なら現在要素を新Resourceへ差し替えて旧Resourceを物理削除する。抽出由来、共有、入力トレース、他Resource、LLM実行記録から参照されるResourceは保護し、新Resource + 元Resourceへの `based_on (edit-resource)` とする。
 - 中間要素の一覧マージはCtrl/Shiftの非連続を含む2件以上を文書表示順で処理し、先頭位置・階層へ集約する。同一Resource種別は同種の候補へ、異種は可読な `resource_text` へ変換し、全元Resourceへの `based_on (merge)` と全 `extracted_item` 由来を維持する。
 - 中間要素から開くResource Editorは左を抽出由来（読取専用）または画面追加Resource（編集可能）、右を保存候補とする。通常/LLMマージは右フォームを更新するだけで、明示保存まではDBを変更しない。LLMマージは既存Provider・外部送信可否・マスキングを経由し、保存時は `llm_run_uid` と `llm-merge` を由来へ記録する。
+- Editorタブはタブ上のピン操作またはコンテキストメニューで固定／解除し、固定状態をプロジェクト別レイアウトへ保存する。Resource編集はモーダルからEditor Areaへ統合でき、Resourceアドレスをコピーできる。各テキスト欄のセマンティック編集はモーダルに限定し、Editor Areaへ統合しない。
+- Resource EditorのLLM入力には中間文書の親子関係・アウトライン位置と入出力フィールド定義を自動付加する。`entity_registry.administrative_notes` は管理専用で、設計情報・Markdown・LLM設計候補へ送らない。廃止列は既存DB互換のため物理保持しても、編集定義・新規保存・LLM入出力から除外する。
+- セマンティック編集は左にMonaco Markdown編集／用語候補／用語候補(LLM)、右に複数行プレビュー／構造化データ／校正・正規化(LLM)差分を置く。入力補完はCtrl+Spaceとし、LLM子ダイアログ表示中のEscapeは最前面の子だけを閉じる。MonacoはElectronのIME・Playwright入力互換性のため`editContext: false`を指定する。
+- リストResourceの`items_json`は物理列名を互換維持しつつMarkdownリストを保持する。旧JSON配列も読取互換とする。図は抽出時に幅・高さ・バイトサイズ・画像形式を保持して画像と説明を表示し、数式はTeX（MathJax）本文と説明を扱う。図／表／数式／コードからの派生Resourceは新規追加または既存参照し、関係を`trace_link`へ保存する。図／表／数式／コードの説明は対象値・アウトライン文脈をLLMへ渡し、図では画像もProvider別形式で添付する。表はスプレッドシートUIで各セルをセマンティック編集し、`resource_table_cell`を同期して同じ座標のUIDを維持する。
 
 - 汎用トレースマトリクスの軸は、設計分類、②抽出文書、③中間文書、Resource種別のスコープを複数選択してResource集合を構成する。③中間文書は`intermediate_item`を束ねる表示スコープであり、文書自体をセル要素として扱わない。
 - マトリクス編集の正本は`trace_link`とし、行→列／列→行の方向を保持する。単一セルのトグルと、複数セル・行・列への追加／削除は同じBackend操作APIを通し、複数対象は1トランザクションで検証・更新する。

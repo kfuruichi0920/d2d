@@ -92,6 +92,29 @@ def _core_metadata(zf: zipfile.ZipFile) -> dict:
     return meta
 
 
+def _image_metadata(data: bytes, file_name: str) -> dict:
+    """stdlibだけで抽出画像の形式・ピクセル寸法・サイズを取得する（EDIT-086）。"""
+    suffix = Path(file_name).suffix.lower().lstrip(".")
+    result = {"byte_size": len(data), "image_format": suffix.upper() or "UNKNOWN"}
+    if data.startswith(b"\x89PNG\r\n\x1a\n") and len(data) >= 24:
+        result.update({"width": int.from_bytes(data[16:20], "big"), "height": int.from_bytes(data[20:24], "big")})
+    elif data.startswith(b"\xff\xd8"):
+        offset = 2
+        while offset + 9 < len(data):
+            if data[offset] != 0xFF:
+                offset += 1
+                continue
+            marker = data[offset + 1]
+            if marker in {0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7, 0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF}:
+                result.update({"height": int.from_bytes(data[offset + 5 : offset + 7], "big"), "width": int.from_bytes(data[offset + 7 : offset + 9], "big")})
+                break
+            if offset + 4 > len(data):
+                break
+            length = int.from_bytes(data[offset + 2 : offset + 4], "big")
+            offset += max(length + 2, 2)
+    return result
+
+
 def _extract_images(p: ET.Element, rels: dict[str, str], zf: zipfile.ZipFile, media_dir: Path) -> list[dict]:
     """段落内の画像（a:blip r:embed）を work_dir へ切り出し、参照情報を返す。"""
     images: list[dict] = []
@@ -109,7 +132,7 @@ def _extract_images(p: ET.Element, rels: dict[str, str], zf: zipfile.ZipFile, me
         file_name = Path(target).name
         out_path = media_dir / file_name
         out_path.write_bytes(data)
-        images.append({"file": f"media/{file_name}", "source": target})
+        images.append({"file": f"media/{file_name}", "source": target, **_image_metadata(data, file_name)})
     return images
 
 
@@ -157,6 +180,10 @@ def extract_word(file_path: str, work_dir: str) -> dict:
                             "type": "figure",
                             "image": img["file"],
                             "caption": None,
+                            "width": img.get("width"),
+                            "height": img.get("height"),
+                            "byte_size": img["byte_size"],
+                            "image_format": img["image_format"],
                             "section_path": "/".join(heading_stack),
                         }
                     )

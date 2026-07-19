@@ -6,9 +6,10 @@ import type { Database } from 'better-sqlite3'
 import { BackendError } from '../api/errors'
 import { eventBus } from '../events/event-bus'
 import { registerEntity } from '../store/entity-registry'
+import { newUid } from '../store/uid'
 import type { EntityType } from '../store/entity-types'
 
-export type ResourceFieldKind = 'text' | 'multiline' | 'number' | 'json' | 'enum'
+export type ResourceFieldKind = 'text' | 'multiline' | 'number' | 'json' | 'enum' | 'table'
 export interface ResourceFieldDefinition {
   name: string
   label: string
@@ -16,6 +17,10 @@ export interface ResourceFieldDefinition {
   required?: boolean
   options?: string[]
   defaultValue?: string | number
+  description: string
+  language?: 'markdown' | 'latex'
+  preview?: 'markdown' | 'image' | 'formula'
+  hidden?: boolean
 }
 export interface ResourceTypeDefinition {
   type: string
@@ -27,8 +32,16 @@ const f = (
   name: string,
   label: string,
   kind: ResourceFieldKind,
-  extra: Omit<ResourceFieldDefinition, 'name' | 'label' | 'kind'> = {}
-): ResourceFieldDefinition => ({ name, label, kind, ...extra })
+  extra: Partial<Omit<ResourceFieldDefinition, 'name' | 'label' | 'kind' | 'description'>> & {
+    description?: string
+  } = {}
+): ResourceFieldDefinition => ({
+  name,
+  label,
+  kind,
+  description: extra.description ?? `${label}を設定します。`,
+  ...extra
+})
 const enumField = (name: string, label: string, options: string[], defaultValue?: string): ResourceFieldDefinition =>
   f(name, label, 'enum', { options, defaultValue })
 const jsonField = (name: string, label: string): ResourceFieldDefinition => f(name, label, 'json')
@@ -47,7 +60,6 @@ export const RESOURCE_TYPE_DEFINITIONS: ResourceTypeDefinition[] = [
       ),
       f('numbering', '番号表記', 'text'),
       f('level', '階層レベル', 'number'),
-      f('style_name', 'スタイル名', 'text'),
       f('target_resource_uid', '対象Resource UID', 'text')
     ]
   },
@@ -63,8 +75,9 @@ export const RESOURCE_TYPE_DEFINITIONS: ResourceTypeDefinition[] = [
         'body'
       ),
       f('language', '言語', 'text', { defaultValue: 'ja' }),
-      jsonField('sentences_json', '文分割JSON'),
-      jsonField('context_json', '周辺文脈JSON')
+      f('target_resource_uid', 'リンク先Resourceアドレス', 'text', {
+        description: 'note等が補足する対象Resourceのresource://アドレスまたはUIDを指定します。'
+      })
     ]
   },
   {
@@ -73,7 +86,11 @@ export const RESOURCE_TYPE_DEFINITIONS: ResourceTypeDefinition[] = [
     fields: [
       enumField('list_kind', 'リスト種別', ['ordered', 'unordered', 'check', 'definition', 'other'], 'unordered'),
       f('item_count', '項目数', 'number', { defaultValue: 0 }),
-      jsonField('items_json', '項目JSON'),
+      f('items_json', '項目(Markdown)', 'multiline', {
+        description: 'リスト項目をMarkdownのリスト記法で記載します。',
+        language: 'markdown',
+        preview: 'markdown'
+      }),
       f('max_level', '最大階層', 'number', { defaultValue: 0 })
     ]
   },
@@ -83,19 +100,24 @@ export const RESOURCE_TYPE_DEFINITIONS: ResourceTypeDefinition[] = [
     fields: [
       f('image_uri', '画像URI', 'text', { required: true }),
       f('image_hash', '画像ハッシュ', 'text'),
+      f('figure_number', '図番号', 'text'),
+      f('caption', 'キャプション', 'multiline'),
       enumField('figure_kind', '図種別', ['architecture', 'flow', 'screen', 'state', 'layout', 'other'], 'other'),
       f('width', '幅', 'number'),
       f('height', '高さ', 'number'),
-      jsonField('ocr_texts_json', 'OCR結果JSON'),
-      jsonField('objects_json', '図形要素JSON'),
-      f('caption_uid', 'キャプションUID', 'text')
+      f('byte_size', 'サイズ(byte)', 'number', { description: '抽出時に取得した画像ファイルのバイトサイズです。' }),
+      f('image_format', '画像フォーマット', 'text', { description: 'PNG、JPEG等の抽出時画像形式です。' }),
+      f('description', '説明', 'multiline', {
+        description: '文書で図を説明する設計情報です。LLM支援の対象になります。',
+        language: 'markdown'
+      })
     ]
   },
   {
     type: 'resource_table',
     label: '表',
     fields: [
-      f('table_title', '表名', 'text'),
+      f('table_title', 'キャプション', 'multiline'),
       f('row_count', '行数', 'number', { defaultValue: 0 }),
       f('column_count', '列数', 'number', { defaultValue: 0 }),
       enumField(
@@ -104,27 +126,39 @@ export const RESOURCE_TYPE_DEFINITIONS: ResourceTypeDefinition[] = [
         ['data', 'interface', 'state_transition', 'function_list', 'matrix', 'other'],
         'other'
       ),
-      jsonField('header_rows_json', 'ヘッダ行JSON'),
-      jsonField('header_columns_json', 'ヘッダ列JSON'),
-      jsonField('cells_json', 'セルJSON'),
-      f('source_range', 'ソース範囲', 'text')
+      f('header_rows_json', 'ヘッダ行', 'json', { hidden: true }),
+      f('header_columns_json', 'ヘッダ列', 'json', { hidden: true }),
+      f('cells_json', '表セル', 'table', {
+        description: 'スプレッドシート形式で編集します。各セルはセマンティック編集に対応します。'
+      }),
+      f('source_range', 'ソース範囲', 'text'),
+      f('description', '説明', 'multiline', {
+        description: '文書で表を説明する設計情報です。表全体を含むLLM支援の対象になります。',
+        language: 'markdown'
+      })
     ]
   },
   {
     type: 'resource_formula',
     label: '数式',
     fields: [
-      f('formula_text', '数式本文', 'multiline', { required: true }),
-      enumField('formula_format', '数式形式', ['latex', 'mathml', 'excel', 'plain', 'other'], 'plain'),
+      f('formula_text', '数式本文(TeX)', 'multiline', {
+        required: true,
+        description: 'Markdown内でMathJaxが解釈できるTeX記法を使用します。',
+        language: 'latex',
+        preview: 'formula'
+      }),
+      enumField('formula_format', '数式形式', ['latex'], 'latex'),
       enumField(
         'formula_kind',
         '数式種別',
         ['calculation', 'condition', 'constraint', 'performance', 'other'],
         'other'
       ),
-      jsonField('variables_json', '変数JSON'),
-      jsonField('units_json', '単位JSON'),
-      jsonField('references_json', '参照JSON')
+      f('description', '説明', 'multiline', {
+        description: '文書で数式を説明する設計情報です。LLM支援の対象になります。',
+        language: 'markdown'
+      })
     ]
   },
   {
@@ -140,9 +174,10 @@ export const RESOURCE_TYPE_DEFINITIONS: ResourceTypeDefinition[] = [
         'other'
       ),
       f('line_count', '行数', 'number'),
-      jsonField('symbols_json', 'シンボルJSON'),
-      jsonField('syntax_tree_json', '構文木JSON'),
-      enumField('parse_status', '解析状態', ['not_parsed', 'success', 'failed', 'partial'], 'not_parsed')
+      f('description', '説明', 'multiline', {
+        description: '文書で疑似コードを説明する設計情報です。コード本文を含むLLM支援の対象になります。',
+        language: 'markdown'
+      })
     ]
   },
   {
@@ -351,10 +386,15 @@ export function getResource(
   values: Record<string, unknown>
   definitions: ResourceTypeDefinition[]
   ownership: ResourceOwnership
+  administrativeNotes: string
 } {
   const entity = db
-    .prepare(`SELECT uid, code, title, entity_type FROM entity_registry WHERE uid=? AND status<>'deleted'`)
-    .get(uid) as { uid: string; code: string; title: string | null; entity_type: string } | undefined
+    .prepare(
+      `SELECT uid, code, title, entity_type, administrative_notes FROM entity_registry WHERE uid=? AND status<>'deleted'`
+    )
+    .get(uid) as
+    | { uid: string; code: string; title: string | null; entity_type: string; administrative_notes: string | null }
+    | undefined
   if (!entity) throw new BackendError('not_found', `Resourceが見つかりません: ${uid}`, '')
   const definition = definitionOf(entity.entity_type)
   const row = db.prepare(`SELECT * FROM ${definition.type} WHERE uid=?`).get(uid) as Record<string, unknown> | undefined
@@ -368,7 +408,48 @@ export function getResource(
     typeLabel: definition.label,
     values,
     definitions: RESOURCE_TYPE_DEFINITIONS,
-    ownership: inspectResourceOwnership(db, uid)
+    ownership: inspectResourceOwnership(db, uid),
+    administrativeNotes: entity.administrative_notes ?? ''
+  }
+}
+
+/** LLM送信用に、Resourceが属する文書とアウトライン内の親子・前後位置を自動補完する（EDIT-078）。 */
+export function getResourceOutlineContext(db: Database, resourceUid: string): Record<string, unknown> | null {
+  const row = db
+    .prepare(
+      `SELECT i.intermediate_document_uid,d.structure_json,e.code,e.title
+         FROM intermediate_item i
+         JOIN intermediate_document d ON d.uid=i.intermediate_document_uid
+         JOIN entity_registry e ON e.uid=d.uid
+        WHERE i.resource_uid=? LIMIT 1`
+    )
+    .get(resourceUid) as
+    { intermediate_document_uid: string; structure_json: string; code: string; title: string | null } | undefined
+  if (!row) return null
+  const base = { documentUid: row.intermediate_document_uid, documentCode: row.code, documentTitle: row.title }
+  try {
+    const elements = (JSON.parse(row.structure_json) as { elements?: Array<Record<string, unknown>> }).elements ?? []
+    const index = elements.findIndex((element) => element.resource_uid === resourceUid)
+    if (index < 0) return base
+    const current = elements[index]!
+    const level = Number(current.level ?? 0)
+    let parent: Record<string, unknown> | null = null
+    for (let cursor = index - 1; cursor >= 0; cursor--) {
+      if (Number(elements[cursor]!.level ?? 0) < level) {
+        parent = elements[cursor]!
+        break
+      }
+    }
+    return {
+      ...base,
+      outlineIndex: index,
+      current,
+      parent,
+      previous: elements[index - 1] ?? null,
+      next: elements[index + 1] ?? null
+    }
+  } catch {
+    return base
   }
 }
 
@@ -469,7 +550,7 @@ function plainText(type: string, values: Record<string, unknown>): string {
     resource_reference: ['reference_text', 'uri'],
     resource_metadata: ['metadata_value', 'metadata_key'],
     resource_table: ['cells_json', 'table_title'],
-    resource_figure: ['ocr_texts_json', 'image_uri']
+    resource_figure: ['description', 'image_uri']
   }
   return (preferred[type] ?? [])
     .map((field) => values[field])
@@ -597,7 +678,12 @@ function normalizedValues(
         throw new BackendError('validation', `${field.label}は正しいJSONで入力してください`, '')
       }
     }
-    result[field.name] = value.trim() ? value : field.defaultValue === undefined ? null : String(field.defaultValue)
+    const normalized = field.name === 'target_resource_uid' ? value.trim().replace(/^resource:\/\//, '') : value
+    result[field.name] = normalized.trim()
+      ? normalized
+      : field.defaultValue === undefined
+        ? null
+        : String(field.defaultValue)
   }
   return result
 }
@@ -631,6 +717,45 @@ function addBasedOn(
   )
 }
 
+function syncTableCells(db: Database, tableUid: string, values: Record<string, string | number | null>): void {
+  let rows: Array<Array<string | { text?: unknown; colspan?: unknown }>>
+  let headerRows: number[]
+  let headerColumns: number[]
+  try {
+    const parsedRows = JSON.parse(String(values.cells_json ?? '[]')) as unknown
+    rows = Array.isArray(parsedRows) ? (parsedRows as typeof rows) : []
+    const parsedHeaderRows = JSON.parse(String(values.header_rows_json ?? '[]')) as unknown
+    const parsedHeaderColumns = JSON.parse(String(values.header_columns_json ?? '[]')) as unknown
+    headerRows = Array.isArray(parsedHeaderRows) ? parsedHeaderRows.map(Number) : []
+    headerColumns = Array.isArray(parsedHeaderColumns) ? parsedHeaderColumns.map(Number) : []
+  } catch {
+    throw new BackendError('validation', '表セルまたはヘッダ指定のJSONが正しくありません', '')
+  }
+  const existing = db
+    .prepare(`SELECT uid,row_no,col_no FROM resource_table_cell WHERE table_uid=?`)
+    .all(tableUid) as Array<{ uid: string; row_no: number; col_no: number }>
+  const uidByCoordinate = new Map(existing.map((cell) => [`${cell.row_no}:${cell.col_no}`, cell.uid]))
+  db.prepare(`DELETE FROM resource_table_cell WHERE table_uid=?`).run(tableUid)
+  const insert = db.prepare(
+    `INSERT INTO resource_table_cell (uid,table_uid,row_no,col_no,cell_text,colspan,is_header) VALUES (?,?,?,?,?,?,?)`
+  )
+  rows.forEach((row, rowNo) => {
+    if (!Array.isArray(row)) return
+    row.forEach((cell, colNo) => {
+      const objectCell = typeof cell === 'object' && cell !== null ? cell : undefined
+      insert.run(
+        uidByCoordinate.get(`${rowNo}:${colNo}`) ?? newUid(),
+        tableUid,
+        rowNo,
+        colNo,
+        typeof cell === 'string' ? cell : String(objectCell?.text ?? ''),
+        Math.max(1, Number(objectCell?.colspan) || 1),
+        headerRows.includes(rowNo) || headerColumns.includes(colNo) ? 1 : 0
+      )
+    })
+  })
+}
+
 export function summaryFor(
   type: string,
   values: Record<string, string | number | null>
@@ -643,8 +768,13 @@ export function summaryFor(
         level: Number(values.level ?? 1)
       }
     case 'resource_list': {
-      const items = values.items_json ? (JSON.parse(String(values.items_json)) as Array<{ text?: string }>) : []
-      return { type: 'list_item', text: items.map((item) => item.text ?? '').join('\n') }
+      const markdown = String(values.items_json ?? '')
+      try {
+        const items = JSON.parse(markdown) as Array<{ text?: string }>
+        return { type: 'list_item', text: items.map((item) => item.text ?? '').join('\n') }
+      } catch {
+        return { type: 'list_item', text: markdown }
+      }
     }
     case 'resource_figure':
       return { type: 'figure', image: String(values.image_uri ?? '') }
@@ -702,6 +832,7 @@ export function createMergedResource(
     db.prepare(
       `INSERT INTO ${definition.type} (uid,${columns.join(',')}) VALUES (?${columns.map(() => ',?').join('')})`
     ).run(resource.uid, ...columns.map((column) => values[column]))
+    if (definition.type === 'resource_table') syncTableCells(db, resource.uid, values)
     for (const source of sources) addBasedOn(db, projectUid, resource.uid, source.uid, 'merge')
     return {
       uid: resource.uid,
@@ -712,6 +843,47 @@ export function createMergedResource(
   })
   return transaction()
 }
+export function linkDerivedResource(
+  db: Database,
+  projectUid: string,
+  input: {
+    sourceUid: string
+    relationType: 'contains' | 'decomposes' | 'uses' | 'relates_to'
+    targetUid?: string
+    newText?: string
+  }
+): { targetUid: string; linkUid: string; created: boolean } {
+  getResource(db, input.sourceUid)
+  const transaction = db.transaction(() => {
+    let targetUid = input.targetUid
+    let created = false
+    if (!targetUid) {
+      if (!input.newText?.trim()) throw new BackendError('validation', '新規Resourceの内容は必須です', '')
+      const target = registerEntity(db, {
+        projectUid,
+        entityType: 'resource_text',
+        title: input.newText.trim().slice(0, 80),
+        createdBy: 'user'
+      })
+      db.prepare(`INSERT INTO resource_text (uid,text_body,text_role,language) VALUES (?,?,'note','ja')`).run(
+        target.uid,
+        input.newText.trim()
+      )
+      targetUid = target.uid
+      created = true
+    } else {
+      getResource(db, targetUid)
+    }
+    const link = registerEntity(db, { projectUid, entityType: 'trace_link', createdBy: 'user' })
+    db.prepare(
+      `INSERT INTO trace_link (uid,from_uid,to_uid,relation_type,direction,created_by,review_status,basis_kind)
+       VALUES (?,?,?,?,'forward','human','approved','human_approved')`
+    ).run(link.uid, input.sourceUid, targetUid, input.relationType)
+    return { targetUid, linkUid: link.uid, created }
+  })
+  return transaction()
+}
+
 export type ResourceSaveMode = 'updated' | 'created-replaced' | 'created-protected'
 
 /**
@@ -733,6 +905,7 @@ export function reviseResource(
     basedOnResourceUids?: string[]
     transformNote?: 'edit-resource' | 'merge' | 'llm-merge'
     llmRunUid?: string
+    administrativeNotes?: string
   }
 ): {
   uid: string
@@ -758,6 +931,11 @@ export function reviseResource(
         ...columns.map((column) => values[column]),
         original.uid
       )
+      if (definition.type === 'resource_table') syncTableCells(db, original.uid, values)
+      db.prepare(`UPDATE entity_registry SET administrative_notes=? WHERE uid=?`).run(
+        input.administrativeNotes ?? '',
+        original.uid
+      )
       db.prepare(`UPDATE entity_registry SET title=?,updated_at=?,updated_by=? WHERE uid=?`).run(
         title,
         new Date().toISOString(),
@@ -778,9 +956,14 @@ export function reviseResource(
         title,
         createdBy: input.llmRunUid ? 'llm' : 'user'
       })
+      db.prepare(`UPDATE entity_registry SET administrative_notes=? WHERE uid=?`).run(
+        input.administrativeNotes ?? '',
+        resource.uid
+      )
       db.prepare(
         `INSERT INTO ${definition.type} (uid,${columns.join(',')}) VALUES (?${columns.map(() => ',?').join('')})`
       ).run(resource.uid, ...columns.map((column) => values[column]))
+      if (definition.type === 'resource_table') syncTableCells(db, resource.uid, values)
       const sourceUids = ownership.exclusiveIntermediate
         ? [...new Set(input.basedOnResourceUids ?? [])].filter((uid) => uid !== original.uid)
         : [...new Set([original.uid, ...(input.basedOnResourceUids ?? [])])]

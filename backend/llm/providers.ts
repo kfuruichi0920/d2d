@@ -13,9 +13,15 @@ export function isLocalProvider(provider: ProviderName): boolean {
   return provider === 'ollama'
 }
 
+export interface ChatAttachment {
+  mediaType: string
+  data: string
+}
+
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant'
   content: string
+  attachments?: ChatAttachment[]
 }
 
 export interface ChatRequest {
@@ -110,6 +116,22 @@ async function postJson(
   }
 }
 
+function openAiMessages(messages: ChatMessage[]): unknown[] {
+  return messages.map((message) =>
+    message.attachments?.length
+      ? {
+          role: message.role,
+          content: [
+            { type: 'text', text: message.content },
+            ...message.attachments.map((attachment) => ({
+              type: 'image_url',
+              image_url: { url: `data:${attachment.mediaType};base64,${attachment.data}` }
+            }))
+          ]
+        }
+      : { role: message.role, content: message.content }
+  )
+}
 /** OpenAI: https://api.openai.com/v1/chat/completions（Bearer） */
 async function chatOpenAi(
   config: ProviderConfig,
@@ -123,7 +145,7 @@ async function chatOpenAi(
     { Authorization: `Bearer ${config.apiKey ?? ''}` },
     {
       model: request.model,
-      messages: request.messages,
+      messages: openAiMessages(request.messages),
       temperature: request.temperature,
       ...(request.jsonMode ? { response_format: { type: 'json_object' } } : {})
     },
@@ -155,7 +177,7 @@ async function chatAzure(
   const json = (await postJson(
     url,
     { 'api-key': config.apiKey ?? '' },
-    { messages: request.messages, temperature: request.temperature },
+    { messages: openAiMessages(request.messages), temperature: request.temperature },
     signal,
     capture
   )) as {
@@ -184,7 +206,15 @@ async function chatGemini(
   const system = request.messages.filter((m) => m.role === 'system')
   const contents = request.messages
     .filter((m) => m.role !== 'system')
-    .map((m) => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] }))
+    .map((m) => ({
+      role: m.role === 'assistant' ? 'model' : 'user',
+      parts: [
+        { text: m.content },
+        ...(m.attachments ?? []).map((attachment) => ({
+          inlineData: { mimeType: attachment.mediaType, data: attachment.data }
+        }))
+      ]
+    }))
   const json = (await postJson(
     url,
     {},
@@ -220,7 +250,11 @@ async function chatOllama(
     {},
     {
       model: request.model,
-      messages: request.messages,
+      messages: request.messages.map((message) => ({
+        role: message.role,
+        content: message.content,
+        ...(message.attachments?.length ? { images: message.attachments.map((attachment) => attachment.data) } : {})
+      })),
       stream: false,
       ...(request.jsonMode ? { format: 'json' } : {})
     },

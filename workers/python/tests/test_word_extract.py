@@ -64,6 +64,10 @@ def test_figure_and_captions(tmp_path: Path):
     figures = [e for e in result["elements"] if e["type"] == "figure"]
     assert len(figures) == 1
     assert figures[0]["image"] == "media/image1.png"
+    assert figures[0]["width"] == 1
+    assert figures[0]["height"] == 1
+    assert figures[0]["byte_size"] > 0
+    assert figures[0]["image_format"] == "PNG"
     assert (tmp_path / "work" / "media" / "image1.png").exists()
 
     captions = [e for e in result["elements"] if e["type"] == "caption"]
