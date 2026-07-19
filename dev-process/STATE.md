@@ -65,6 +65,7 @@
 | P14-5                | パッケージング・配布: runtime-paths同梱解決、PyInstaller spec、electron-builder（NSIS+extraResources）、prepare-dist検査、PlantUML/MeCab同梱既定化（Unit 257／E2E 27）                    | d090ba0         |
 | UI点検対応           | Editorタブ種別アイコン・ピンhover化、件数バッジ・トグル・空状態の意匠統一、Panelタブ日本語化、Status Bar整理（Unit 257／E2E 27）                                                          | 8cf4730         |
 | UI点検対応(2)        | Secondary見出し日本語化（プロパティ／関係／レビュー／辞書）、Explorer③未取込成果物のバッジ整理（「未取込」タグのみ表示）（Unit 257／E2E 27）                                              | 4b8f944         |
+| P7追加               | 中間編集の行操作を右クリックメニューへ集約（複数選択対応・単一限定操作の無効化・操作バー廃止・見出し＋追加のみ残置）（Unit 257／E2E 27）                                                  | 4704f0f         |
 
 ## 恒久制約（違反するとビルド/実行が壊れる、または設計方針違反）
 
