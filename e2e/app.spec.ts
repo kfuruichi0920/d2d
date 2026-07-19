@@ -38,6 +38,18 @@ test.afterAll(async () => {
 
 test('Workbench シェルが表示される（P3-1）', async () => {
   await expect(page.getByTestId('activity-bar')).toBeVisible()
+  await expect
+    .poll(async () => (await page.getByTestId('activity-bar').boundingBox())?.width ?? 0)
+    .toBeGreaterThanOrEqual(43.9)
+  await expect
+    .poll(async () => (await page.getByTestId('activity-bar').boundingBox())?.width ?? 0)
+    .toBeLessThanOrEqual(44.1)
+  await expect
+    .poll(async () => (await page.getByTestId('activity-explorer').boundingBox())?.width ?? 0)
+    .toBeGreaterThanOrEqual(35.9)
+  await expect
+    .poll(async () => (await page.getByTestId('activity-explorer').boundingBox())?.width ?? 0)
+    .toBeLessThanOrEqual(36.1)
   await expect(page.getByTestId('pipeline-navigator')).toBeVisible()
   await expect(page.getByTestId('pipeline-navigator')).toContainText('①原本')
   await expect(page.getByTestId('pipeline-navigator')).toContainText('抽出▶')
@@ -67,12 +79,20 @@ test('Workbench シェルが表示される（P3-1）', async () => {
   await page.keyboard.press('Control+0')
   await expect(page.getByTestId('workbench')).toHaveAttribute('data-zoom', '100')
 
-  // 通常幅はアイコン＋文字、狭幅はアイコン中心とし、メニューバー自体を横スクロールさせない。
-  await expect(page.getByTestId('toggle-primary-sidebar').locator('.responsive-button-label')).toBeVisible()
-  await page.setViewportSize({ width: 1000, height: 700 })
-  await expect(page.getByTestId('toggle-primary-sidebar').locator('.responsive-button-label')).toBeHidden()
+  // 縮小時もWorkbenchがviewport下端まで覆い、未使用の余白を作らない。
+  await page.keyboard.press('Control+-')
+  await expect(page.getByTestId('workbench')).toHaveAttribute('data-zoom', '90')
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        Boolean(
+          document.elementFromPoint(window.innerWidth / 2, window.innerHeight - 1)?.closest('[data-testid="workbench"]')
+        )
+      )
+    )
+    .toBe(true)
+  await page.keyboard.press('Control+0')
   await expect(page.locator('.wb-menu-buttons')).toHaveCSS('overflow-x', 'hidden')
-  await page.setViewportSize({ width: 1440, height: 900 })
 
   // 常時表示の検索導線からウェルカムも検索できる。
   await page.getByTestId('open-screen-search').click()
@@ -184,9 +204,9 @@ test('プロジェクト作成でタイトル・パイプラインが更新さ�
   // project.opened イベント → ステータスバー・パイプライン件数へ反映。Title BarはD2D名だけを表示する。
   await expect(page.getByTestId('title-project')).toHaveCount(0)
   await expect(page.locator('.wb-titlebar .wb-app-name')).toHaveText('D2D')
-  await expect(page.getByTestId('toggle-primary-sidebar')).toContainText('Primary')
-  await expect(page.getByTestId('toggle-secondary-sidebar')).toContainText('Secondary')
-  await expect(page.getByTestId('toggle-panel')).toContainText('Panel')
+  await expect(page.getByTestId('toggle-primary-sidebar')).toHaveText('◧')
+  await expect(page.getByTestId('toggle-secondary-sidebar')).toHaveText('◨')
+  await expect(page.getByTestId('toggle-panel')).toHaveText('▤')
   await expect(page.getByTestId('status-project')).toContainText('P3プロジェクト')
   await expect(page.getByTestId('stage-source')).toContainText('①原本')
 
@@ -679,6 +699,16 @@ test('原本取込→Word抽出→レビュー→②正本確定の全経路（P
   await expect(page.getByTestId('extraction-structure-json').locator('.structured-json-key').first()).toBeVisible()
   await page.getByTestId('extraction-preview-visual').click()
   await expect(page.getByTestId('preview-item-e1')).toHaveClass(/selected/)
+  const extractionActionIcons = await page
+    .getByTestId('extraction-review-editor')
+    .locator('button[data-editor-icon]')
+    .evaluateAll((buttons) => buttons.map((button) => button.getAttribute('data-editor-icon')))
+  expect(extractionActionIcons).not.toContain('◆')
+  expect(new Set(extractionActionIcons).size).toBe(extractionActionIcons.length)
+  await page.getByTestId('preview-item-e1').focus()
+  await page.keyboard.press('ArrowDown')
+  await expect(page.getByTestId('preview-item-e2')).toHaveClass(/active/)
+  await expect(page.getByTestId('preview-item-e2')).toBeFocused()
   const previewMeta = page.getByTestId('document-preview-meta-controls').last()
   await previewMeta.getByLabel('要素ID').uncheck()
   await expect(page.getByTestId('preview-item-e1').locator('code')).toHaveCount(0)
@@ -978,9 +1008,36 @@ test('②→③統合・編集・確定（P7）', async () => {
   await expect(page.getByTestId('intermediate-structure-json')).toBeVisible()
   await page.getByTestId('intermediate-preview-visual').click()
 
-  // プレビュー側で表示範囲外の項目を選ぶと、成果物表も選択行まで自動スクロールする。
-  await page.getByTestId('intermediate-markdown').locator('.extraction-preview-item').last().click()
-  await expect(middleGrid.locator('tr[aria-selected="true"]')).toBeInViewport()
+  // 中間編集だけに明示アイコンを付け、未知・重複アイコンを表示しない。
+  await expect(page.getByTestId('intermediate-operation-toolbar')).not.toContainText(
+    'Resource種別ラベル / ダブルクリック / Space / Enter で編集'
+  )
+  const intermediateActionIcons = await page
+    .getByTestId('intermediate-editor')
+    .locator('button[data-editor-icon]:visible')
+    .evaluateAll((buttons) => buttons.map((button) => button.getAttribute('data-editor-icon')))
+  expect(intermediateActionIcons).not.toContain('◆')
+  expect(new Set(intermediateActionIcons).size).toBe(intermediateActionIcons.length)
+
+  // プレビュー側で表示範囲外の項目を選ぶと、成果物表の表示領域中央へ確実にスクロールする。
+  const lastIntermediatePreview = page.getByTestId('intermediate-markdown').locator('.extraction-preview-item').last()
+  await lastIntermediatePreview.click()
+  const selectedArtifactRow = middleGrid.locator('tr[aria-selected="true"]')
+  await expect(selectedArtifactRow).toBeInViewport()
+  await expect
+    .poll(async () => {
+      const gridBox = await middleGrid.boundingBox()
+      const rowBox = await selectedArtifactRow.boundingBox()
+      return Boolean(
+        gridBox && rowBox && rowBox.y >= gridBox.y && rowBox.y + rowBox.height <= gridBox.y + gridBox.height
+      )
+    })
+    .toBe(true)
+  await lastIntermediatePreview.focus()
+  await page.keyboard.press('ArrowUp')
+  await expect(page.getByTestId('intermediate-markdown').locator('.extraction-preview-item').nth(-2)).toHaveClass(
+    /active/
+  )
 
   // levelは表示順上の直前上位要素を親とする。Tree折畳は右プレビューにも連動する。
   await middleGrid.getByRole('row').nth(1).click()
@@ -1724,12 +1781,8 @@ test('編集機能: 用語集・状態遷移・表編集・検証編集（P10）
   await expect(page.getByTestId('intermediate-markdown')).toContainText('150ms以内')
 
   // --- セマンティック入力支援（P10-7）: 既存文認識→承認→構造化検証→保存
-  const semanticRow = page
-    .getByTestId('intermediate-grid')
-    .getByRole('row')
-    .filter({ hasText: 'モックLLM応答' })
-    .first()
-  await semanticRow.dblclick()
+  const semanticPreviewItem = page.getByTestId('intermediate-preview-item-i2')
+  await semanticPreviewItem.dblclick()
   await expect(page.getByTestId('resource-edit-dialog')).toBeVisible()
   const semanticInput = page.getByTestId('semantic-input-text_body')
   await expect(semanticInput).toBeVisible()
@@ -1742,10 +1795,10 @@ test('編集機能: 用語集・状態遷移・表編集・検証編集（P10）
   await page.keyboard.press('F2')
   const semanticDialog = semanticInput.getByTestId('semantic-edit-dialog-text_body')
   await expect(semanticDialog).toBeVisible()
-  await expect(semanticDialog.getByText('構造化参照')).toBeVisible()
-  await expect(semanticDialog.getByRole('button', { name: '承認済み', exact: true }).first()).toBeVisible()
   await semanticDialog.getByRole('button', { name: '既存文を解析', exact: true }).click()
+  await expect(semanticDialog.getByText('構造化参照')).toBeVisible()
   await semanticDialog.getByRole('button', { name: '承認', exact: true }).first().click()
+  await expect(semanticDialog.getByRole('button', { name: '承認済み', exact: true }).first()).toBeVisible()
   await semanticDialog.getByRole('button', { name: 'プレビュー', exact: true }).click()
   await expect(semanticDialog.locator('.semantic-mark').first()).toBeVisible()
   await semanticDialog.getByRole('button', { name: '構造化データ', exact: true }).click()

@@ -300,6 +300,22 @@ export function ExtractionReviewEditor({ uid }: { uid: string }): React.JSX.Elem
     })
   }
 
+  const onPreviewKeyDown = (element: ReviewElement, event: React.KeyboardEvent<HTMLElement>): void => {
+    if (!doc || (event.key !== 'ArrowDown' && event.key !== 'ArrowUp')) return
+    event.preventDefault()
+    const index = doc.elements.findIndex((item) => item.id === element.id)
+    const nextIndex = Math.min(Math.max(index + (event.key === 'ArrowDown' ? 1 : -1), 0), doc.elements.length - 1)
+    const nextElement = doc.elements[nextIndex]
+    if (!nextElement) return
+    if (event.shiftKey) selectRange(nextElement.id, event.ctrlKey || event.metaKey)
+    else {
+      setSelectedIds(new Set([nextElement.id]))
+      setAnchorId(nextElement.id)
+    }
+    setActiveId(nextElement.id)
+    requestAnimationFrame(() => previewRefs.current.get(nextElement.id)?.focus())
+  }
+
   const applyStatuses = async (groups: { resourceUids: string[]; status: ReviewStatus }[]): Promise<void> => {
     for (const group of groups) {
       if (group.resourceUids.length === 0) continue
@@ -429,7 +445,8 @@ export function ExtractionReviewEditor({ uid }: { uid: string }): React.JSX.Elem
         <span style={{ flex: 1 }} />
         <button
           type="button"
-          className="d2d-btn small"
+          className="d2d-btn small dense-editor-action"
+          data-editor-icon="✎"
           data-testid="rename-extracted"
           onClick={() => {
             setRenameTitle(doc.title ?? doc.code)
@@ -440,7 +457,8 @@ export function ExtractionReviewEditor({ uid }: { uid: string }): React.JSX.Elem
         </button>
         <button
           type="button"
-          className="d2d-btn small"
+          className="d2d-btn small dense-editor-action"
+          data-editor-icon="✓"
           disabled={selectedElements.length === 0}
           onClick={() => void updateStatus(selectedElements, 'approved')}
           data-testid="selected-confirm"
@@ -449,7 +467,8 @@ export function ExtractionReviewEditor({ uid }: { uid: string }): React.JSX.Elem
         </button>
         <button
           type="button"
-          className="d2d-btn small"
+          className="d2d-btn small dense-editor-action"
+          data-editor-icon="!"
           disabled={selectedElements.length === 0}
           onClick={() => void updateStatus(selectedElements, 'review')}
           data-testid="selected-needsfix"
@@ -458,7 +477,8 @@ export function ExtractionReviewEditor({ uid }: { uid: string }): React.JSX.Elem
         </button>
         <button
           type="button"
-          className="d2d-btn small"
+          className="d2d-btn small dense-editor-action"
+          data-editor-icon="×"
           disabled={selectedElements.length === 0}
           onClick={() => void updateStatus(selectedElements, 'rejected')}
           data-testid="selected-reject"
@@ -467,7 +487,8 @@ export function ExtractionReviewEditor({ uid }: { uid: string }): React.JSX.Elem
         </button>
         <button
           type="button"
-          className="d2d-btn primary"
+          className="d2d-btn primary dense-editor-action"
+          data-editor-icon="★"
           onClick={() => void approveAll()}
           disabled={doc.status === 'approved'}
           data-testid="approve-all-button"
@@ -492,7 +513,8 @@ export function ExtractionReviewEditor({ uid }: { uid: string }): React.JSX.Elem
           <div className="document-preview-switch" aria-label="抽出データのプレビュー表示">
             <button
               type="button"
-              className={`d2d-btn small${previewMode === 'visual' ? ' active' : ''}`}
+              className={`d2d-btn small dense-editor-action${previewMode === 'visual' ? ' active' : ''}`}
+              data-editor-icon="▤"
               onClick={() => setPreviewMode('visual')}
               data-testid="extraction-preview-visual"
             >
@@ -500,7 +522,8 @@ export function ExtractionReviewEditor({ uid }: { uid: string }): React.JSX.Elem
             </button>
             <button
               type="button"
-              className={`d2d-btn small${previewMode === 'structure' ? ' active' : ''}`}
+              className={`d2d-btn small dense-editor-action${previewMode === 'structure' ? ' active' : ''}`}
+              data-editor-icon="{}"
               onClick={() => setPreviewMode('structure')}
               data-testid="extraction-preview-structure"
             >
@@ -522,6 +545,8 @@ export function ExtractionReviewEditor({ uid }: { uid: string }): React.JSX.Elem
                   }}
                   data-testid={`preview-item-${element.id}`}
                   className={`extraction-preview-item${selected ? ' selected' : ''}${activeId === element.id ? ' active' : ''}`}
+                  tabIndex={0}
+                  onKeyDown={(event) => onPreviewKeyDown(element, event)}
                   onClick={() => {
                     setSelectedIds(new Set([element.id]))
                     setActiveId(element.id)

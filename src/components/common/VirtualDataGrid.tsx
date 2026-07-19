@@ -26,6 +26,7 @@ export interface VirtualDataGridProps<T> {
   activeRowId?: string | null
   scrollToRowId?: string | null
   scrollToRowVersion?: number
+  scrollToRowAlign?: 'auto' | 'center' | 'start' | 'end'
   relatedRowIds?: ReadonlySet<string>
   accentRowIds?: ReadonlySet<string>
   isRowDisabled?: (row: T) => boolean
@@ -44,6 +45,7 @@ export function VirtualDataGrid<T>({
   activeRowId,
   scrollToRowId,
   scrollToRowVersion,
+  scrollToRowAlign = 'auto',
   relatedRowIds,
   accentRowIds,
   isRowDisabled,
@@ -52,6 +54,7 @@ export function VirtualDataGrid<T>({
 }: VirtualDataGridProps<T>): React.JSX.Element {
   const [sorting, setSorting] = useState<SortingState>([])
   const containerRef = useRef<HTMLDivElement>(null)
+  const lastScrollVersionRef = useRef(scrollToRowVersion)
 
   const table = useReactTable({
     data,
@@ -73,9 +76,13 @@ export function VirtualDataGrid<T>({
 
   useEffect(() => {
     if (!scrollToRowId) return
+    if (scrollToRowVersion !== undefined) {
+      if (lastScrollVersionRef.current === scrollToRowVersion) return
+      lastScrollVersionRef.current = scrollToRowVersion
+    }
     const index = rows.findIndex((row) => row.id === scrollToRowId)
-    if (index >= 0) virtualizer.scrollToIndex(index, { align: 'auto' })
-  }, [rows, scrollToRowId, scrollToRowVersion, virtualizer])
+    if (index >= 0) virtualizer.scrollToIndex(index, { align: scrollToRowAlign })
+  }, [rows, scrollToRowAlign, scrollToRowId, scrollToRowVersion, virtualizer])
 
   return (
     <div

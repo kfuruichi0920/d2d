@@ -32,8 +32,7 @@ export function TitleBar(): React.JSX.Element {
           title="Primary Side Barの表示切替（Ctrl+B）"
           onClick={toggleSideBar}
         >
-          <span aria-hidden="true">◧</span>
-          <span className="responsive-button-label">Primary</span>
+          ◧
         </button>
         <button
           type="button"
@@ -44,8 +43,7 @@ export function TitleBar(): React.JSX.Element {
           title="Secondary Side Barの表示切替"
           onClick={toggleSecondary}
         >
-          <span aria-hidden="true">◨</span>
-          <span className="responsive-button-label">Secondary</span>
+          ◨
         </button>
         <button
           type="button"
@@ -56,8 +54,7 @@ export function TitleBar(): React.JSX.Element {
           title="下段Panelの表示切替（Ctrl+@）"
           onClick={togglePanel}
         >
-          <span aria-hidden="true">▤</span>
-          <span className="responsive-button-label">Panel</span>
+          ▤
         </button>
         <AppMenu />
       </div>

@@ -164,7 +164,7 @@ export function WorkbenchShell(): React.JSX.Element {
       className="wb-root"
       data-testid="workbench"
       data-zoom={zoom}
-      style={{ zoom: zoom / 100, width: `${10000 / zoom}%`, height: `${10000 / zoom}%` }}
+      style={{ zoom: zoom / 100, width: `${10000 / zoom}vw`, height: `${10000 / zoom}vh` }}
     >
       <TitleBar />
       <GlobalButtonTooltips />

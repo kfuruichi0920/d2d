@@ -100,7 +100,7 @@ Workbench は、Title Bar、**Pipeline Navigator(新設)**、Activity Bar、Prim
 
 | パーツ | 役割 | D2D での用途 |
 | --- | --- | --- |
-| Title Bar / Command Center | 全体状態とコマンド入口 | 左端はD2Dだけを表示し、中央にコマンドパレット入口、右端にPrimary／Secondary／Panelのアイコン＋文字の表示切替を配置し、狭幅時はアイコン表示へ切り替える |
+| Title Bar / Command Center | 全体状態とコマンド入口 | 左端はD2Dだけを表示し、中央にコマンドパレット入口、右端にPrimary／Secondary／Panelのアイコン表示切替を配置する |
 | 上部メニューバー（Pipeline Navigator） | Resource履歴、データ階層の変換順序、分析・用語集・Resource URIの入口 | 戻る／進む／更新／ホーム、①〜④を変換名・件数付きで表示し、現在開いている1ステージだけを選択表示する。分析、用語集、編集可能なアドレスバー、画面内検索、お気に入りからEditorを開く |
 | Activity Bar | 作業文脈の切替 | Explorer、Search、Trace、Reports、History、Settings。Reviewは各編集画面／Secondary、Jobsは下段Panel／Status Barで提供 |
 | Primary Side Bar | 探索・選択・絞り込み | プロジェクト名をルートとする①～④の単一Tree、検索条件。Explorer内には作成・取込・編集の常設ボタンを置かない |
@@ -127,7 +127,7 @@ Workbench は、Title Bar、**Pipeline Navigator(新設)**、Activity Bar、Prim
 
 ---
 
-Workbench全体はブラウザと同じCtrl+プラス／マイナス／0およびCtrl+マウスホイールで50〜200%の表示倍率を変更し、ツール全体へ保存する。操作ボタンは通常幅でアイコンと文字列を併記し、狭幅ではアクセシブル名とTooltipを維持したアイコン表示へ切り替える。上部メニューバーは横スクロールさせず、アドレスバーだけを縮小して固定順の操作を保持する。
+Workbench全体はブラウザと同じCtrl+プラス／マイナス／0およびCtrl+マウスホイールで50〜200%の表示倍率を変更し、ツール全体へ保存する。倍率補正後もviewportの幅と高さを満たし、縮小時に未使用の余白を作らない。Workbench全体の操作ボタンは一律にレスポンシブ化しない。操作が密集する抽出／中間編集画面だけ、操作ごとに明示した重複しないアイコンと文字列を通常幅で併記し、狭幅ではアクセシブル名とTooltipを維持してアイコン中心へ切り替える。上部メニューバーは横スクロールさせず、アドレスバーだけを縮小して固定順の操作を保持する。
 
 ## 4. 内部 UX モデル
 
@@ -599,7 +599,7 @@ M3では、入力となる③中間データ、正規化結果、設計要素候
 
 ## 9. Activity Bar と Primary Side Bar
 
-Activity Bar は機能ボタン置き場ではなく、作業文脈の切替入口とする。ActivityはExplorer、Search、Trace、Reports、History、Settingsで構成し、ReviewとJobsはPrimary Activityへ置かない。Reviewは各編集画面とSecondary Side Bar、Jobsは下段PanelとStatus Barで提供する。Settingsは下端へ固定し、その他のActivityはドラッグ＆ドロップで並べ替えてプロジェクト単位に順序を復元する。選択中ActivityはPrimary Side Barの表示状態にかかわらず、背景色と前景色で識別可能にする。Explorerの②抽出データと③中間データは、削除済みを除く配下要素が1件以上かつ全件approvedの場合だけ文書単位をapprovedとし、それ以外を未確定として見出しと各文書行のBadgeへ同一集計結果を表示する。 Explorerはプロジェクト名をルートとするVS Code風の単一Treeとし、その直下に①原本、②抽出データ、③中間データ、④設計モデルを連続して配置する。プロジェクト行に全展開／全折畳アイコンを表示し、上下矢印で表示中ノードの選択を移動、右矢印で展開、左矢印で折畳または親ノードへ移動できるようにする。文字の強調はプロジェクト行だけとし、①～④以下は標準ウェイトとする。③中間データは中間データ→フェーズ→成果物→統合元をインデントと開閉記号で階層化し、成果物単位で統合元を折りたためるようにし、統合元がない成果物には代替行を表示しない。配下の原本、抽出文書、中間成果物、統合元、設計要素はSerendie SymbolsのResource種別別ファイル系アイコンを名称左に表示し、状態・形式・分類・件数等のタグは名称右側へ整列する。中間成果物の右側はレビュー状態、未確定要素数、全要素数とし、「成果物」種別Badgeは表示しない。各データ行のhover時に名称、ID、種別、状態、件数、日時等の保持プロパティをTooltip表示する。①原本の取込はOSの複数ファイル選択を用い、選択ファイルごとに独立した `import.source` Jobを登録する（Job実行順序はJob Managerの直列制約に従う）。`entity_registry.is_archived=1` の①原本、②抽出、③中間はExplorerから除外する。②抽出データの初期表示名称は原本の `source_document.file_name` を用い、名称変更は `entity_registry.title` のみを更新して原本名、blob、由来traceを変更しない。
+Activity Bar は機能ボタン置き場ではなく、作業文脈の切替入口とする。幅は44px、各Activityボタンは36pxのアイコンのみで表示し、名称と操作説明はTooltip／アクセシブル名で提供する。ActivityはExplorer、Search、Trace、Reports、History、Settingsで構成し、ReviewとJobsはPrimary Activityへ置かない。Reviewは各編集画面とSecondary Side Bar、Jobsは下段PanelとStatus Barで提供する。Settingsは下端へ固定し、その他のActivityはドラッグ＆ドロップで並べ替えてプロジェクト単位に順序を復元する。選択中ActivityはPrimary Side Barの表示状態にかかわらず、背景色と前景色で識別可能にする。Explorerの②抽出データと③中間データは、削除済みを除く配下要素が1件以上かつ全件approvedの場合だけ文書単位をapprovedとし、それ以外を未確定として見出しと各文書行のBadgeへ同一集計結果を表示する。 Explorerはプロジェクト名をルートとするVS Code風の単一Treeとし、その直下に①原本、②抽出データ、③中間データ、④設計モデルを連続して配置する。プロジェクト行に全展開／全折畳アイコンを表示し、上下矢印で表示中ノードの選択を移動、右矢印で展開、左矢印で折畳または親ノードへ移動できるようにする。文字の強調はプロジェクト行だけとし、①～④以下は標準ウェイトとする。③中間データは中間データ→フェーズ→成果物→統合元をインデントと開閉記号で階層化し、成果物単位で統合元を折りたためるようにし、統合元がない成果物には代替行を表示しない。配下の原本、抽出文書、中間成果物、統合元、設計要素はSerendie SymbolsのResource種別別ファイル系アイコンを名称左に表示し、状態・形式・分類・件数等のタグは名称右側へ整列する。中間成果物の右側はレビュー状態、未確定要素数、全要素数とし、「成果物」種別Badgeは表示しない。各データ行のhover時に名称、ID、種別、状態、件数、日時等の保持プロパティをTooltip表示する。①原本の取込はOSの複数ファイル選択を用い、選択ファイルごとに独立した `import.source` Jobを登録する（Job実行順序はJob Managerの直列制約に従う）。`entity_registry.is_archived=1` の①原本、②抽出、③中間はExplorerから除外する。②抽出データの初期表示名称は原本の `source_document.file_name` を用い、名称変更は `entity_registry.title` のみを更新して原本名、blob、由来traceを変更しない。
 
 | Activity | Primary Side Bar の内容 | 主な Command |
 | --- | --- | --- |
@@ -814,7 +814,7 @@ Search ActivityはMeCab検索が形態素解析と索引再構築により時間
 抽出データと中間データのプレビューペインは、文書プレビューと `structure_json` の階層表示を同一ペイン内で切り替える。`structure_json` はファイル出力せず、object／arrayを折りたためるツリーとして表示し、キー、文字列、数値、真偽値、nullをデザイントークンによって色分けする。表示コンポーネントはWord固有要素を参照せずJSON互換値を入力とする共通部品とし、今後のExcel／PowerPoint／PDF／Visio／テキスト系抽出も同じ表示へ接続する。APIはDBのJSON文字列ではなく解析済み構造を返し、UIが保存形式へ依存しない境界を維持する。
 ### P7-2/P7-3 共通Resource Editor
 
-中間データ取込編集画面と中間データ単独編集画面のプレビューペインでは、`structure_json`を抽出データと共通の折畳可能な構造化JSONとして表示する。成果物ペインは表表示とアウトラインTree表示を切り替え、Treeは表示順を維持したまま、各要素のlevelより小さいlevelを持つ直前要素を親として導出する。Treeの折畳／展開は右側の文書プレビューへ同期する。成果物一覧、Tree、中間文書プレビューは同一`intermediate_item`選択を共有し、プレビューから選択した要素が表の仮想スクロール範囲外またはTreeの表示範囲外の場合は該当要素へスクロールする。中間データ取込編集画面と中間データ単独編集画面の成果物一覧、および中間文書プレビューは、抽出時の `element.type` ではなく `intermediate_item.item_type` をResource種別ラベルとして表示する。ラベルのクリック、成果物行のダブルクリック、選択行でのSpace／Enterは、すべて同じ共通Resource Editorを開く。成果物一覧の操作バーにはResource固有操作を置かず、LLM支援・正規化・種別固有編集は共通Resource Editor内に集約する。
+中間データ取込編集画面と中間データ単独編集画面のプレビューペインでは、`structure_json`を抽出データと共通の折畳可能な構造化JSONとして表示する。成果物ペインは表表示とアウトラインTree表示を切り替え、Treeは表示順を維持したまま、各要素のlevelより小さいlevelを持つ直前要素を親として導出する。Treeの折畳／展開は右側の文書プレビューへ同期する。成果物一覧、Tree、中間文書プレビューは同一`intermediate_item`選択を共有する。抽出／中間文書プレビューの各要素はフォーカス可能とし、上下キーで前後要素へ選択を移動する。中間文書プレビューから選択した要素は、表の仮想スクロールを対象行の中央へ移動して行全体を表示し、Treeでも表示範囲外なら該当要素へスクロールする。中間データ取込編集画面と中間データ単独編集画面の成果物一覧、および中間文書プレビューは、抽出時の `element.type` ではなく `intermediate_item.item_type` をResource種別ラベルとして表示する。ラベルのクリック、成果物行のダブルクリック、選択行でのSpace／Enterは、すべて同じ共通Resource Editorを開く。成果物一覧の操作バーにはResource固有操作を置かず、LLM支援・正規化・種別固有編集は共通Resource Editor内に集約する。
 
 共通Resource Editorは `sdd_data_structure.md` 4.6.1〜4.6.14のカラム定義を定義データとして受け取り、text／multiline／number／enum／JSONの入力部品を生成する。中間文書に埋め込む場合と `resource://<uid>` のEditor Providerとして単独表示する場合で同じコンポーネントを利用する。検索結果等でresource UIDを指定した場合は `resource://` を開く。
 

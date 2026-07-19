@@ -23,10 +23,7 @@ const MENU_GROUPS: { label: string; items: string[] }[] = [
       'mode.resetLayout',
       'theme.fontSize.increase',
       'theme.fontSize.decrease',
-      'theme.fontSize.reset',
-      'view.zoomIn',
-      'view.zoomOut',
-      'view.zoomReset'
+      'theme.fontSize.reset'
     ]
   },
   {
@@ -105,8 +102,7 @@ export function AppMenu(): React.JSX.Element {
         data-testid="app-menu-button"
         onClick={() => setOpen(!open)}
       >
-        <span aria-hidden="true">☰</span>
-        <span className="responsive-button-label">Menu</span>
+        ☰
       </button>
       {open && (
         <div

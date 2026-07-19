@@ -274,6 +274,27 @@ export function IntermediateDocumentEditor({
     [collapsedElementIds, doc?.elements]
   )
   const visibleArtifactElements = useMemo(() => hierarchyRows.map((row) => row.item), [hierarchyRows])
+  const previewElements = artifactListMode === 'outline' ? visibleArtifactElements : (doc?.elements ?? [])
+
+  const onPreviewKeyDown = (element: IntermediateElement, event: React.KeyboardEvent<HTMLElement>): void => {
+    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return
+    event.preventDefault()
+    const next = moveKeyboardRangeSelection(
+      previewElements,
+      activeId ?? element.id,
+      itemAnchorId,
+      event.key === 'ArrowUp' ? -1 : 1,
+      event.shiftKey,
+      (item) => item.id
+    )
+    if (!next) return
+    setSelectedIds(next.selectedIds)
+    setActiveId(next.activeId)
+    setItemAnchorId(next.anchorId)
+    setLastSelectedPane('intermediate')
+    setArtifactScrollVersion((version) => version + 1)
+    requestAnimationFrame(() => previewRefs.current.get(next.activeId)?.focus())
+  }
 
   const integrate = async (position: 'above' | 'below'): Promise<void> => {
     const extractedItemUids = sourceItems
@@ -566,6 +587,7 @@ export function IntermediateDocumentEditor({
       <button
         type="button"
         className={`d2d-btn small${editorMode === 'import' ? ' primary' : ''}`}
+        data-editor-icon="⇲"
         data-testid="intermediate-mode-import"
         onClick={() => setEditorMode('import')}
       >
@@ -574,6 +596,7 @@ export function IntermediateDocumentEditor({
       <button
         type="button"
         className={`d2d-btn small${editorMode === 'standalone' ? ' primary' : ''}`}
+        data-editor-icon="✎"
         data-testid="intermediate-mode-standalone"
         onClick={() => {
           setEditorMode('standalone')
@@ -585,6 +608,7 @@ export function IntermediateDocumentEditor({
       <button
         type="button"
         className={`d2d-btn small${editorMode === 'chunk' ? ' primary' : ''}`}
+        data-editor-icon="◫"
         data-testid="intermediate-mode-chunk"
         onClick={() => setEditorMode('chunk')}
       >
@@ -633,6 +657,7 @@ export function IntermediateDocumentEditor({
           className="d2d-btn primary"
           onClick={() => void approve()}
           disabled={allItemsApproved}
+          data-editor-icon="★"
           data-testid="intermediate-approve"
         >
           {allItemsApproved ? '正本確定済み' : '③正本として確定'}
@@ -738,6 +763,7 @@ export function IntermediateDocumentEditor({
               <button
                 type="button"
                 className="d2d-btn small"
+                data-editor-icon="↥+"
                 data-testid="source-add-above"
                 disabled={sourceSelectedIds.size === 0 || (doc.elements.length > 0 && selectedIds.size !== 1)}
                 onClick={() => void integrate('above')}
@@ -748,6 +774,7 @@ export function IntermediateDocumentEditor({
               <button
                 type="button"
                 className="d2d-btn small"
+                data-editor-icon="↧+"
                 data-testid="source-add-below"
                 disabled={sourceSelectedIds.size === 0 || (doc.elements.length > 0 && selectedIds.size !== 1)}
                 onClick={() => void integrate('below')}
@@ -758,6 +785,7 @@ export function IntermediateDocumentEditor({
               <button
                 type="button"
                 className="d2d-btn small"
+                data-editor-icon="⊘"
                 data-testid="source-delete"
                 disabled={sourceSelectedIds.size === 0}
                 onClick={() => void deleteSourceLinks()}
@@ -771,6 +799,7 @@ export function IntermediateDocumentEditor({
               <button
                 type="button"
                 className="d2d-btn small"
+                data-editor-icon="↥+"
                 data-testid="element-add-above"
                 disabled={doc.elements.length > 0 && selectedIds.size !== 1}
                 onClick={() => openAddEditor('above')}
@@ -780,6 +809,7 @@ export function IntermediateDocumentEditor({
               <button
                 type="button"
                 className="d2d-btn small"
+                data-editor-icon="↧+"
                 data-testid="element-add-below"
                 disabled={doc.elements.length > 0 && selectedIds.size !== 1}
                 onClick={() => openAddEditor('below')}
@@ -794,6 +824,7 @@ export function IntermediateDocumentEditor({
           <button
             type="button"
             className="d2d-btn small"
+            data-editor-icon="↥∪"
             data-testid="merge-up"
             disabled={selectedIds.size !== 1 || selectedIndex <= 0}
             onClick={() => void mergeAdjacent('up')}
@@ -803,6 +834,7 @@ export function IntermediateDocumentEditor({
           <button
             type="button"
             className="d2d-btn small"
+            data-editor-icon="↧∪"
             data-testid="merge-down"
             disabled={selectedIds.size !== 1 || selectedIndex < 0 || selectedIndex >= doc.elements.length - 1}
             onClick={() => void mergeAdjacent('down')}
@@ -812,6 +844,7 @@ export function IntermediateDocumentEditor({
           <button
             type="button"
             className="d2d-btn small"
+            data-editor-icon="⧉"
             data-testid="element-duplicate"
             disabled={selectedIds.size !== 1}
             onClick={() => void duplicateSelected()}
@@ -821,6 +854,7 @@ export function IntermediateDocumentEditor({
           <button
             type="button"
             className="d2d-btn small danger"
+            data-editor-icon="⌫"
             data-testid="element-delete"
             disabled={selectedIds.size === 0}
             onClick={() => void removeSelected()}
@@ -833,6 +867,7 @@ export function IntermediateDocumentEditor({
           <button
             type="button"
             className="d2d-btn small"
+            data-editor-icon="↑"
             disabled={selectedIds.size === 0}
             onClick={() => void move('up')}
           >
@@ -841,6 +876,7 @@ export function IntermediateDocumentEditor({
           <button
             type="button"
             className="d2d-btn small"
+            data-editor-icon="↓"
             disabled={selectedIds.size === 0}
             onClick={() => void move('down')}
           >
@@ -849,6 +885,7 @@ export function IntermediateDocumentEditor({
           <button
             type="button"
             className="d2d-btn small"
+            data-editor-icon="⇤"
             disabled={selectedIds.size === 0}
             onClick={() => void hierarchy(-1)}
           >
@@ -857,13 +894,13 @@ export function IntermediateDocumentEditor({
           <button
             type="button"
             className="d2d-btn small"
+            data-editor-icon="⇥"
             disabled={selectedIds.size === 0}
             onClick={() => void hierarchy(1)}
           >
             階層を下げる
           </button>
         </div>
-        <span className="intermediate-edit-hint">Resource種別ラベル / ダブルクリック / Space / Enter で編集</span>
       </div>
       <ResizablePaneGroup
         key={editorMode}
@@ -956,6 +993,7 @@ export function IntermediateDocumentEditor({
                 type="button"
                 className={`d2d-btn small${artifactListMode === 'table' ? ' active' : ''}`}
                 onClick={() => setArtifactListMode('table')}
+                data-editor-icon="▦"
                 data-testid="intermediate-list-table"
                 title="成果物を表形式で表示します"
               >
@@ -965,6 +1003,7 @@ export function IntermediateDocumentEditor({
                 type="button"
                 className={`d2d-btn small${artifactListMode === 'outline' ? ' active' : ''}`}
                 onClick={() => setArtifactListMode('outline')}
+                data-editor-icon="☷"
                 data-testid="intermediate-list-outline"
                 title="levelに基づく親子Treeとして表示し、折畳／展開します"
               >
@@ -981,6 +1020,7 @@ export function IntermediateDocumentEditor({
               activeRowId={activeId}
               scrollToRowId={activeId}
               scrollToRowVersion={artifactScrollVersion}
+              scrollToRowAlign="center"
               relatedRowIds={relatedCenterIds}
               height="calc(100% - 28px)"
               onRowClick={(e, event) => {
@@ -1070,6 +1110,7 @@ export function IntermediateDocumentEditor({
               type="button"
               className={`d2d-btn small${previewMode === 'visual' ? ' active' : ''}`}
               onClick={() => setPreviewMode('visual')}
+              data-editor-icon="◉"
               data-testid="intermediate-preview-visual"
             >
               文書プレビュー
@@ -1078,6 +1119,7 @@ export function IntermediateDocumentEditor({
               type="button"
               className={`d2d-btn small${previewMode === 'structure' ? ' active' : ''}`}
               onClick={() => setPreviewMode('structure')}
+              data-editor-icon="{}"
               data-testid="intermediate-preview-structure"
             >
               structure_json
@@ -1087,7 +1129,7 @@ export function IntermediateDocumentEditor({
           {previewMode === 'structure' ? (
             <StructuredJsonView value={doc.structure} testId="intermediate-structure-json" />
           ) : (
-            (artifactListMode === 'outline' ? visibleArtifactElements : doc.elements).map((e) => (
+            previewElements.map((e) => (
               <article
                 key={e.id}
                 data-testid={`intermediate-preview-item-${e.id}`}
@@ -1096,6 +1138,8 @@ export function IntermediateDocumentEditor({
                   else previewRefs.current.delete(e.id)
                 }}
                 className={`extraction-preview-item${selectedIds.has(e.id) ? ' selected' : ''}${activeId === e.id ? ' active' : ''}${relatedCenterIds.has(e.id) ? ' related' : ''}`}
+                tabIndex={0}
+                onKeyDown={(event) => onPreviewKeyDown(e, event)}
                 onClick={() => {
                   setSelectedIds(new Set([e.id]))
                   setActiveId(e.id)

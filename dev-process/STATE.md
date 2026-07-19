@@ -8,7 +8,7 @@
 - 完了: P0〜P13（クリティカルパス完走、MS6 相当まで）
 - 残り: **P14**（性能・オフライン確認・残 TBD-06〜08・パッケージング・商用版）、
   **P5 の他形式抽出**（Excel / PowerPoint / PDF / Visio / テキスト系、EXT-014/015）
-- テスト規模: ユニット 232 件 / pytest 10 件 / E2E 25 件（すべて成功の状態で引き渡し）
+- テスト規模: ユニット 231 件 / pytest 10 件 / E2E 25 件（すべて成功の状態で引き渡し）
 
 ## フェーズ履歴（要点のみ）
 
@@ -56,6 +56,7 @@
 | P3/P11追加           | 上部メニューバーの旧ボタン意匠・戻る／進む／更新／ホーム・マウス履歴・可変アドレス・お気に入り、タブ移動Command、Search内グループTree・文書配下本文検索／要素ジャンプ（Unit 226／E2E 25） | 23c5878         |
 | P3/P7/P9/P11/P12追加 | メニュー固定順・Title Bar簡素化・Command Palette初期候補／追従、③構成アウトライン、分析の全件集約、FTS＋全文部分一致、History順序・作業差分・Git項目差分（Unit 227／E2E 25）              | 本コミット      |
 | P3/P7/P11追加        | ③structure_json復元・level準拠Tree／プレビュー／一覧scroll連動、Workbench zoom・レスポンシブボタン・共通タブ移動、Search選択scroll・メニュー幅制御（Unit 232／E2E 25）                    | 本コミット      |
+| P3/P7追加            | zoom縮小余白解消、共通ボタンレスポンシブ撤回、抽出／中間限定の明示アイコン、Activity Barコンパクト化、プレビュー上下キー／一覧中央scroll（Unit 231／E2E 25）                              | 本コミット      |
 
 ## 恒久制約（違反するとビルド/実行が壊れる、または設計方針違反）
 
@@ -76,14 +77,14 @@
 - Python ワーカーは stdin/stdout とも UTF-8 ラップ必須（CP932 化け）。pytest はシステム Python
   （miniconda）で実行（PATH 先頭の venv に pip が無い）。
 - Workbench の文字サイズはツール全体設定 `theme.fontSize`（10〜20px、既定13px）で管理し、通常UIとMonacoへ即時反映する。
-- Workbench全体の表示倍率は50〜200%で保持し、Ctrl/Cmd+±、Ctrl/Cmd+0、Ctrl/Cmd+ホイールをブラウザと同様の拡大・縮小・リセットへ割り当てる。
+- Workbench全体の表示倍率は50〜200%で保持し、Ctrl/Cmd+±、Ctrl/Cmd+0、Ctrl/Cmd+ホイールをブラウザと同様の拡大・縮小・リセットへ割り当てる。縮小時は表示対象の論理viewport寸法を倍率の逆数で補正し、右端・下端に未使用余白を生じさせない。
 - Workbench共通カラーは `theme.customColors` で背景、サーフェス、文字、補助文字、境界、アクセント、選択、ボタン背景・文字・境界を個別上書きする。未設定または設定解除時は選択中の表示モード、カラーテーマ、system時のOSテーマから求めた既定色へ戻す。
 - Git UIは状態確認、選択ファイルのステージ／解除、コミット、ローカルブランチ作成／切替、履歴・diff参照を提供する。変更ファイル名はHEAD対作業ツリーのMonaco Diffを開く。履歴は1件選択で当該履歴対最新、2件選択で選択した新旧履歴を比較し、DB to Text JSONLをテーブル／UID／code／title／entity_type／変更フィールド単位の追加・削除・変更として表示する。コミット直前にDB to TextとSQLite dumpを再生成し、`exports/db_to_text/`と`exports/sqlite_dump/`を必ずステージする。project.dbやblobを自動ステージせず、ユーザが既にステージした変更は維持する。
 - Primary／Secondary／下段パネルの表示・寸法とSecondaryアコーディオン開閉はWorkbench外周状態として1組だけ保持し、作業モード／①〜④ステージを切り替えても変更しない。再帰的なEditor分割木・分割比・タブ配置はプロジェクト単位（未選択時はglobal）でlocalStorageへ保持する。各境界はポインタと矢印キーで変更でき、領域内の表示超過は必要時だけ縦横スクロールする。
 - SecondaryはWorkbench全体で共通のProperties／Relations／Review／Dictionaryを独立開閉できる縦アコーディオンとする。Propertiesは共通Selectionの選択アイテム属性、Relationsは当該UIDを端点とする`trace_link`の関係種別・相対方向・相手、Reviewはコメントを表示する。コメントは`resource_text(text_role='comment')`として保存し、コメント→選択アイテムの`relates_to`を同一トランザクションで作る。EvidenceはRelationsへ、LLM Candidatesは候補Editor／下段Panelへ集約する。Editorタブは最大220pxで省略表示し、収まらない場合は複数段へ折り返す。タブは分割区分へのドラッグ＆ドロップまたはコマンドで移動する。
-- Primary／Secondary／下段PanelはTitle Bar右側ボタンとCommandの双方から表示切替する。Activity BarはSettingsを下端固定し、それ以外のDnD順序をプロジェクト単位に保存する。選択ActivityはPrimary非表示時も選択色を維持する。保存レイアウトがないプロジェクトへ切り替えた場合は、直前プロジェクトの状態を持ち越さずM0既定値へ初期化する。
+- Primary／Secondary／下段PanelはTitle Bar右側ボタンとCommandの双方から表示切替する。Activity Barは44px幅、各Activityは36pxのアイコンのみで表示し、名称はTooltip／アクセシブル名で提供する。Settingsを下端固定し、それ以外のDnD順序をプロジェクト単位に保存する。選択ActivityはPrimary非表示時も選択色を維持する。保存レイアウトがないプロジェクトへ切り替えた場合は、直前プロジェクトの状態を持ち越さずM0既定値へ初期化する。
 - Primary ActivityはExplorer／Search／Trace／Reports／History／Settingsで構成する。Reviewは各編集画面とSecondary、Jobsは下段PanelとStatus Barに集約し、Primary Activityへ戻さない。旧永続値のreview／jobsは読込時にExplorerへ正規化する。
-- 上部メニューバーは戻る／進む／更新／ホーム｜件数付きの①～④と抽出▶／統合▶／モデル化▶、分析、用語集｜可変幅Resourceアドレスバー、お気に入り｜画面内検索の固定順で表示する。変換表記は他のボタン文字より1px小さくする。Title Bar左端はD2Dだけとし、中央にCommand Palette、右端にPrimary／Secondary／Panelの操作を配置する。通常幅の操作ボタンはアイコン＋文字列、狭幅ではアイコンだけを表示し、アクセシブル名を維持する。①～④・分析・用語集は境界と背景を持つ同一ボタン意匠とし、メニューバー自身は横スクロールさせず、左側ボタンを縮小せずアドレス入力だけを画面幅へ追従させる。戻る／進むはAlt+左右矢印とマウスbutton 3/4を同じResource履歴へ接続し、更新はアクティブEditorを再読込、ホームはダッシュボードを開く。お気に入りはURIと変更可能な表示名をプロジェクト単位でlocalStorageへ保存しExplorerへ表示する。
+- 上部メニューバーは戻る／進む／更新／ホーム｜件数付きの①～④と抽出▶／統合▶／モデル化▶、分析、用語集｜可変幅Resourceアドレスバー、お気に入り｜画面内検索の固定順で表示する。変換表記は他のボタン文字より1px小さくする。Title Bar左端はD2Dだけとし、中央にCommand Palette、右端にPrimary／Secondary／Panelの操作を配置する。Workbench全体の操作ボタンを一律レスポンシブ化しない。Title BarのPrimary／Secondary／Panelはアイコンのみとし、操作が密集する抽出／中間編集だけは重複しない明示アイコン＋文字列を通常表示し、狭幅時にアイコン中心へ切り替えてTooltip／アクセシブル名を維持する。①～④・分析・用語集は境界と背景を持つ同一ボタン意匠とし、メニューバー自身は横スクロールさせず、左側ボタンを縮小せずアドレス入力だけを画面幅へ追従させる。戻る／進むはAlt+左右矢印とマウスbutton 3/4を同じResource履歴へ接続し、更新はアクティブEditorを再読込、ホームはダッシュボードを開く。お気に入りはURIと変更可能な表示名をプロジェクト単位でlocalStorageへ保存しExplorerへ表示する。
 - SearchのMeCab未使用時はNFKC正規化したFTS結果と全文部分一致結果を常に併合する。FTSが1件以上返した場合もLIKE結果を省略しない。MeCab使用時は形態素解析により時間がかかる場合がある旨をSearch Activityへ表示する。
 - 汎用分析の全抽出／全中間／全設計モデルは `all:extracted`／`all:intermediate`／`all:design` の集約scopeで解決し、文書別scopeの多重選択に依存しない。
 - Pipeline Navigatorは `①原本-(抽出)->②抽出-(統合)->③中間-(モデル化)->④モデル`、分析、用語集、Resourceアドレスバーを固定順で表示する。選択表示はactiveなステージURIだけを基準とし、①〜④を排他的に表示する。分析は全抽出／全中間／全モデルの3列で汎用インパクト分析を開く。アドレスバーは既知URIだけを受理し、不正時は通知して遷移しない。Status Barには作業モード名とResource URIを表示しない。①〜④の一覧行は薄青背景で選択を示し、上下矢印で選択行を移動、Enter／Spaceでクリックと同じ操作を実行する。④モデルは単一クリックで開く。①〜③の一覧／プレビュー境界は共通 `ResizablePaneGroup` で変更する。
@@ -122,7 +123,7 @@
   成果物・フェーズの「削除」は関連③中間データを含む物理削除であり、確認後も復旧不能。
 - 統合元対応の正本は `intermediate_item.uid → extracted_item.uid` のアイテム単位 `based_on`。多対多とし、紐付済み統合元も選択・別成果物行への再利用を許可する。取込編集の状態列は `extracted_item.resource_uid` 側の抽出レビュー状態を表示する。「削除」は選択した extracted_item を終点とする当該中間文書配下のアイテムリンクだけを削除し、成果物行・Resource・抽出データ・文書単位リンクは保持する。`structure_json.elements[].intermediate_item_uid` を持つ新形式データは明示解除後に互換補完を再実行しない。編集・マージ・分割後も元 extracted_item へのリンクを維持する。
 - ②プレビューと③の3ペインは必要時だけ縦横スクロールを表示し、3ペイン選択は対応要素を相互強調する。
-- ②抽出と③中間のプレビューは右寄せした「文書プレビュー」／`structure_json`ボタンで切り替える。`structure_json`はアウトラインへ置換せず、DBのJSON文字列をBackendで解析した元のキー・値Treeとして表示する。③成果物一覧はitemの表示順とlevelから、直前にある最寄りの低level要素を親とするアウトラインTreeへ切替でき、折畳状態は文書プレビューの表示要素にも連動する。プレビューで項目を選択した場合は成果物一覧の選択に加え、対象行が表示範囲へ入るよう一覧をスクロールする。
+- ②抽出と③中間のプレビューは右寄せした「文書プレビュー」／`structure_json`ボタンで切り替える。`structure_json`はアウトラインへ置換せず、DBのJSON文字列をBackendで解析した元のキー・値Treeとして表示する。③成果物一覧はitemの表示順とlevelから、直前にある最寄りの低level要素を親とするアウトラインTreeへ切替でき、折畳状態は文書プレビューの表示要素にも連動する。プレビューは上下矢印で前後項目へ選択・フォーカスを移動できる。プレビューで項目を選択した場合は成果物一覧の選択に加え、明示的なscroll版数更新時だけ対象行を一覧中央へスクロールする。表側の通常クリックでは中央scrollを発火させず、ダブルクリック対象が途中で入れ替わらないようにする。
 - Explorer の③成果物は有効状態かつ `artifact.dev_phase_id === phase.dev_phase_id` の設定を②取込前から表示し、未所属成果物は表示しない。フェーズと成果物は種別ラベル・境界・背景で区別し、成果物選択時に対応する③がなければ統合元なしの空③を作成して編集画面を開く。
 - ③成果物の状態サイクルは `draft → approved → review → rejected → draft`。成果物ペインの上下矢印はデータ順を変更せず、選択行の前後移動とフォーカス追従に割り当てる。
 - チャンクは成果物単位で管理し、確認済み intermediate_item と多対多で対応する。対応正本は chunk → intermediate_item のアイテム単位 based_on。チャンク固有の追加プロンプトは chunk.additional_prompt に保持し、LLM候補生成時に本文へ追加する。

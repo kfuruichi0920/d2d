@@ -47,6 +47,7 @@ export function ActivityBar(): React.JSX.Element {
         type="button"
         className={`wb-activity-btn ${activity === id ? 'active' : ''}`}
         title={draggable ? `${label}（ドラッグで順序変更）` : label}
+        aria-label={label}
         data-testid={`activity-${id}`}
         data-activity-id={id}
         aria-current={activity === id ? 'page' : undefined}
@@ -69,7 +70,6 @@ export function ActivityBar(): React.JSX.Element {
         onClick={() => setActivity(id)}
       >
         <Icon width={20} height={20} />
-        <span className="responsive-button-label">{label}</span>
       </button>
     )
   }

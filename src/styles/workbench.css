@@ -425,13 +425,12 @@
   border-right: 1px solid var(--d2d-border);
 }
 .wb-activity-btn {
-  width: 80px;
+  width: 36px;
   min-height: 36px;
   display: flex;
   align-items: center;
-  justify-content: flex-start;
-  gap: 5px;
-  padding: 0 7px;
+  justify-content: center;
+  padding: 0;
   border: none;
   border-left: 2px solid transparent;
   background: transparent;
@@ -3498,64 +3497,28 @@ mark.d2d-term {
   font-size: 11px;
 }
 
-/* 全ボタンは通常時アイコン＋文字、狭幅時はアイコン中心へ遷移する（UI-053）。 */
-button[data-responsive-icon]::before {
+/* 操作が密集する抽出／中間編集だけ、明示した重複しないアイコンを併記する（UI-053）。 */
+.dense-editor-action[data-editor-icon]::before,
+[data-testid='intermediate-editor'] button[data-editor-icon]::before {
   flex: 0 0 auto;
-  content: attr(data-responsive-icon) / '';
+  content: attr(data-editor-icon) / '';
   font-size: 12px;
   line-height: 1;
 }
 @media (max-width: 1180px) {
-  :root {
-    --d2d-activitybar-width: 44px;
-  }
-  .responsive-button-label {
-    display: none !important;
-  }
-  .wb-activity-btn {
-    width: 36px;
-    justify-content: center;
-    padding: 0;
-  }
-  .wb-layout-controls > button,
-  .wb-layout-controls > .wb-app-menu > .wb-menu-button {
-    width: 27px;
-    padding: 0;
-  }
-  button[data-responsive-icon] {
+  .dense-editor-action[data-editor-icon],
+  [data-testid='intermediate-editor'] button[data-editor-icon] {
     min-width: 24px;
     gap: 0;
     padding-inline: 5px;
     font-size: 0 !important;
   }
-  button[data-responsive-icon]::before {
+  .dense-editor-action[data-editor-icon]::before,
+  [data-testid='intermediate-editor'] button[data-editor-icon]::before {
     font-size: 12px;
   }
-  button[data-responsive-native-icon] {
-    min-width: 24px;
-    padding-inline: 5px;
-    font-size: 0 !important;
-  }
-  button[data-responsive-native-icon]::before {
-    content: attr(data-responsive-native-icon) / '';
-    font-size: 12px;
-  }
-  button[data-responsive-icon] > * {
+  .dense-editor-action[data-editor-icon] > *,
+  [data-testid='intermediate-editor'] button[data-editor-icon] > * {
     display: none !important;
-  }
-  .wb-stage .count {
-    display: none;
-  }
-  .wb-resource-address {
-    flex-basis: 120px;
-  }
-  .wb-menu-dropdown button[data-responsive-icon] {
-    width: 100%;
-    gap: 8px;
-    padding: 4px 10px;
-    font-size: var(--d2d-font-size) !important;
-  }
-  .wb-menu-dropdown button[data-responsive-icon] > * {
-    display: initial !important;
   }
 }
