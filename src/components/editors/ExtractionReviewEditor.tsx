@@ -1,5 +1,5 @@
 /**
- * Extraction Review Editor（P5-6、V-02、EXT-020〜024、UI-026、sdd_ui_design §7.1/§8.1）。
+ * Extraction Review Editor（P5-6/P5-18、V-02、EXT-020〜024/048、UI-026、sdd_ui_design §7.1/§8.1）。
  * 形式非依存の抽出要素一覧・複数選択・構造プレビュー・レビュー判断操作を提供する。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -16,6 +16,17 @@ import { reviewStateFromEntityStatus, ReviewStatusBadge } from '../common/review
 import { ResizablePaneGroup } from '../workbench/ResizablePaneGroup'
 import { pushUndo } from '../../services/undo-service'
 import { useEscapeToClose } from '../common/useEscapeToClose'
+import {
+  FieldBadges,
+  ReviewAnnotations,
+  RichText,
+  ShapePreview,
+  StoryPreview,
+  type PreviewComment,
+  type PreviewRevision,
+  type PreviewStory,
+  type RichPreviewElement
+} from './ExtractionRichPreview'
 
 interface TableCell {
   text: string
@@ -23,10 +34,7 @@ interface TableCell {
   v_merge?: string
 }
 
-interface ReviewElement {
-  id: string
-  type: string
-  text?: string
+interface ReviewElement extends RichPreviewElement {
   caption?: string | null
   level?: number
   section_path?: string
@@ -38,13 +46,21 @@ interface ReviewElement {
   review?: { status: string; code: string; item_uid: string }
 }
 
+interface ExtractedStructure {
+  elements: ReviewElement[]
+  stories?: PreviewStory[]
+  comments?: PreviewComment[]
+  revisions?: PreviewRevision[]
+  [key: string]: unknown
+}
+
 interface ExtractedDoc {
   uid: string
   code: string
   title: string | null
   status: string
   metadata: Record<string, unknown>
-  structure: unknown
+  structure: ExtractedStructure
   elements: ReviewElement[]
 }
 
@@ -95,8 +111,28 @@ function FigurePreview({ element }: { element: ReviewElement }): React.JSX.Eleme
   )
 }
 
-function ElementBody({ element }: { element: ReviewElement }): React.JSX.Element {
+function listMarker(element: ReviewElement): string {
+  if (element.list_info?.kind === 'bullet') return element.list_info.level_text ?? '•'
+  const start = element.list_info?.start ?? 1
+  return (element.list_info?.level_text ?? '%1.').replace(/%\d+/g, String(start))
+}
+
+function ElementBody({
+  element,
+  allElements
+}: {
+  element: ReviewElement
+  allElements: ReviewElement[]
+}): React.JSX.Element {
   if (element.type === 'figure') return <FigurePreview element={element} />
+  if (element.type === 'shape' || element.type === 'group_shape' || element.type === 'connector') {
+    return (
+      <ShapePreview
+        element={element}
+        childCount={allElements.filter((candidate) => candidate.parent_uid === element.id).length}
+      />
+    )
+  }
   if (element.type === 'table') {
     return (
       <table style={{ borderCollapse: 'collapse', marginTop: 6 }}>
@@ -120,10 +156,30 @@ function ElementBody({ element }: { element: ReviewElement }): React.JSX.Element
   }
   if (element.type === 'heading') {
     const Heading = `h${Math.min(Math.max(element.level ?? 2, 1), 6)}` as keyof React.JSX.IntrinsicElements
-    return <Heading style={{ margin: '5px 0' }}>{element.text}</Heading>
+    return (
+      <Heading style={{ margin: '5px 0' }}>
+        <RichText text={element.text} runs={element.runs} />
+        <FieldBadges fields={element.fields} />
+      </Heading>
+    )
   }
-  if (element.type === 'list_item') return <li style={{ marginLeft: 20 }}>{element.text}</li>
-  return <p style={{ margin: '5px 0', whiteSpace: 'pre-wrap' }}>{element.text ?? element.caption ?? ''}</p>
+  if (element.type === 'list_item') {
+    return (
+      <div style={{ margin: '5px 0', marginLeft: 20 + (element.list_info?.level ?? element.level ?? 0) * 18 }}>
+        <span style={{ display: 'inline-block', minWidth: 22 }} data-testid="word-list-marker">
+          {listMarker(element)}
+        </span>
+        <RichText text={element.text} runs={element.runs} />
+        <FieldBadges fields={element.fields} />
+      </div>
+    )
+  }
+  return (
+    <p style={{ margin: '5px 0', whiteSpace: 'pre-wrap' }}>
+      <RichText text={element.text ?? element.caption ?? ''} runs={element.runs} />
+      <FieldBadges fields={element.fields} />
+    </p>
+  )
 }
 
 export function ExtractionReviewEditor({ uid }: { uid: string }): React.JSX.Element {
@@ -537,36 +593,49 @@ export function ExtractionReviewEditor({ uid }: { uid: string }): React.JSX.Elem
           {previewMode === 'structure' ? (
             <StructuredJsonView value={doc.structure} testId="extraction-structure-json" />
           ) : (
-            doc.elements.map((element) => {
-              const selected = selectedIds.has(element.id)
-              return (
-                <article
-                  key={element.id}
-                  ref={(node) => {
-                    if (node) previewRefs.current.set(element.id, node)
-                    else previewRefs.current.delete(element.id)
-                  }}
-                  data-testid={`preview-item-${element.id}`}
-                  className={`extraction-preview-item${selected ? ' selected' : ''}${activeId === element.id ? ' active' : ''}`}
-                  tabIndex={0}
-                  onKeyDown={(event) => onPreviewKeyDown(element, event)}
-                  onClick={() => {
-                    setSelectedIds(new Set([element.id]))
-                    setActiveId(element.id)
-                    setAnchorId(element.id)
-                  }}
-                >
-                  <header>
-                    {previewMeta.parts && (
-                      <span className="d2d-badge">{TYPE_LABELS[element.type] ?? element.type}</span>
-                    )}
-                    {previewMeta.elementIds && <code>{element.id}</code>}
-                    {previewMeta.sections && element.section_path && <span>{element.section_path}</span>}
-                  </header>
-                  <ElementBody element={element} />
-                </article>
-              )
-            })
+            <>
+              {doc.structure.stories
+                ?.filter((story) => story.story_type === 'header')
+                .map((story) => (
+                  <StoryPreview key={story.source_part ?? story.story_type} story={story} />
+                ))}
+              {doc.elements.map((element) => {
+                const selected = selectedIds.has(element.id)
+                return (
+                  <article
+                    key={element.id}
+                    ref={(node) => {
+                      if (node) previewRefs.current.set(element.id, node)
+                      else previewRefs.current.delete(element.id)
+                    }}
+                    data-testid={`preview-item-${element.id}`}
+                    className={`extraction-preview-item${selected ? ' selected' : ''}${activeId === element.id ? ' active' : ''}`}
+                    tabIndex={0}
+                    onKeyDown={(event) => onPreviewKeyDown(element, event)}
+                    onClick={() => {
+                      setSelectedIds(new Set([element.id]))
+                      setActiveId(element.id)
+                      setAnchorId(element.id)
+                    }}
+                  >
+                    <header>
+                      {previewMeta.parts && (
+                        <span className="d2d-badge">{TYPE_LABELS[element.type] ?? element.type}</span>
+                      )}
+                      {previewMeta.elementIds && <code>{element.id}</code>}
+                      {previewMeta.sections && element.section_path && <span>{element.section_path}</span>}
+                    </header>
+                    <ElementBody element={element} allElements={doc.elements} />
+                  </article>
+                )
+              })}
+              {doc.structure.stories
+                ?.filter((story) => story.story_type !== 'header')
+                .map((story) => (
+                  <StoryPreview key={story.source_part ?? story.story_type} story={story} />
+                ))}
+              <ReviewAnnotations comments={doc.structure.comments} revisions={doc.structure.revisions} />
+            </>
           )}
         </div>
       </ResizablePaneGroup>

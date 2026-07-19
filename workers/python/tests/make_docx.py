@@ -1,4 +1,4 @@
-"""テスト用 .docx 生成ユーティリティ（P5-4 検証用文書、sdd_tech_stack §7）。
+"""テスト用 .docx 生成ユーティリティ（P5-4/P5-18 検証用文書、sdd_tech_stack §7）。
 
 外部ライブラリなしで最小の OpenXML パッケージを構築する。
 pytest と E2E（Node から CLI 起動）の両方から使う。
@@ -27,6 +27,8 @@ CONTENT_TYPES = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
  <Default Extension="png" ContentType="image/png"/>
  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
  <Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>
+ <Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/>
+ <Override PartName="/word/footer1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/>
  <Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>
 </Types>"""
 
@@ -38,6 +40,8 @@ ROOT_RELS = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 DOC_RELS = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
  <Relationship Id="rId10" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image1.png"/>
+ <Relationship Id="rIdHeader" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/>
+ <Relationship Id="rIdFooter" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer1.xml"/>
 </Relationships>"""
 
 CORE = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -58,6 +62,12 @@ STYLES = f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
  <w:style w:type="paragraph" w:styleId="Caption"><w:name w:val="caption"/></w:style>
 </w:styles>"""
 
+HEADER = f"""<w:hdr xmlns:w="{W}"><w:p><w:r><w:t>D2D仕様書ヘッダ</w:t></w:r></w:p></w:hdr>"""
+
+FOOTER = f"""<w:ftr xmlns:w="{W}">
+ <w:p><w:fldSimple w:instr=" PAGE "><w:r><w:t>1</w:t></w:r></w:fldSimple></w:p>
+</w:ftr>"""
+
 
 def _p(text: str, style: str | None = None, ilvl: int | None = None) -> str:
     ppr = ""
@@ -77,10 +87,12 @@ DOCUMENT = f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:document xmlns:w="{W}" xmlns:r="{R}"
  xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
  xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+ xmlns:wps="http://schemas.microsoft.com/office/word/2010/wordprocessingShape"
+ xmlns:wpg="http://schemas.microsoft.com/office/word/2010/wordprocessingGroup"
  xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">
  <w:body>
   {_p("1. 概要", "Heading1")}
-  {_p("本書はテスト用の仕様書である。要求REQ-001を含む。")}
+  <w:p><w:r><w:rPr><w:b/><w:u w:val="double"/><w:strike/><w:highlight w:val="yellow"/></w:rPr><w:t>本書はテスト用の仕様書である。要求REQ-001を含む。</w:t></w:r></w:p>
   {_p("1.1 対象範囲", "Heading2")}
   {_p("対象項目その1", ilvl=0)}
   {_p("対象項目その2", ilvl=0)}
@@ -98,7 +110,15 @@ DOCUMENT = f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
    </a:graphicData></a:graphic>
   </wp:inline></w:drawing></w:r></w:p>
   {_p("図1 システム構成図", "Caption")}
+  <w:p><w:r><w:drawing><wp:anchor relativeHeight="3"><wp:extent cx="4000" cy="2000"/>
+   <a:graphic><a:graphicData><wpg:wgp>
+    <wps:wsp><a:cNvPr id="11" name="処理図形"/><a:spPr><a:prstGeom prst="flowChartProcess"/></a:spPr><wps:txbx><w:txbxContent><w:p><w:r><w:t>入力処理</w:t></w:r></w:p></w:txbxContent></wps:txbx></wps:wsp>
+    <a:cxnSp><a:nvCxnSpPr><a:cNvPr id="12" name="接続線"/><a:cNvCxnSpPr><a:stCxn id="11" idx="1"/><a:endCxn id="13" idx="3"/></a:cNvCxnSpPr></a:nvCxnSpPr><a:spPr><a:prstGeom prst="line"/><a:ln><a:tailEnd type="triangle"/></a:ln></a:spPr></a:cxnSp>
+    <wps:wsp><a:cNvPr id="13" name="出力図形"/><a:spPr><a:prstGeom prst="roundRect"/></a:spPr><wps:txbx><w:txbxContent><w:p><w:r><w:t>出力</w:t></w:r></w:p></w:txbxContent></wps:txbx></wps:wsp>
+   </wpg:wgp></a:graphicData></a:graphic>
+  </wp:anchor></w:drawing></w:r></w:p>
   {_p("システムは2つのモジュールで構成される。")}
+  <w:sectPr><w:headerReference w:type="default" r:id="rIdHeader"/><w:footerReference w:type="default" r:id="rIdFooter"/></w:sectPr>
  </w:body>
 </w:document>"""
 
@@ -110,6 +130,8 @@ def make_docx(path: str) -> str:
         zf.writestr("word/document.xml", DOCUMENT)
         zf.writestr("word/_rels/document.xml.rels", DOC_RELS)
         zf.writestr("word/styles.xml", STYLES)
+        zf.writestr("word/header1.xml", HEADER)
+        zf.writestr("word/footer1.xml", FOOTER)
         zf.writestr("word/media/image1.png", PNG_1PX)
         zf.writestr("docProps/core.xml", CORE)
     return path

@@ -8,7 +8,7 @@
 - 完了: P0〜P13（クリティカルパス完走、MS6 相当まで）
 - 残り: **P14**（性能・オフライン確認・残 TBD-06〜08・パッケージング・商用版）、
   **P5 の他形式抽出**（Excel / PowerPoint / PDF / Visio / テキスト系、EXT-014/015）
-- テスト規模: ユニット 242 件 / pytest 16 件 / E2E 25 件（すべて成功の状態で引き渡し）
+- テスト規模: ユニット 246 件 / pytest 16 件 / E2E 25 件（すべて成功の状態で引き渡し）
 
 ## フェーズ履歴（要点のみ）
 
@@ -59,7 +59,8 @@
 | P3/P7追加            | zoom縮小余白解消、共通ボタンレスポンシブ撤回、抽出／中間限定の明示アイコン、Activity Barコンパクト化、プレビュー上下キー／一覧中央scroll（Unit 231／E2E 25）                              | 本コミット      |
 | P3/P7/P10追加        | Editorタブ固定、Resource／テキスト編集のEditor統合・アドレスコピー、LLMアウトライン文脈、管理用特記事項、種別別定義、Monaco校正差分（schema 1.9.0、Unit 237／pytest 10／E2E 25）          | 本コミット      |
 | P7/P8/P10追加        | セマンティック非選択プレビュー／選択時直接編集・Editor統合撤回、チャンク由来based_on、図／表／コードの説明・派生Resource・画像LLM入力、表セルUI（schema 1.10.0、Unit 241／E2E 25）        | 本コミット      |
-| P5-17                | Word高度抽出: リスト定義、Run書式、DrawingML/VML図形・グループ・コネクタ、Story・校閲、Part/Relationship・Raw XML・未対応レポート・安全上限（Unit 242／pytest 16／E2E 25） | 本コミット      |
+| P5-17                | Word高度抽出: リスト定義、Run書式、DrawingML/VML図形・グループ・コネクタ、Story・校閲、Part/Relationship・Raw XML・未対応レポート・安全上限（Unit 242／pytest 16／E2E 25）                | 893e14a         |
+| P5-18                | Word抽出情報プレビュー: Run書式、リスト、図形・グループ・コネクタ、Story・フィールド、コメント・変更履歴を保存情報に基づいて表示（Unit 246／pytest 16／E2E 25）                           | 本コミット      |
 
 ## 恒久制約（違反するとビルド/実行が壊れる、または設計方針違反）
 
@@ -78,6 +79,7 @@
 - ②抽出レビューの選択・状態更新・構造プレビュー・Properties は `ReviewElement` 共通契約で実装し、
   Word 固有にしない。今後の Excel / PowerPoint / PDF / Visio / テキスト系も同じ操作体系へ接続する。
 - Word高度抽出の正本は `extracted_document.structure_json` 全体と `blobs/extracted/job-*/raw_xml/`。`storeExtractionResult` は `metadata`／`elements` だけを再構成せず、ワーカーのトップレベル（statistics、stories、comments、revisions、package、unsupported_elements、review_hints）を保持した上で `elements[].resource_uid` だけを付加する。
+- Word文書プレビューは `structure_json.elements` だけでなく `stories`／`comments`／`revisions` を参照する。Run直接書式は保存値をCSSへ投影し、図形は図形情報カードで確認可能にするが、Wordレイアウトエンジン依存の物理ページ割付・折返し・完全な図形座標は推測再現しない。
 - Python ワーカーは stdin/stdout とも UTF-8 ラップ必須（CP932 化け）。pytest はシステム Python
   （miniconda）で実行（PATH 先頭の venv に pip が無い）。
 - Workbench の文字サイズはツール全体設定 `theme.fontSize`（10〜20px、既定13px）で管理し、通常UIとMonacoへ即時反映する。
