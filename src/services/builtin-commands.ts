@@ -199,7 +199,7 @@ export function registerBuiltinCommands(): void {
 
   registerCommand({
     id: 'dictionary.focusQuery',
-    title: 'Dictionaryの用語入力へ移動（Secondary）',
+    title: '辞書の用語入力へ移動（Secondary）',
     category: '検索',
     keybinding: 'Ctrl+Shift+D',
     run: () => {

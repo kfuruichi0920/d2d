@@ -805,8 +805,9 @@ test('②→③統合・編集・確定（P7）', async () => {
   const phaseNode = page.getByTestId('phase-DD')
   await expect(phaseNode.getByText('フェーズ', { exact: true })).toBeVisible()
   await expect(artifactSlot).not.toContainText('成果物')
-  await expect(artifactSlot).toContainText('未確定 0')
-  await expect(artifactSlot).toContainText('0要素')
+  // 未取込（要素0件）の成果物はレビュー・未確定バッジを出さず「未取込」だけ表示する
+  await expect(artifactSlot).toContainText('未取込')
+  await expect(artifactSlot).not.toContainText('未確定')
   await expect(page.getByTestId('explorer-section-intermediate')).not.toContainText('統合元未選択')
   await expect(phaseNode).toHaveAttribute('open', '')
   await phaseNode.locator(':scope > summary').click()
@@ -861,7 +862,8 @@ test('②→③統合・編集・確定（P7）', async () => {
   await expect(page.getByTestId('intermediate-doc-IMDOC-000001')).toBeVisible({ timeout: 15_000 })
   await expect(page.getByTestId('intermediate-doc-IMDOC-000001')).toHaveAttribute('title', /成果物: 統合設計書/)
   await expect(page.getByTestId('stage-intermediate')).toContainText('③中間')
-  await expect(page.getByTestId('intermediate-unconfirmed-IMDOC-000001')).toContainText('未確定 0')
+  // 統合元選択直後は要素0件のため、バッジは「未取込」だけを表示する
+  await expect(page.getByTestId('intermediate-doc-IMDOC-000001')).toContainText('未取込')
 
   // Pipeline ③はフェーズ－成果物階層と独自プレビューを表示する。
   await page.getByTestId('stage-intermediate').click()
