@@ -2,7 +2,7 @@
  * コマンドパレット（P3-2、UI-004、sdd_ui_design §14）。
  * 全 Command を検索・実行できる。Context により無効な Command は淡色表示する。
  */
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   executeCommand,
   listCommands,
@@ -18,16 +18,15 @@ export function CommandPalette(): React.JSX.Element | null {
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
+  const itemRefs = useRef(new Map<number, HTMLDivElement>())
 
   const ctx = getCommandContext()
 
-  const items = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    return listCommands()
-      .filter((c) => !c.hidden)
-      .filter((c) => !q || c.title.toLowerCase().includes(q) || c.id.toLowerCase().includes(q))
-      .sort((a, b) => a.title.localeCompare(b.title, 'ja'))
-  }, [query])
+  const q = query.trim().toLowerCase()
+  const items = listCommands()
+    .filter((command) => !command.hidden)
+    .filter((command) => !q || command.title.toLowerCase().includes(q) || command.id.toLowerCase().includes(q))
+    .sort((a, b) => a.title.localeCompare(b.title, 'ja'))
 
   useEffect(() => {
     if (open) {
@@ -36,6 +35,11 @@ export function CommandPalette(): React.JSX.Element | null {
       setTimeout(() => inputRef.current?.focus(), 0)
     }
   }, [open])
+
+  useEffect(() => {
+    if (!open) return
+    itemRefs.current.get(selected)?.scrollIntoView({ block: 'nearest' })
+  }, [open, selected])
 
   if (!open) return null
 
@@ -81,6 +85,10 @@ export function CommandPalette(): React.JSX.Element | null {
           {items.map((c, i) => (
             <div
               key={c.id}
+              ref={(element) => {
+                if (element) itemRefs.current.set(i, element)
+                else itemRefs.current.delete(i)
+              }}
               role="option"
               aria-selected={i === selected}
               className={`wb-palette-item ${i === selected ? 'selected' : ''} ${isEnabled(c) ? '' : 'disabled'}`}

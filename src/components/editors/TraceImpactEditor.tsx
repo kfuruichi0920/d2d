@@ -214,7 +214,7 @@ export function TraceImpactEditor({ contextUri }: { contextUri: string }): React
         if (contextUri === 'trace://list-link/pipeline') {
           return (['extracted', 'intermediate', 'design'] as const).map((kind, index) => ({
             id: `impact-column-${index + 1}`,
-            scopeIds: result.result.filter((scope) => scope.kind === kind).map((scope) => scope.id)
+            scopeIds: [`all:${kind}`]
           }))
         }
         const preferred = [

@@ -39,6 +39,14 @@ describe('P11 MeCab + FTS5 検索', () => {
     expect(searchElements(db, projectUid, target.uid, {}).results[0]?.uid).toBe(target.uid)
   })
 
+  it('FTS一致が存在しても全文部分一致の結果を併合する', () => {
+    const exact = text('安全監視', '安全監視')
+    const partial = text('複合語', '起動前安全監視条件を確認する')
+    const results = searchElements(db, projectUid, '安全監視', {}).results.map((row) => row.uid)
+    expect(results).toContain(exact.uid)
+    expect(results).toContain(partial.uid)
+  })
+
   it('LIKEフォールバックは%と_を文字として検索する', () => {
     const target = text('特殊文字', '進捗率は100%_完了')
     expect(searchElements(db, projectUid, '%_', {}, { entityType: 'resource_text' }).results[0]?.uid).toBe(target.uid)

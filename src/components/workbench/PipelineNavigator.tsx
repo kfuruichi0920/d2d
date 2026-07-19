@@ -111,6 +111,7 @@ export function PipelineNavigator(): React.JSX.Element {
             ⌂
           </button>
         </span>
+        <span className="wb-menu-separator" aria-hidden="true" />
         {STAGES.map((stage, index) => (
           <span key={stage.key} className="wb-stage-segment">
             {index > 0 && <span className="wb-stage-arrow">{ARROWS[index - 1]}</span>}
@@ -151,6 +152,7 @@ export function PipelineNavigator(): React.JSX.Element {
           用語集
         </button>
       </div>
+      <span className="wb-menu-separator" aria-hidden="true" />
       <div className="wb-resource-address">
         <input
           value={address}
@@ -163,16 +165,6 @@ export function PipelineNavigator(): React.JSX.Element {
             if (event.key === 'Enter') navigateAddress()
           }}
         />
-        <button
-          type="button"
-          className="wb-address-icon"
-          data-testid="open-screen-search"
-          aria-label="画面内検索"
-          title="現在画面の文字列検索（Ctrl+F）"
-          onClick={() => window.dispatchEvent(new Event(OPEN_SCREEN_TEXT_SEARCH))}
-        >
-          ⌕
-        </button>
         <button
           type="button"
           className={`wb-address-icon wb-favorite-toggle ${favorite ? 'active' : ''}`}
@@ -188,6 +180,17 @@ export function PipelineNavigator(): React.JSX.Element {
           {favorite ? '★' : '☆'}
         </button>
       </div>
+      <span className="wb-menu-separator" aria-hidden="true" />
+      <button
+        type="button"
+        className="wb-address-icon"
+        data-testid="open-screen-search"
+        aria-label="画面内検索"
+        title="現在画面の文字列検索（Ctrl+F）"
+        onClick={() => window.dispatchEvent(new Event(OPEN_SCREEN_TEXT_SEARCH))}
+      >
+        ⌕
+      </button>
     </nav>
   )
 }

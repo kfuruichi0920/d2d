@@ -232,18 +232,18 @@ export function searchElements(
       rows = []
     }
   }
-  if (rows.length === 0) {
-    const like = `%${q.replaceAll('%', '\\%').replaceAll('_', '\\_')}%`
-    rows = db
-      .prepare(
-        `SELECT f.uid, f.entity_type, f.code, f.title, f.search_text,
-      substr(f.search_text, 1, 240) snippet, 1000 AS score FROM fts_entity_text f
-      WHERE (f.title LIKE ? ESCAPE '\\' OR f.search_text LIKE ? ESCAPE '\\') ${typeSql}
-      ORDER BY f.code LIMIT ?`
-      )
-      .all(like, like, ...typeArgs, limit) as IndexedRow[]
-  }
-  const merged = [...exact, ...rows]
+  // FTSは語単位・前方一致なので、日本語の部分文字列や記号を含む検索を取りこぼし得る。
+  // FTSの成否にかかわらずNFKC済み全文への部分一致を併合し、検索漏れを防ぐ（SEARCH-001）。
+  const like = `%${q.replaceAll('%', '\\%').replaceAll('_', '\\_')}%`
+  const likeRows = db
+    .prepare(
+      `SELECT f.uid, f.entity_type, f.code, f.title, f.search_text,
+    substr(f.search_text, 1, 240) snippet, 1000 AS score FROM fts_entity_text f
+    WHERE (f.title LIKE ? ESCAPE '\\' OR f.search_text LIKE ? ESCAPE '\\') ${typeSql}
+    ORDER BY f.code LIMIT ?`
+    )
+    .all(like, like, ...typeArgs, limit) as IndexedRow[]
+  const merged = [...exact, ...rows, ...likeRows]
     .filter((row, index, all) => all.findIndex((candidate) => candidate.uid === row.uid) === index)
     .slice(0, limit)
   return {

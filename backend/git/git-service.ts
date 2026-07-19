@@ -3,6 +3,8 @@
  * 履歴・差分参照に加え、状態確認、ステージ、コミット、ローカルブランチ操作を提供する。
  * コミット前のDB to Text／SQLite dump生成はAPI層が担う（GIT-004/007）。
  */
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { simpleGit, type SimpleGit } from 'simple-git'
 import { BackendError } from '../api/errors'
 
@@ -169,14 +171,69 @@ export async function getGitShow(projectRoot: string, hash: string, maxChars = 2
  * DB to Text 出力（exports/db_to_text/*.jsonl 等）を過去版と比較する用途。
  * 存在しない場合は空文字を返す（新規ファイルの比較を許容）。
  */
-export async function getGitFileAt(projectRoot: string, hash: string, relPath: string): Promise<string> {
-  assertHash(hash)
-  if (relPath.includes('..') || relPath.startsWith('/') || /^[A-Za-z]:/.test(relPath)) {
+function assertRelativePath(relPath: string): string {
+  if (!relPath || relPath.includes('..') || relPath.startsWith('/') || /^[A-Za-z]:/.test(relPath)) {
     throw new BackendError('validation', `不正なパスです: ${relPath}`, '')
   }
+  return relPath.replaceAll('\\', '/')
+}
+
+export async function getGitFileAt(projectRoot: string, hash: string, relPath: string): Promise<string> {
+  assertHash(hash)
+  const safePath = assertRelativePath(relPath)
   try {
-    return await git(projectRoot).show([`${hash}:${relPath.replaceAll('\\', '/')}`])
+    return await git(projectRoot).show([`${hash}:${safePath}`])
   } catch {
     return ''
   }
+}
+
+/** 作業ツリーのファイルをHEADと比較するMonaco Diff用ペア（GIT-003/005）。 */
+export async function getGitWorkingFilePair(
+  projectRoot: string,
+  relPath: string
+): Promise<{ path: string; left: string; right: string }> {
+  const path = assertRelativePath(relPath)
+  let left = ''
+  try {
+    left = await git(projectRoot).show([`HEAD:${path}`])
+  } catch {
+    left = ''
+  }
+  let right = ''
+  try {
+    right = readFileSync(join(projectRoot, path), 'utf-8')
+  } catch {
+    right = ''
+  }
+  return { path, left, right }
+}
+
+/** 2コミット間で変更されたファイル一覧（GIT-005/006）。 */
+export async function getGitComparisonFiles(projectRoot: string, fromHash: string, toHash: string): Promise<string[]> {
+  assertHash(fromHash)
+  assertHash(toHash)
+  if (fromHash === toHash) return []
+  const output = await git(projectRoot).raw(['diff', '--name-only', fromHash, toHash, '--'])
+  return output
+    .split(/\r?\n/)
+    .map((path) => path.trim())
+    .filter(Boolean)
+}
+
+/** 2コミット時点の同一ファイル内容を返す（GIT-005/006）。 */
+export async function getGitComparisonFilePair(
+  projectRoot: string,
+  fromHash: string,
+  toHash: string,
+  relPath: string
+): Promise<{ path: string; fromHash: string; toHash: string; left: string; right: string }> {
+  assertHash(fromHash)
+  assertHash(toHash)
+  const path = assertRelativePath(relPath)
+  const [left, right] = await Promise.all([
+    getGitFileAt(projectRoot, fromHash, path),
+    getGitFileAt(projectRoot, toHash, path)
+  ])
+  return { path, fromHash, toHash, left, right }
 }

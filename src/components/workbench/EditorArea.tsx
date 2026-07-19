@@ -22,7 +22,13 @@ import { TraceMatrixEditor } from '../editors/TraceMatrixEditor'
 import { TraceImpactEditor } from '../editors/TraceImpactEditor'
 import { GlossaryEditor } from '../editors/GlossaryEditor'
 import { ModelPlaygroundEditor } from '../editors/ModelPlaygroundEditor'
-import { ArchiveDiffEditor, GitCommitViewer, StoreBrowserEditor } from '../views/HistoryViews'
+import {
+  ArchiveDiffEditor,
+  GitCommitViewer,
+  GitSemanticDiffEditor,
+  GitWorkingDiffEditor,
+  StoreBrowserEditor
+} from '../views/HistoryViews'
 import { ReportPreviewEditor } from '../views/ReportViews'
 import { ResourceEditorPage } from '../editors/ResourceEditor'
 import { PipelineStageEditor, type PipelineStage } from '../editors/PipelineStageEditor'
@@ -58,6 +64,12 @@ function resolveEditor(uri: string): React.JSX.Element {
   if (uri.startsWith('glossary://')) return <GlossaryEditor />
   if (uri === 'model://playground') return <ModelPlaygroundEditor />
   if (uri === 'diff://archive') return <ArchiveDiffEditor />
+  if (uri.startsWith('diff://git-working/'))
+    return <GitWorkingDiffEditor path={decodeURIComponent(uri.slice('diff://git-working/'.length))} />
+  if (uri.startsWith('diff://git-compare/')) {
+    const [fromHash, toHash] = uri.slice('diff://git-compare/'.length).split('..')
+    return <GitSemanticDiffEditor fromHash={fromHash ?? ''} toHash={toHash ?? ''} />
+  }
   if (uri.startsWith('diff://git/')) return <GitCommitViewer hash={uri.slice('diff://git/'.length)} />
   if (uri === 'store://tables') return <StoreBrowserEditor />
   if (uri.startsWith('report://')) return <ReportPreviewEditor fileName={uri.slice('report://'.length)} />

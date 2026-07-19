@@ -62,6 +62,37 @@ const MATRIX_CATEGORIES = [
 /** 行・列へ配置可能なResource集合を列挙する。③文書は複数Resourceの表示グループとして返す。 */
 export function listTraceMatrixScopes(db: Database, projectUid: string): TraceMatrixScope[] {
   const scopes: TraceMatrixScope[] = []
+  const aggregateCounts = db
+    .prepare(
+      `SELECT
+        (SELECT COUNT(*) FROM extracted_item i JOIN entity_registry e ON e.uid=i.uid WHERE e.project_uid=? AND e.status <> 'deleted') AS extracted,
+        (SELECT COUNT(*) FROM intermediate_item i JOIN entity_registry e ON e.uid=i.uid WHERE e.project_uid=? AND e.status <> 'deleted') AS intermediate,
+        (SELECT COUNT(*) FROM entity_registry e WHERE e.project_uid=? AND e.design_category IS NOT NULL AND e.status <> 'deleted') AS design`
+    )
+    .get(projectUid, projectUid, projectUid) as { extracted: number; intermediate: number; design: number }
+  scopes.push(
+    {
+      id: 'all:extracted',
+      kind: 'extracted',
+      label: '② 全抽出データ',
+      description: '全抽出文書のextracted_item',
+      count: aggregateCounts.extracted
+    },
+    {
+      id: 'all:intermediate',
+      kind: 'intermediate',
+      label: '③ 全中間データ',
+      description: '全中間文書のintermediate_item',
+      count: aggregateCounts.intermediate
+    },
+    {
+      id: 'all:design',
+      kind: 'design',
+      label: '④ 全設計モデル',
+      description: '全設計Resource',
+      count: aggregateCounts.design
+    }
+  )
   const categoryCounts = db
     .prepare(
       `SELECT design_category AS id, COUNT(*) AS count FROM entity_registry
@@ -173,7 +204,23 @@ export function resolveMatrixResources(
     if (separator < 1) continue
     const kind = scopeId.slice(0, separator)
     const value = scopeId.slice(separator + 1)
-    if (kind === 'design' && MATRIX_CATEGORIES.includes(value)) {
+    if (kind === 'all' && ['extracted', 'intermediate', 'design'].includes(value)) {
+      const sql =
+        value === 'extracted'
+          ? `SELECT i.uid, e.code, COALESCE(e.title, r.title) AS title, e.entity_type AS entityType,
+                    e.design_category AS designCategory, e.status, i.item_type AS itemType
+               FROM extracted_item i JOIN entity_registry e ON e.uid=i.uid AND e.project_uid=? AND e.status <> 'deleted'
+               LEFT JOIN entity_registry r ON r.uid=i.resource_uid ORDER BY e.code`
+          : value === 'intermediate'
+            ? `SELECT i.uid, e.code, COALESCE(e.title, r.title) AS title, e.entity_type AS entityType,
+                      e.design_category AS designCategory, e.status, i.item_type AS itemType
+                 FROM intermediate_item i JOIN entity_registry e ON e.uid=i.uid AND e.project_uid=? AND e.status <> 'deleted'
+                 LEFT JOIN entity_registry r ON r.uid=i.resource_uid ORDER BY e.code`
+            : `SELECT uid, code, title, entity_type AS entityType, design_category AS designCategory,
+                      status, NULL AS itemType FROM entity_registry
+                 WHERE project_uid=? AND design_category IS NOT NULL AND status <> 'deleted' ORDER BY code`
+      add(db.prepare(sql).all(projectUid) as Omit<TraceMatrixResource, 'scopes'>[], scopeId)
+    } else if (kind === 'design' && MATRIX_CATEGORIES.includes(value)) {
       add(
         db
           .prepare(

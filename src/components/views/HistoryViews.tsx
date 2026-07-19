@@ -54,6 +54,7 @@ export function HistorySideBar(): React.JSX.Element {
   const [gitFiles, setGitFiles] = useState<GitStatusFile[]>([])
   const [branches, setBranches] = useState<GitBranchState>({ current: '', branches: [] })
   const [selectedGitPaths, setSelectedGitPaths] = useState<string[]>([])
+  const [selectedCommitHashes, setSelectedCommitHashes] = useState<string[]>([])
   const [commitMessage, setCommitMessage] = useState('')
   const [authorName, setAuthorName] = useState('D2D User')
   const [authorEmail, setAuthorEmail] = useState('d2d@example.local')
@@ -81,6 +82,11 @@ export function HistorySideBar(): React.JSX.Element {
   }, [project, refresh])
 
   if (!project) return <div className="d2d-empty">プロジェクトが開かれていません。</div>
+
+  const openExports = async (): Promise<void> => {
+    const res = await invoke<{ path: string }>('export.openFolder')
+    if (!res.ok) notify('error', 'exportsフォルダを開けませんでした', res.error.message)
+  }
 
   const exportDbToText = async (): Promise<void> => {
     const res = await invoke<{ relDir: string; files: string[] }>('export.dbToText')
@@ -152,6 +158,28 @@ export function HistorySideBar(): React.JSX.Element {
       await refresh()
     } else notify('error', 'ブランチを切り替えられませんでした', result.error.message)
   }
+  const compareCommits = (): void => {
+    if (!git?.isRepo || selectedCommitHashes.length === 0) return
+    const selected = selectedCommitHashes
+      .map((hash) => ({ hash, index: git.commits.findIndex((commit) => commit.hash === hash) }))
+      .filter((item) => item.index >= 0)
+      .sort((a, b) => b.index - a.index)
+    const fromHash = selected[0]?.hash
+    const toHash = selected.length === 1 ? git.commits[0]?.hash : selected.at(-1)?.hash
+    if (!fromHash || !toHash) return
+    openResource(
+      `diff://git-compare/${fromHash}..${toHash}`,
+      `Git項目差分 ${fromHash.slice(0, 8)}..${toHash.slice(0, 8)}`,
+      { preview: false }
+    )
+  }
+
+  const toggleCommitSelection = (hash: string): void => {
+    setSelectedCommitHashes((current) =>
+      current.includes(hash) ? current.filter((item) => item !== hash) : [...current.slice(-1), hash]
+    )
+  }
+
   const importForDiff = async (fileName: string): Promise<void> => {
     const res = await invoke('archive.importForDiff', { fileName })
     if (res.ok) {
@@ -164,11 +192,13 @@ export function HistorySideBar(): React.JSX.Element {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: 8 }} data-testid="history-sidebar">
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        <button type="button" className="d2d-btn" onClick={() => void exportDbToText()} data-testid="export-db-to-text">
-          DB to Text 出力
-        </button>
-        <button type="button" className="d2d-btn" onClick={() => void exportDump()} data-testid="export-sqlite-dump">
-          SQLite dump 出力
+        <button
+          type="button"
+          className="d2d-btn"
+          onClick={() => openResource('store://tables', 'ストア閲覧')}
+          data-testid="open-store-browser"
+        >
+          ストア閲覧（DBテーブル）
         </button>
         <button
           type="button"
@@ -176,15 +206,16 @@ export function HistorySideBar(): React.JSX.Element {
           onClick={() => void createArchive()}
           data-testid="archive-create"
         >
-          ZIP アーカイブ作成
+          ZIPアーカイブ作成
         </button>
-        <button
-          type="button"
-          className="d2d-btn"
-          onClick={() => openResource('store://tables', 'ストア閲覧')}
-          data-testid="open-store-browser"
-        >
-          ストア閲覧（DB テーブル）
+        <button type="button" className="d2d-btn" onClick={() => void exportDbToText()} data-testid="export-db-to-text">
+          DB to Text出力
+        </button>
+        <button type="button" className="d2d-btn" onClick={() => void exportDump()} data-testid="export-sqlite-dump">
+          SQLite dump出力
+        </button>
+        <button type="button" className="d2d-btn" onClick={() => void openExports()} data-testid="open-exports-folder">
+          エクスプローラで開く
         </button>
       </div>
 
@@ -265,20 +296,31 @@ export function HistorySideBar(): React.JSX.Element {
           <div data-testid="git-status-files" style={{ maxHeight: 160, overflow: 'auto' }}>
             {gitFiles.length === 0 && <div className="d2d-empty">作業ツリーに変更はありません</div>}
             {gitFiles.map((file) => (
-              <label key={file.path} className="d2d-list-row" style={{ display: 'flex', gap: 5 }}>
+              <div key={file.path} className="d2d-list-row" style={{ display: 'flex', gap: 5 }}>
                 <input
                   type="checkbox"
                   checked={selectedGitPaths.includes(file.path)}
                   onChange={(event) => changeGitSelection(file.path, event.target.checked)}
                   data-testid={`git-select-${file.path.replaceAll('/', '-')}`}
+                  aria-label={`${file.path}をステージ操作対象にする`}
                 />
                 <code style={{ width: 24, color: file.staged ? 'var(--d2d-success)' : 'var(--d2d-warning)' }}>
                   {file.status || 'M'}
                 </code>
-                <span title={file.path} style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                <button
+                  type="button"
+                  className="git-file-diff-link"
+                  title={`${file.path}をHEADと比較`}
+                  onClick={() =>
+                    openResource(`diff://git-working/${encodeURIComponent(file.path)}`, `変更差分: ${file.path}`, {
+                      preview: true
+                    })
+                  }
+                  data-testid={`git-diff-${file.path.replaceAll('/', '-')}`}
+                >
                   {file.path}
-                </span>
-              </label>
+                </button>
+              </div>
             ))}
           </div>
           <div style={{ display: 'flex', gap: 4 }}>
@@ -343,21 +385,30 @@ export function HistorySideBar(): React.JSX.Element {
             Gitリポジトリは初期化済みです。コミットはまだありません。
           </div>
         )}
+        {git?.isRepo && git.commits.length > 0 && (
+          <button
+            type="button"
+            className="d2d-btn small"
+            disabled={selectedCommitHashes.length === 0}
+            onClick={compareCommits}
+            data-testid="git-compare-selected"
+            title="1件選択時は最新コミット、2件選択時は選択した新旧コミットを比較します"
+          >
+            選択履歴を比較（{selectedCommitHashes.length}/2）
+          </button>
+        )}
         {git?.isRepo &&
           git.commits.map((commit) => (
-            <div
-              key={commit.hash}
-              className="d2d-list-row"
-              onClick={() =>
-                openResource(`diff://git/${commit.hash}`, `${commit.shortHash} ${commit.message.slice(0, 20)}`, {
-                  preview: true
-                })
-              }
-              title={`${commit.author} ${commit.date}`}
-            >
-              <span style={{ color: 'var(--d2d-fg-muted)', fontFamily: 'monospace' }}>{commit.shortHash}</span>{' '}
-              {commit.message}
-            </div>
+            <label key={commit.hash} className="d2d-list-row git-commit-row" title={`${commit.author} ${commit.date}`}>
+              <input
+                type="checkbox"
+                checked={selectedCommitHashes.includes(commit.hash)}
+                onChange={() => toggleCommitSelection(commit.hash)}
+                data-testid={`git-commit-select-${commit.shortHash}`}
+              />
+              <span style={{ color: 'var(--d2d-fg-muted)', fontFamily: 'monospace' }}>{commit.shortHash}</span>
+              <span>{commit.message}</span>
+            </label>
           ))}
       </div>
     </div>
@@ -481,6 +532,197 @@ export function GitCommitViewer({ hash }: { hash: string }): React.JSX.Element {
   return (
     <div style={{ height: '100%' }} data-testid="git-commit-viewer">
       <CodeEditor value={text} language="plaintext" readOnly />
+    </div>
+  )
+}
+
+// ---- Git Monaco差分・項目差分（P12-6、GIT-005/006） ----
+
+interface GitFilePair {
+  path: string
+  left: string
+  right: string
+}
+
+interface GitSemanticChange extends GitFilePair {
+  key: string
+  table: string
+  status: '追加' | '削除' | '変更' | 'ファイル変更'
+  uid?: string
+  code?: string
+  title?: string
+  entityType?: string
+  changedFields: string[]
+}
+
+function parseJsonl(text: string): Map<string, Record<string, unknown>> | null {
+  if (!text.trim()) return new Map()
+  const result = new Map<string, Record<string, unknown>>()
+  try {
+    text
+      .split(/\r?\n/)
+      .filter(Boolean)
+      .forEach((line, index) => {
+        const row = JSON.parse(line) as Record<string, unknown>
+        const key = String(row.uid ?? row.code ?? index)
+        result.set(key, row)
+      })
+    return result
+  } catch {
+    return null
+  }
+}
+
+function semanticChanges(pair: GitFilePair): GitSemanticChange[] {
+  const table =
+    pair.path
+      .split('/')
+      .at(-1)
+      ?.replace(/\.jsonl$/, '') ?? pair.path
+  if (!pair.path.endsWith('.jsonl')) {
+    return [{ ...pair, key: pair.path, table, status: 'ファイル変更', changedFields: [] }]
+  }
+  const leftRows = parseJsonl(pair.left)
+  const rightRows = parseJsonl(pair.right)
+  if (!leftRows || !rightRows) {
+    return [{ ...pair, key: pair.path, table, status: 'ファイル変更', changedFields: [] }]
+  }
+  const changes: GitSemanticChange[] = []
+  for (const key of new Set([...leftRows.keys(), ...rightRows.keys()])) {
+    const left = leftRows.get(key)
+    const right = rightRows.get(key)
+    if (left && right && JSON.stringify(left) === JSON.stringify(right)) continue
+    const changedFields = [...new Set([...Object.keys(left ?? {}), ...Object.keys(right ?? {})])].filter(
+      (field) => JSON.stringify(left?.[field]) !== JSON.stringify(right?.[field])
+    )
+    const row = right ?? left ?? {}
+    changes.push({
+      path: pair.path,
+      key: `${pair.path}:${key}`,
+      table,
+      status: left ? (right ? '変更' : '削除') : '追加',
+      uid: typeof row.uid === 'string' ? row.uid : undefined,
+      code: typeof row.code === 'string' ? row.code : undefined,
+      title: typeof row.title === 'string' ? row.title : undefined,
+      entityType: typeof row.entity_type === 'string' ? row.entity_type : undefined,
+      changedFields,
+      left: left ? JSON.stringify(left, null, 2) : '',
+      right: right ? JSON.stringify(right, null, 2) : ''
+    })
+  }
+  return changes
+}
+
+export function GitWorkingDiffEditor({ path }: { path: string }): React.JSX.Element {
+  const [pair, setPair] = useState<GitFilePair | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  useEffect(() => {
+    void invoke<GitFilePair>('git.workingFileDiffPair', { path }).then((result) => {
+      if (result.ok) setPair(result.result)
+      else setError(result.error.message)
+    })
+  }, [path])
+  if (error) return <div className="d2d-empty">差分を表示できません: {error}</div>
+  if (!pair) return <div className="d2d-empty">差分を読込中…</div>
+  return (
+    <div className="git-working-diff" data-testid="git-working-diff">
+      <header>
+        HEAD ↔ 作業ツリー: <code>{pair.path}</code>
+      </header>
+      <DiffEditor
+        original={pair.left}
+        modified={pair.right}
+        language={pair.path.endsWith('.json') ? 'json' : 'plaintext'}
+      />
+    </div>
+  )
+}
+
+export function GitSemanticDiffEditor({ fromHash, toHash }: { fromHash: string; toHash: string }): React.JSX.Element {
+  const [changes, setChanges] = useState<GitSemanticChange[] | null>(null)
+  const [selectedKey, setSelectedKey] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let disposed = false
+    void invoke<{ files: string[] }>('git.compare', { fromHash, toHash }).then(async (result) => {
+      if (!result.ok) {
+        if (!disposed) setError(result.error.message)
+        return
+      }
+      const pairs = await Promise.all(
+        result.result.files.map(async (path) => {
+          const pair = await invoke<GitFilePair>('git.comparisonFilePair', { fromHash, toHash, path })
+          return pair.ok ? pair.result : null
+        })
+      )
+      if (disposed) return
+      const next = pairs.filter((pair): pair is GitFilePair => pair !== null).flatMap(semanticChanges)
+      setChanges(next)
+      setSelectedKey(next[0]?.key ?? null)
+    })
+    return () => {
+      disposed = true
+    }
+  }, [fromHash, toHash])
+
+  if (error) return <div className="d2d-empty">履歴差分を表示できません: {error}</div>
+  if (!changes) return <div className="d2d-empty">履歴差分を解析中…</div>
+  const selected = changes.find((change) => change.key === selectedKey) ?? null
+  const grouped = changes.reduce((map, change) => {
+    map.set(change.table, [...(map.get(change.table) ?? []), change])
+    return map
+  }, new Map<string, GitSemanticChange[]>())
+  return (
+    <div className="git-semantic-diff" data-testid="git-semantic-diff">
+      <aside>
+        <h1>監視項目の変更</h1>
+        <p>
+          <code>{fromHash.slice(0, 8)}</code> → <code>{toHash.slice(0, 8)}</code> / {changes.length}件
+        </p>
+        {[...grouped].map(([table, rows]) => (
+          <details key={table} open>
+            <summary>
+              {table}（{rows.length}）
+            </summary>
+            {rows.map((change) => (
+              <button
+                type="button"
+                key={change.key}
+                className={selectedKey === change.key ? 'active' : ''}
+                onClick={() => setSelectedKey(change.key)}
+                title={change.path}
+              >
+                <span className={`git-change-status is-${change.status}`}>{change.status}</span>
+                <b>{change.code ?? change.uid ?? change.path}</b>
+                <span>{change.title ?? change.entityType ?? change.changedFields.join(', ')}</span>
+              </button>
+            ))}
+          </details>
+        ))}
+        {changes.length === 0 && <div className="d2d-empty">選択した履歴間に変更はありません。</div>}
+      </aside>
+      <main>
+        {selected ? (
+          <>
+            <header>
+              <b>
+                {selected.table}: {selected.code ?? selected.uid ?? selected.path}
+              </b>
+              <span>
+                {selected.status} / 変更項目: {selected.changedFields.join(', ') || 'ファイル全体'}
+              </span>
+            </header>
+            <DiffEditor
+              original={selected.left}
+              modified={selected.right}
+              language={selected.path.endsWith('.jsonl') ? 'json' : 'plaintext'}
+            />
+          </>
+        ) : (
+          <div className="d2d-empty">比較する項目を選択してください。</div>
+        )}
+      </main>
     </div>
   )
 }

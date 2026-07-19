@@ -21,10 +21,13 @@ import {
   commitGitChanges,
   createGitBranch,
   getGitBranches,
+  getGitComparisonFilePair,
+  getGitComparisonFiles,
   getGitFileAt,
   getGitLog,
   getGitShow,
   getGitStatus,
+  getGitWorkingFilePair,
   isGitRepo,
   stageGitFiles,
   unstageGitFiles
@@ -217,6 +220,22 @@ describe('P12 データ出力・アーカイブ・Git', () => {
       // GIT-001/006: 過去コミット時点の DB to Text 内容
       const old = await getGitFileAt(root, log[1]!.hash, 'exports/db_to_text/sample.jsonl')
       expect(old).toContain('"v1"')
+
+      const changedFiles = await getGitComparisonFiles(root, log[1]!.hash, log[0]!.hash)
+      expect(changedFiles).toContain('exports/db_to_text/sample.jsonl')
+      const comparison = await getGitComparisonFilePair(
+        root,
+        log[1]!.hash,
+        log[0]!.hash,
+        'exports/db_to_text/sample.jsonl'
+      )
+      expect(comparison.left).toContain('"v1"')
+      expect(comparison.right).toContain('"v2"')
+
+      writeFileSync(join(root, 'exports', 'db_to_text', 'sample.jsonl'), '{"uid":"a","title":"working"}\n', 'utf-8')
+      const working = await getGitWorkingFilePair(root, 'exports/db_to_text/sample.jsonl')
+      expect(working.left).toContain('"v2"')
+      expect(working.right).toContain('"working"')
       // 不正ハッシュ・パスは拒否
       await expect(getGitShow(root, 'x; rm -rf')).rejects.toThrowError(/ハッシュ/)
       await expect(getGitFileAt(root, log[0]!.hash, '../outside')).rejects.toThrowError(/パス/)

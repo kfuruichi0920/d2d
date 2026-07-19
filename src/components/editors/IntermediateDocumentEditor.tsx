@@ -11,7 +11,6 @@ import { useProjectStore } from '../../stores/project-store'
 import { useSelectionStore } from '../../stores/selection-store'
 import { useResourceNavigationStore } from '../../stores/resource-navigation-store'
 import { VirtualDataGrid } from '../common/VirtualDataGrid'
-import { StructuredJsonView } from '../common/StructuredJsonView'
 import { DocumentPreviewMetaControls, useDocumentPreviewMeta } from '../common/DocumentPreviewMeta'
 import { ResourceEditor } from './ResourceEditor'
 import { resourceTypeLabel } from '../../types/resource'
@@ -81,6 +80,40 @@ function HighlightTerms({ text, terms }: { text: string; terms: string[] }): Rea
         )
       )}
     </>
+  )
+}
+
+function IntermediateStructureOutline({
+  elements,
+  activeId,
+  onSelect
+}: {
+  elements: IntermediateElement[]
+  activeId: string | null
+  onSelect: (element: IntermediateElement) => void
+}): React.JSX.Element {
+  return (
+    <div className="intermediate-structure-outline" data-testid="intermediate-structure-outline" role="tree">
+      {elements.map((element) => (
+        <button
+          key={element.id}
+          data-testid={`intermediate-outline-${element.id}`}
+          type="button"
+          role="treeitem"
+          aria-level={Math.max(1, (element.level ?? 0) + 1)}
+          aria-current={activeId === element.id ? 'true' : undefined}
+          className={activeId === element.id ? 'active' : ''}
+          style={{ paddingInlineStart: 8 + (element.level ?? 0) * 14 }}
+          onClick={() => onSelect(element)}
+          title={element.text ?? element.section_path ?? element.id}
+        >
+          <span className="intermediate-outline-kind">{resourceTypeLabel(element.item_type ?? element.type)}</span>
+          <code>{element.id}</code>
+          <span>{element.text ?? element.section_path ?? element.image ?? '（内容なし）'}</span>
+        </button>
+      ))}
+      {elements.length === 0 && <div className="d2d-empty">構成要素がありません</div>}
+    </div>
   )
 }
 
@@ -945,6 +978,7 @@ export function IntermediateDocumentEditor({
             getRowId={(e) => e.id}
             selectedRowIds={selectedIds}
             activeRowId={activeId}
+            scrollToRowId={activeId}
             relatedRowIds={relatedCenterIds}
             height="calc(100% - 22px)"
             onRowClick={(e, event) => {
@@ -1011,12 +1045,21 @@ export function IntermediateDocumentEditor({
               onClick={() => setPreviewMode('structure')}
               data-testid="intermediate-preview-structure"
             >
-              structure_json
+              構成アウトライン
             </button>
           </div>
           {previewMode === 'visual' && <DocumentPreviewMetaControls options={previewMeta} onChange={setPreviewMeta} />}
           {previewMode === 'structure' ? (
-            <StructuredJsonView value={doc.structure} testId="intermediate-structure-json" />
+            <IntermediateStructureOutline
+              elements={doc.elements}
+              activeId={activeId}
+              onSelect={(element) => {
+                setSelectedIds(new Set([element.id]))
+                setActiveId(element.id)
+                setItemAnchorId(element.id)
+                setLastSelectedPane('intermediate')
+              }}
+            />
           ) : (
             doc.elements.map((e) => (
               <article
@@ -1029,6 +1072,7 @@ export function IntermediateDocumentEditor({
                 onClick={() => {
                   setSelectedIds(new Set([e.id]))
                   setActiveId(e.id)
+                  setItemAnchorId(e.id)
                   setLastSelectedPane('intermediate')
                 }}
                 onDoubleClick={() => openElementEditor(e)}

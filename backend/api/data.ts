@@ -2,12 +2,14 @@
  * データ出力・履歴・差分 API（P12）。
  * DB to Text / SQLite dump / ZIP アーカイブ / Git 履歴参照 / ストア閲覧。
  */
+import { join } from 'node:path'
 import type { ApiRouter } from './router'
 import { BackendError } from './errors'
 import type { JobManager } from '../jobs/job-manager'
 import { requireProject } from '../project/project-service'
 import { eventBus } from '../events/event-bus'
 import { getProjectSettings } from '../settings/settings-service'
+import { callMain } from '../main-bridge'
 import { exportDbToText, exportSqliteDump, listDbToTextFiles, listExportTables } from '../export/db-to-text-service'
 import {
   getArchiveDiffContent,
@@ -20,10 +22,13 @@ import {
   commitGitChanges,
   createGitBranch,
   getGitBranches,
+  getGitComparisonFilePair,
+  getGitComparisonFiles,
   getGitFileAt,
   getGitLog,
   getGitShow,
   getGitStatus,
+  getGitWorkingFilePair,
   isGitRepo,
   stageGitFiles,
   unstageGitFiles
@@ -71,6 +76,14 @@ export function registerDataApi(router: ApiRouter, jobs: JobManager): void {
   router.register('export.listDbToText', () => {
     const { info } = requireProject()
     return { files: listDbToTextFiles(info.rootPath) }
+  })
+
+  router.register('export.openFolder', async () => {
+    const { info } = requireProject()
+    const path = join(info.rootPath, 'exports')
+    const error = await callMain<string>('shell.openPath', { path })
+    if (error) throw new BackendError('io', 'exportsフォルダを開けませんでした', error)
+    return { path }
   })
 
   // ---- ZIP アーカイブ（P12-3/P12-4） ----
@@ -187,6 +200,31 @@ export function registerDataApi(router: ApiRouter, jobs: JobManager): void {
    * 過去コミット時点の DB to Text 等と現在ファイルの比較用ペア（GIT-001/006）。
    * 左=コミット時点、右=作業ツリーの現在内容
    */
+  router.register('git.workingFileDiffPair', async (params) => {
+    const p = asRecord(params)
+    const { info } = requireProject()
+    return getGitWorkingFilePair(info.rootPath, requireString(p, 'path'))
+  })
+
+  router.register('git.compare', async (params) => {
+    const p = asRecord(params)
+    const { info } = requireProject()
+    const fromHash = requireString(p, 'fromHash')
+    const toHash = requireString(p, 'toHash')
+    return { fromHash, toHash, files: await getGitComparisonFiles(info.rootPath, fromHash, toHash) }
+  })
+
+  router.register('git.comparisonFilePair', async (params) => {
+    const p = asRecord(params)
+    const { info } = requireProject()
+    return getGitComparisonFilePair(
+      info.rootPath,
+      requireString(p, 'fromHash'),
+      requireString(p, 'toHash'),
+      requireString(p, 'path')
+    )
+  })
+
   router.register('git.getFileDiffPair', async (params) => {
     const p = asRecord(params)
     const { info } = requireProject()

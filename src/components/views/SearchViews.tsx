@@ -201,6 +201,9 @@ export function SearchSideBar(): React.JSX.Element {
         />
         MeCab検索を使用
       </label>
+      <p className="d2d-search-note" data-testid="search-mecab-note">
+        MeCab検索は索引の形態素解析を行うため、全文検索より時間がかかる場合があります。
+      </p>
       <button type="button" className="d2d-btn primary" disabled={loading || !query.trim()} onClick={() => void run()}>
         {loading ? '検索中…' : '検索'}
       </button>
@@ -209,7 +212,7 @@ export function SearchSideBar(): React.JSX.Element {
         <>
           <div className="d2d-search-summary">
             {response.results.length}件 / 索引{response.indexCount}件 /{' '}
-            {response.tokenizer === 'mecab' ? 'MeCab' : 'Unicode検索'}
+            {response.tokenizer === 'mecab' ? 'MeCab検索' : '全文検索'}
           </div>
           <SearchResultsTree response={response} />
         </>

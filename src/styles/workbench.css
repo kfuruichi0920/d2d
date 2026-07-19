@@ -234,9 +234,11 @@
 
 /* Title Bar */
 .wb-titlebar {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(240px, 480px) auto;
   align-items: center;
-  gap: 12px;
+  justify-content: space-between;
+  gap: 10px;
   padding: 0 10px;
   background: var(--d2d-surface-raised);
   border-bottom: 1px solid var(--d2d-border);
@@ -251,9 +253,8 @@
   color: var(--d2d-accent);
 }
 .wb-command-center {
-  flex: 1;
-  max-width: 480px;
-  margin: 0 auto;
+  width: 100%;
+  min-width: 0;
   text-align: center;
   background: var(--d2d-bg);
   border: 1px solid var(--d2d-border);
@@ -289,7 +290,7 @@
 .wb-pipeline {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   min-width: 0;
   padding: 3px 8px;
   background: var(--d2d-surface);
@@ -300,7 +301,7 @@
   display: flex;
   flex: 0 1 auto;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
   min-width: 0;
   overflow-x: auto;
   scrollbar-width: thin;
@@ -316,8 +317,8 @@
 .wb-address-icon {
   display: grid;
   flex: 0 0 auto;
-  width: 27px;
-  height: 27px;
+  width: 24px;
+  height: 24px;
   padding: 0;
   place-items: center;
   border: 1px solid transparent;
@@ -325,20 +326,21 @@
   background: transparent;
   color: var(--d2d-fg);
   cursor: pointer;
-  font-size: 15px;
+  font-size: 13px;
 }
 .wb-stage {
   display: flex;
   flex: 0 0 auto;
   align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
+  gap: 4px;
+  padding: 3px 7px;
   border: 1px solid var(--d2d-button-border);
   border-radius: var(--d2d-radius);
   background: var(--d2d-button-bg);
   color: var(--d2d-button-fg);
   cursor: pointer;
   white-space: nowrap;
+  font-size: 12px;
 }
 .wb-stage:hover,
 .wb-nav-icon:hover:not(:disabled),
@@ -363,6 +365,14 @@
   padding: 0 2px;
   user-select: none;
   white-space: nowrap;
+  font-size: 11px;
+}
+.wb-menu-separator {
+  flex: 0 0 1px;
+  align-self: stretch;
+  max-height: 20px;
+  margin: auto 2px;
+  background: var(--d2d-border);
 }
 .wb-resource-address {
   display: flex;
@@ -376,14 +386,14 @@
   flex: 1 1 auto;
   width: 100%;
   min-width: 40px;
-  height: 27px;
-  padding: 2px 7px;
+  height: 24px;
+  padding: 1px 6px;
   border: 1px solid var(--d2d-border);
   border-radius: var(--d2d-radius);
   background: var(--d2d-bg);
   color: var(--d2d-fg);
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 11px;
+  font-size: 10.5px;
 }
 .wb-resource-address input:focus {
   border-color: var(--d2d-accent);
@@ -1519,12 +1529,16 @@ mark.d2d-term {
   display: flex;
   align-items: center;
   gap: 4px;
-  margin-left: auto;
+  justify-self: end;
   -webkit-app-region: no-drag;
 }
 .wb-layout-controls button {
-  min-width: 72px;
-  padding: 3px 7px;
+  display: inline-grid;
+  width: 27px;
+  min-width: 27px;
+  height: 25px;
+  padding: 0;
+  place-items: center;
   border: 1px solid var(--d2d-border);
   border-radius: var(--d2d-radius);
   background: var(--d2d-bg);
@@ -1582,10 +1596,8 @@ mark.d2d-term {
 }
 @media (max-width: 900px) {
   .wb-layout-controls button {
-    min-width: 28px;
-    max-width: 34px;
-    overflow: hidden;
-    white-space: nowrap;
+    width: 27px;
+    min-width: 27px;
   }
 }
 
@@ -3214,6 +3226,12 @@ mark.d2d-term {
   align-items: center;
   gap: 6px;
 }
+.d2d-search-note {
+  margin: -2px 0 2px;
+  color: var(--d2d-fg-muted);
+  font-size: 10.5px;
+  line-height: 1.4;
+}
 .d2d-search-summary {
   flex: 0 0 auto;
   color: var(--d2d-fg-muted);
@@ -3285,4 +3303,165 @@ mark.d2d-term {
 .d2d-favorite-row input {
   min-width: 0;
   width: 100%;
+}
+
+/* ③中間データのstructure_json構成アウトライン（MID-003、UI-012）。 */
+.intermediate-structure-outline {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 4px 0;
+}
+.intermediate-structure-outline > button {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+  min-height: 25px;
+  border: 0;
+  background: transparent;
+  color: var(--d2d-fg);
+  text-align: left;
+  cursor: pointer;
+}
+.intermediate-structure-outline > button:hover {
+  background: var(--d2d-surface-hover);
+}
+.intermediate-structure-outline > button.active {
+  background: var(--d2d-selection-bg);
+  outline: 1px solid var(--d2d-accent);
+  outline-offset: -1px;
+}
+.intermediate-structure-outline > button > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.intermediate-outline-kind {
+  color: var(--d2d-fg-muted);
+  font-size: 10px;
+}
+
+/* Git作業ツリー／履歴のMonaco差分と項目単位表示（GIT-005/006）。 */
+.git-file-diff-link {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--d2d-fg);
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.git-file-diff-link:hover {
+  color: var(--d2d-accent);
+  text-decoration: underline;
+}
+.git-commit-row {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  gap: 6px;
+  align-items: center;
+}
+.git-commit-row > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.git-working-diff {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  height: 100%;
+}
+.git-working-diff > header,
+.git-semantic-diff main > header {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--d2d-border);
+}
+.git-semantic-diff {
+  display: grid;
+  grid-template-columns: minmax(240px, 32%) minmax(0, 1fr);
+  height: 100%;
+}
+.git-semantic-diff > aside {
+  overflow: auto;
+  padding: 8px;
+  border-right: 1px solid var(--d2d-border);
+}
+.git-semantic-diff > aside h1 {
+  margin: 0;
+  font-size: 14px;
+}
+.git-semantic-diff > aside p {
+  margin: 4px 0 8px;
+  color: var(--d2d-fg-muted);
+  font-size: 11px;
+}
+.git-semantic-diff details > summary {
+  position: sticky;
+  top: 0;
+  padding: 4px;
+  background: var(--d2d-surface-raised);
+  cursor: pointer;
+}
+.git-semantic-diff details > button {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  width: 100%;
+  gap: 3px 6px;
+  padding: 5px;
+  border: 0;
+  border-bottom: 1px solid var(--d2d-border);
+  background: transparent;
+  color: var(--d2d-fg);
+  text-align: left;
+  cursor: pointer;
+}
+.git-semantic-diff details > button.active {
+  background: var(--d2d-selection-bg);
+  outline: 1px solid var(--d2d-accent);
+  outline-offset: -1px;
+}
+.git-semantic-diff details > button > span:last-child {
+  grid-column: 2;
+  overflow: hidden;
+  color: var(--d2d-fg-muted);
+  font-size: 10.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.git-change-status {
+  grid-row: 1 / span 2;
+  align-self: start;
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 10px;
+}
+.git-change-status.is-追加 {
+  background: color-mix(in srgb, var(--d2d-success) 22%, transparent);
+}
+.git-change-status.is-削除 {
+  background: color-mix(in srgb, var(--d2d-error) 22%, transparent);
+}
+.git-change-status.is-変更,
+.git-change-status.is-ファイル変更 {
+  background: color-mix(in srgb, var(--d2d-warning) 22%, transparent);
+}
+.git-semantic-diff > main {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+}
+.git-semantic-diff main > header {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+.git-semantic-diff main > header span {
+  color: var(--d2d-fg-muted);
+  font-size: 11px;
 }
