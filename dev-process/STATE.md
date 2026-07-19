@@ -63,6 +63,7 @@
 | P5-18                | Word抽出情報プレビュー: Run書式、リスト、図形・グループ・コネクタ、Story・フィールド、コメント・変更履歴を保存情報に基づいて表示（Unit 246／pytest 16／E2E 25）                           | 27bdb3a         |
 | 保守改善             | API型安全化（メソッドunion＋契約マップ＋同期テスト）、集計取得コアレス化、テーマ読込のgetAll集約、再読込時レイアウト復元、ABI切替自動化、STATE.md仕様移管（Unit 250／E2E 27）             | 65d9713         |
 | P14-5                | パッケージング・配布: runtime-paths同梱解決、PyInstaller spec、electron-builder（NSIS+extraResources）、prepare-dist検査、PlantUML/MeCab同梱既定化（Unit 257／E2E 27）                    | d090ba0         |
+| UI点検対応           | Editorタブ種別アイコン・ピンhover化、件数バッジ・トグル・空状態の意匠統一、Panelタブ日本語化、Status Bar整理（Unit 257／E2E 27）                                                          | 8cf4730         |
 
 ## 恒久制約（違反するとビルド/実行が壊れる、または設計方針違反）
 
