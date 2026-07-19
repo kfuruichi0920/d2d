@@ -1,5 +1,7 @@
 # Word抽出機能 高度化分析結果
 
+> **位置づけ**: 本書は 2026-07-19 時点の分析メモ（アーカイブ）であり、設計の正本ではない。正本は `sdd_word_extraction.md` と実装を参照。
+
 ## 現行分析
 
 現行コードを確認した結果、D2Dの従来実装は `python-docx` を直接使用せず、Python標準の `zipfile` と `xml.etree.ElementTree` でOOXMLを解析していた。この既存経路を維持して拡張した。

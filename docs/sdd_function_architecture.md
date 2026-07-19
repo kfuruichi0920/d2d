@@ -1,5 +1,7 @@
 # 機能構成詳細設計書
 
+> **実装準拠状態（2026-07-20 整理）**: 本書は現在の実装を正として整理済み。実装が存在しない記述には【未適用】を付す。無印の記述は実装済み・実装準拠。
+
 ## 1. 位置づけ
 
 本書は、D2D の機能種別、機能間のデータ流れ、呼び出し関係、イベント連携を定義する。
@@ -31,6 +33,8 @@ Electron 実装上の実行責務は以下の通り分離する。
 > **初期実装方針（2026-07確定）**: Local Backend は初回から Electron Main とは別プロセスとして起動する。Electron Main は Renderer IPC、OS統合、Local Backend の起動・停止・接続監視に限定し、DB操作、文書解析、LLM通信、PlantUML実行、MeCab前処理、DB to Text生成などの業務ロジックを直接実装しない。
 
 API は細かいレコード取得を大量に呼ぶ形にしない。`importDocument(filePath)`、`searchElements(query, paging, sort)`、`getTraceSubgraph(elementId, depth, filters)`、`generateDesignCandidates(chunkId, promptTemplateId, modelSettings)`、`reviewCandidateSet(llmRunId, decisions)`、`renderPlantUml(sourceId or textHash)`、`getTableViewport(tableId, range, filters)`、`exportReport(reportId, format)` のように、ユーザー操作単位または表示単位でまとめる。`readLine(filePath, lineNo)`、`getCell(row, col)`、`getNode(nodeId)` / `getEdge(edgeId)` の大量反復呼び出しは禁止する。
+
+> **実装補足（型付き契約）**: Renderer からの API 呼び出しは `src/types/api-methods.ts` のメソッド名 union（backend/api の `router.register` 一覧と `backend/api/api-methods-sync.test.ts` で同期検証）で制約し、利用頻度の高いメソッドは `src/types/api-contract.ts` の params / result 契約マップで型検査する。
 
 ### 2.2 Electron セキュリティ設定
 
@@ -735,7 +739,7 @@ SRSでいう「文書構造データ」は、実装上は `extracted_document.st
 | ページ相当位置 | `lastRenderedPageBreak` や page break を原本位置の補助として扱い、Wordのページ概念がレンダリング依存であることを前提にする |
 | Markdown | レビュー表示用とLLM入力用クリーンMarkdownを分け、アンカーやページ表示の有無を切り替え可能にする |
 
-### 11.4 PowerPoint抽出ワーカーの出力契約
+### 11.4 PowerPoint抽出ワーカーの出力契約【未適用（P5-8）】
 
 PowerPoint抽出ワーカーは `command = "extract.powerpoint"` を受け取り、入力 `.pptx` と抽出設定から、次の情報を含む `result.output` または `output_ref` を返す。
 
@@ -796,7 +800,7 @@ PowerPoint抽出の `extracted_document.structure_json` は、少なくとも次
 | 画像・overview | PPTX内の原画像とスライド全体overview PNGを分ける。overview PNGはLLM Visionやレビュー補助向けの派生成果物である |
 | ZIP出力 | Markdown、構造JSON、media等のZIP相当出力は再生成可能な派生成果物として扱い、D2Dの正本配置やmanifest方針を上書きしない |
 
-### 11.5 PDF抽出ワーカーの出力契約
+### 11.5 PDF抽出ワーカーの出力契約【未適用（P5-10）】
 
 PDF抽出ワーカーは `command = "extract.pdf"` を受け取り、入力 `.pdf` と抽出設定から、次の情報を含む `result.output` または `output_ref` を返す。
 
