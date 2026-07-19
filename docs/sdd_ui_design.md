@@ -845,3 +845,73 @@ Secondary Side BarのProperties、Relations、Review、Dictionaryは定義順で
 プレビューは承認済み参照と候補参照を実線／破線で識別し、hoverでUID、ID、名称、定義、関係種別、状態をTooltip表示する。クリックで用語集または参照Resourceへ遷移する。各参照の表示方法はリンクのみ、文字列、ID、UIDを選択できるが、内部の `target_uid` は表示方法から独立して保持する。
 
 構造化データは `schemaVersion=1`、`originalText`、`displayText`、`policy`、`references[]` のJSONとして直接編集できる。検証成功まではフォームへ反映せず、Resource保存前にも再検証する。モデル参照の承認時は関係種別を選択できるが、自動既定は `relates_to` とし、強い意味関係は明示承認と `relation_rule_master` 検証を必須とする。LLMによる未登録用語抽出は既存の外部送信許可・マスキング・ジョブログを経由し、結果を辞書へ自動登録しない。
+
+---
+
+## 付録A: 実装確定済み UI・操作仕様（STATE.md から移管）
+
+実装フェーズで確定した UI・操作仕様の正本。`dev-process/STATE.md` の恒久制約から 2026-07-19 に移管した。
+本付録の仕様は本文（§1〜§17）と同格であり、変更する場合は対応する実装・E2E とあわせて更新する。
+
+### A.1 Workbench 外周・テーマ・共通操作
+
+- Workbench の文字サイズはツール全体設定 `theme.fontSize`（10〜20px、既定13px）で管理し、通常UIとMonacoへ即時反映する。
+- Workbench全体の表示倍率は50〜200%で保持し、Ctrl/Cmd+±、Ctrl/Cmd+0、Ctrl/Cmd+ホイールをブラウザと同様の拡大・縮小・リセットへ割り当てる。縮小時は表示対象の論理viewport寸法を倍率の逆数で補正し、右端・下端に未使用余白を生じさせない。
+- Workbench共通カラーは `theme.customColors` で背景、サーフェス、文字、補助文字、境界、アクセント、選択、ボタン背景・文字・境界を個別上書きする。未設定または設定解除時は選択中の表示モード、カラーテーマ、system時のOSテーマから求めた既定色へ戻す。
+- Primary／Secondary／下段パネルの表示・寸法とSecondaryアコーディオン開閉はWorkbench外周状態として1組だけ保持し、作業モード／①〜④ステージを切り替えても変更しない。再帰的なEditor分割木・分割比・タブ配置はプロジェクト単位（未選択時はglobal）でlocalStorageへ保持する。各境界はポインタと矢印キーで変更でき、領域内の表示超過は必要時だけ縦横スクロールする。
+- SecondaryはWorkbench全体で共通のProperties／Relations／Review／Dictionaryを独立開閉できる縦アコーディオンとする。Propertiesは共通Selectionの選択アイテム属性、Relationsは当該UIDを端点とする`trace_link`の関係種別・相対方向・相手、Reviewはコメントを表示する。コメントは`resource_text(text_role='comment')`として保存し、コメント→選択アイテムの`relates_to`を同一トランザクションで作る。EvidenceはRelationsへ、LLM Candidatesは候補Editor／下段Panelへ集約する。Editorタブは最大220pxで省略表示し、収まらない場合は複数段へ折り返す。タブは分割区分へのドラッグ＆ドロップまたはコマンドで移動する。
+- Primary／Secondary／下段PanelはTitle Bar右側ボタンとCommandの双方から表示切替する。Activity Barは44px幅、各Activityは36pxのアイコンのみで表示し、名称はTooltip／アクセシブル名で提供する。Settingsを下端固定し、それ以外のDnD順序をプロジェクト単位に保存する。選択ActivityはPrimary非表示時も選択色を維持する。保存レイアウトがないプロジェクトへ切り替えた場合は、直前プロジェクトの状態を持ち越さずM0既定値へ初期化する。
+- Primary ActivityはExplorer／Search／Trace／Reports／History／Settingsで構成する。Reviewは各編集画面とSecondary、Jobsは下段PanelとStatus Barに集約し、Primary Activityへ戻さない。旧永続値のreview／jobsは読込時にExplorerへ正規化する。
+- 上部メニューバーは戻る／進む／更新／ホーム｜件数付きの①～④と抽出▶／統合▶／モデル化▶、分析、用語集｜可変幅Resourceアドレスバー、お気に入り｜画面内検索の固定順で表示する。変換表記は他のボタン文字より1px小さくする。Title Bar左端はD2Dだけとし、中央にCommand Palette、右端にPrimary／Secondary／Panelの操作を配置する。Workbench全体の操作ボタンを一律レスポンシブ化しない。Title BarのPrimary／Secondary／Panelはアイコンのみとし、操作が密集する抽出／中間編集だけは重複しない明示アイコン＋文字列を通常表示し、狭幅時にアイコン中心へ切り替えてTooltip／アクセシブル名を維持する。①～④・分析・用語集は境界と背景を持つ同一ボタン意匠とし、メニューバー自身は横スクロールさせず、左側ボタンを縮小せずアドレス入力だけを画面幅へ追従させる。戻る／進むはAlt+左右矢印とマウスbutton 3/4を同じResource履歴へ接続し、更新はアクティブEditorを再読込、ホームはダッシュボードを開く。お気に入りはURIと変更可能な表示名をプロジェクト単位でlocalStorageへ保存しExplorerへ表示する。
+- Workbench内文字検索は `Ctrl/Cmd+F` の共通検索UIで提供する。文書プレビューのパーツ種別・セクション・要素ID表示は共通 `DocumentPreviewMeta` で切替・ツール全体保存し、抽出形式固有の表示判定を各Editorへ埋め込まない。
+- Workbenchの全操作ボタンは個別の詳細`title`を優先し、未設定時は共通Tooltip保証でアクセシブル名から操作説明を補う。画面内検索はCtrl/Cmd+Fに加えてTitle Barの常時表示ボタンから開く。
+- プロジェクト未選択時のウェルカムは、自然言語の「文書」とオントロジーへ写像した「データ」の定義を示す。操作フロー、データスキーマ、SRS 9章の設計モデルは `help://workflow`／`help://schema`／`help://design-model` の読取専用Resourceとして通常のEditorタブへ開く。
+- SecondaryのProperties／Relations／Review／Dictionaryは開閉状態にかかわらずこの定義順を維持し、閉じても並べ替えない。Relationsは相手エンティティから `resource://`／`original://`／`extracted://`／`intermediate://`／`chunk://` の編集URIを解決し、クリックまたはEnter／Spaceで開く。
+- ショートカットは Command 定義の既定値を `d2d.keybindings.overrides`（localStorage、ツール全体）で上書きする。照合・表示は必ず `resolveKeybinding()` を通し、`def.keybinding` を直接参照しない。カスタマイズUIはツール設定内（`KeybindingSettingsSection`）。エディタと下Panelの同方向タブ移動には同一キーを設定でき、最後に選択したタブ領域を判定してその領域だけを移動する。入力欄フォーカス中は Ctrl/Alt 修飾付きのみ有効で、`skipInEditable: true` の Command（edit.undo/redo）は入力欄内で無効。
+- アプリケーションメニューは Title Bar 右端のハンバーガー（Alt+M、`menu.toggle`）から開く。項目は Command 定義から解決し（`AppMenu.tsx` の MENU_GROUPS）、新 Command 追加時は必要に応じてグループへ登録する。右クリックメニューは共通 `showContextMenu(event, items)`＋`ContextMenuHost`（WorkbenchShell 直下）を使い、画面独自のメニューDOMを実装しない。
+- ボタンに加えて input／select／textarea も `GlobalButtonTooltips` が Tooltip を保証する。明示 `title`（説明＋例）を最優先し、未設定時は label／aria-label／placeholder から補完する。
+- Editor の表示Resource遷移は `navigation-history` が記録し、`nav.back`／`nav.forward`（Alt+←／Alt+→）で行き来する。閉じたタブは同一URI・タイトルで開き直す。履歴はメモリのみで、プロジェクト切替時に破棄する。
+- モーダルダイアログの Escape クローズは共通フック `useEscapeToClose(active, onClose)` を使う（document capture + スタックで最前面だけを閉じる）。ダイアログ要素個別の onKeyDown で Escape を実装しない。
+- トースト通知はすべて自動消去（info/warning 5秒、error はその3倍の15秒）。通知は `logs-store`（動作ログ、最大500件）へ記録され、Panel Output タブの「動作ログ」で参照する。あわせて `log.append` でデバッグログファイルにも残す。
+
+### A.2 Explorer・Pipeline Navigator・Search
+
+- SearchのMeCab未使用時はNFKC正規化したFTS結果と全文部分一致結果を常に併合する。FTSが1件以上返した場合もLIKE結果を省略しない。MeCab使用時は形態素解析により時間がかかる場合がある旨をSearch Activityへ表示する。
+- Pipeline Navigatorは `①原本-(抽出)->②抽出-(統合)->③中間-(モデル化)->④モデル`、分析、用語集、Resourceアドレスバーを固定順で表示する。選択表示はactiveなステージURIだけを基準とし、①〜④を排他的に表示する。分析は全抽出／全中間／全モデルの3列で汎用インパクト分析を開く。アドレスバーは既知URIだけを受理し、不正時は通知して遷移しない。Status Barには作業モード名とResource URIを表示しない。①〜④の一覧行は薄青背景で選択を示し、上下矢印で選択行を移動、Enter／Spaceでクリックと同じ操作を実行する。④モデルは単一クリックで開く。①〜③の一覧／プレビュー境界は共通 `ResizablePaneGroup` で変更する。
+- Explorer未確定Badgeは文書状態ではなく要素単位で集計し、extracted_itemはresource_uid、intermediate_itemはitem uidに対応するentity_registry.statusがapproved／deleted以外の件数を表示する。削除済みを除く子要素が1件以上かつ全件approvedの場合だけ抽出／中間文書もapprovedとし、それ以外はdraftへ同期する。
+- Explorerはプロジェクト名をルートとするVS Code風の単一Treeとし、①〜④、③のフェーズ階層、成果物配下の統合元を折りたためる。上下矢印で表示ノードを移動し、右矢印で展開、左矢印で折畳または親へ移動する。プロジェクト行に全展開／全折畳を置き、文字強調はプロジェクト行だけとする。原本・抽出・中間・設計モデル・統合元はResource種別別ファイル系アイコンを名称左へ、状態・形式・分類・件数タグを名称右へ表示する。③成果物は「成果物」Badgeを表示せず、レビュー状態・未確定数・要素数を表示し、統合元0件の代替行は表示しない。Explorerには常設の取込・名称変更・チャンク・モデル追加ボタンを置かないが、右クリックは①原本フォルダの「取込」、③中間フォルダの「中間データへ取込」、③成果物の取込先初期選択済み「取込」だけを提供し、②抽出フォルダには提供しない。Pipeline Navigatorの各ステージはEditor Areaにソート可能な一覧を開き、①は一覧上部の取込からWindows複数ファイル選択を直接開く読取専用詳細、②は独自プレビューとExplorer選択案内、③は一覧上部の取込とフェーズ－成果物階層、④はモデル一覧と追加操作を表示する。原本はファイルごとに独立した `import.source` Jobへ登録する（実行はJob Managerの直列制約を維持）。
+- ①原本はPipeline NavigatorとExplorerのどちらから選択しても「OSアプリで開く」と「②抽出データの生成（抽出ジョブ実行）」を表示する。`source_document.uid`を参照する`extracted_document`が存在する場合は抽出実行を無効表示し、Backendも重複実行を拒否する。
+- Search Activityの検索結果は検索ボタン直下へResource種別ごとの折畳Treeで表示し、10件以下を初期展開、10件超を初期折畳とする。上下キーは選択移動とEditorプレビュー、左右キーはグループ折畳／展開へ割り当て、選択結果が表示範囲外なら検索結果リストを最小量スクロールして追従する。原本／抽出文書／中間文書の検索種別は配下itemのResource本文もFTS対象とし、結果は対象文書を開いてitem UIDまたはresource UIDで該当要素を選択・スクロールする。下段PanelにSearch Resultsタブは置かない。
+- Explorer の③成果物は有効状態かつ `artifact.dev_phase_id === phase.dev_phase_id` の設定を②取込前から表示し、未所属成果物は表示しない。フェーズと成果物は種別ラベル・境界・背景で区別し、成果物選択時に対応する③がなければ統合元なしの空③を作成して編集画面を開く。
+- Explorer の②抽出データ行に③への統合ボタンを置かず、③ステージ一覧上部の `取込` から、取込先成果物を排他的に1件、レビュー状態を問わない②を複数選択する。既存成果物を選ぶと `structure_json.sources` の関係を初期チェックへ復元し、保存時は文書単位 `based_on` と同期する。③ステージは成果物配下に取込元②を表示し、未使用の取込元を同画面から削除できる。統合済み要素の由来となる②は、対応する成果物要素を削除するまで取込元から外せない。チャンク操作は中間文書Editor上部のモード切替から開く。
+
+### A.3 ステージ一覧・プレビュー・編集画面
+
+- ストア閲覧はCOUNTによる総件数と500件単位の追加読込で全件到達可能にし、固定件数で打ち切らない。表は行番号・縦横スクロール・薄青選択・上下キー移動を備え、選択行を共通Selectionへ通知する。
+- ③編集の移動は連続した intermediate_item 選択のみ許可し、Ctrlによる歯抜け選択は拒否する。
+- ②プレビューと③の3ペインは必要時だけ縦横スクロールを表示し、3ペイン選択は対応要素を相互強調する。
+- ②抽出と③中間のプレビューは右寄せした「文書プレビュー」／`structure_json`ボタンで切り替える。`structure_json`はアウトラインへ置換せず、DBのJSON文字列をBackendで解析した元のキー・値Treeとして表示する。③成果物一覧はitemの表示順とlevelから、直前にある最寄りの低level要素を親とするアウトラインTreeへ切替でき、折畳状態は文書プレビューの表示要素にも連動する。プレビューは上下矢印で前後項目へ選択・フォーカスを移動できる。プレビューで項目を選択した場合は成果物一覧の選択に加え、明示的なscroll版数更新時だけ対象行を一覧中央へスクロールする。表側の通常クリックでは中央scrollを発火させず、ダブルクリック対象が途中で入れ替わらないようにする。
+- チャンク編集の成果物ペインは状態・ID・種別・内容・小節・選択を表示し、中間編集と同じ階層/種別表現にする。チャンクは表形式で、追加プロンプトはチャンク行選択後の上部「編集」から変更する。プレビューは見出し階層・表・図を表示する。チャンクはsort_order順に表示し、新規作成は末尾、上下移動ではIDを変更しない。
+- 中間データ取込編集・単独編集・チャンク編集の成果物一覧は、クリックした行をアンカーとしてShift+上下矢印で現在表示順の連続範囲を拡張・縮小する。チャンクは未確認行を飛ばし、確認済み行だけを範囲へ含める。
+- ②抽出・③中間・チャンク編集の選択行は `--d2d-selection-bg` の薄青背景、`based_on` 対応行は warning 22% mix の黄色背景で統一する。チャンク表も共通の罫線・角丸を使い、太い選択枠を独自実装しない。
+- ②抽出（2ペイン）、③取込（3ペイン）／単独（2ペイン）、チャンク（3ペイン）、Resource編集（2ペイン）の内部境界は共通 `ResizablePaneGroup` を使用する。隣接ペインの合計比率と最小120pxを守り、ポインタドラッグと矢印キーの両方で変更する。チャンク表は横罫線のみとし、状態Badgeは折り返さない。
+- 中間文書エディタは同一Resource内で「中間データ取込編集画面」（統合元／成果物／プレビューの3ペイン）、「中間データ単独編集画面」（成果物／プレビューの2ペイン）、「チャンク編集画面」（成果物／チャンク／プレビューの3ペイン）を切り替える。ヘッダーは文書の自由名称ではなくプロジェクト成果物名を表示する。成果物要素の追加・複製・削除・編集は取込／単独画面共通で、ダブルクリックまたはSpace／Enterから編集を開く。
+- 中間要素から開くResource Editorは左を抽出由来（読取専用）または画面追加Resource（編集可能）、右を保存候補とする。通常/LLMマージは右フォームを更新するだけで、明示保存まではDBを変更しない。LLMマージは既存Provider・外部送信可否・マスキングを経由し、保存時は `llm_run_uid` と `llm-merge` を由来へ記録する。
+- Editorタブはタブ上のピン操作またはコンテキストメニューで固定／解除し、固定状態をプロジェクト別レイアウトへ保存する。Resource編集はモーダルからEditor Areaへ統合でき、Resourceアドレスをコピーできる。各テキスト欄のセマンティック編集はモーダルに限定し、Editor Areaへ統合しない。
+- セマンティック編集は左にMonaco Markdown編集／用語候補／用語候補(LLM)、右に複数行プレビュー／構造化データ／校正・正規化(LLM)差分を置く。入力補完はCtrl+Spaceとし、LLM子ダイアログ表示中のEscapeは最前面の子だけを閉じる。MonacoはElectronのIME・Playwright入力互換性のため`editContext: false`を指定する。
+
+### A.4 Git UI・LLM 実行ダイアログ
+
+- Git UIは状態確認、選択ファイルのステージ／解除、コミット、ローカルブランチ作成／切替、履歴・diff参照を提供する。変更ファイル名はHEAD対作業ツリーのMonaco Diffを開く。履歴は1件選択で当該履歴対最新、2件選択で選択した新旧履歴を比較し、DB to Text JSONLをテーブル／UID／code／title／entity_type／変更フィールド単位の追加・削除・変更として表示する。コミット直前にDB to TextとSQLite dumpを再生成し、`exports/db_to_text/`と`exports/sqlite_dump/`を必ずステージする。project.dbやblobを自動ステージせず、ユーザが既にステージした変更は維持する。
+- 画面上のLLM実行（接続テスト、④候補生成、Resourceマージ、セマンティック用語候補、ログ再実行）は共通 `LlmRequestDialog` で用途別テンプレートを選択・実行時編集・新版保存し、`llm.preview` で送信先、モデル、マスキング後の全メッセージを表示する。明示承認後だけ `llm.runConfirmed` からジョブ登録し、選択した `prompt_template.uid` を実行ログへ保持する。
+
+### A.5 トレースマトリクス・インパクト分析
+
+- 汎用分析の全抽出／全中間／全設計モデルは `all:extracted`／`all:intermediate`／`all:design` の集約scopeで解決し、文書別scopeの多重選択に依存しない。
+- 汎用トレースマトリクスの軸は、設計分類、②抽出文書、③中間文書、Resource種別のスコープを複数選択してResource集合を構成する。③中間文書は`intermediate_item`を束ねる表示スコープであり、文書自体をセル要素として扱わない。
+- 大きなマトリクスは表領域だけをスクロールし、行・列見出しをsticky表示する。アクティブセルの十字強調、関係を持つ見出しの強調、ResourceプロパティTooltip、60〜160%の表示倍率を共通Editorで提供する。
+- 汎用インパクト分析は固有URI `trace://list-link/<view-id>`で開き、設計分類、②抽出文書、③中間文書、Resource種別のスコープを各列へ複数配置する。列は最大8、1列1000項目、表示中の全列組合せリンクは全体5000件を上限とし、上限到達を画面へ明示する。トレースマトリクスも`trace://matrix/<row>/<col>/<view-id>`で開き、両EditorはTrace Side Barから同種の別タブを複数作成できる。
+- インパクト分析は選択項目を起点に、表示中の全列組合せの`trace_link`を双方向BFSで辿って全列の到達項目とリンクを強調する。関連項目限定表示では起点列の全項目を維持し、他列を到達項目とその祖先だけへ絞る。DB正本は変更しない。
+- ②・③の階層は`structure_json.elements`の文書順・見出しlevel・list levelから派生し、折畳中の子リンクは最寄りの表示中祖先へ集約する。項目・リンクは台帳プロパティTooltipを表示する。
+- インパクト分析の各列は独立縦スクロールとし、列scroll／横viewport scrollに追従するリンク再計測を`requestAnimationFrame`で1フレームへ集約する。表示領域と160px overscan内に端点を持つリンクだけをSVG描画し、画面外端点は各列の表示端へクランプする。リンク表示OFF時は再計測とSVG描画を停止する。
+- インパクト分析の項目クリック／上下キー／Shift+上下キーはWorkbench共通Selectionへアクティブ項目を通知する。列順・列スコープ・列間隔・関係種別・リンク表示状態の名前付き構成は`d2d.trace-impact.configurations.<project-key>`のlocalStorageへ複数保存し、正本DBへは保存しない。列順は見出しDnDで変更する。見出しの間隔ハンドルは直前列との間隔を24〜320pxで調整し、その列以降の外側列を同じ差分だけ連動移動する。

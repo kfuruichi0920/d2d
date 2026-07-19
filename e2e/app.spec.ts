@@ -2337,6 +2337,45 @@ test('LLMログの生送受信表示と候補再作成（W12）', async () => {
     .toBe(0)
 })
 
+test('トースト通知の自動消去（W11、info 5秒）', async () => {
+  // ①ステージ一覧のアーカイブ操作で info トーストを発生させる
+  await page.getByTestId('stage-source').click()
+  const row = page.getByTestId('stage-source-row-DOC-000002')
+  await expect(row).toBeVisible()
+  await row.getByRole('button', { name: 'アーカイブ' }).click()
+  const notifications = page.getByTestId('notifications')
+  await expect(notifications).toContainText('アーカイブしました')
+  // info トーストは5秒で自動消去される（jobs-store の TOAST_DISMISS_MS）
+  await expect(notifications).not.toContainText('アーカイブしました', { timeout: 7_000 })
+  // 後続テストへ影響しないよう表示状態を元へ戻す
+  await row.getByRole('button', { name: '解除' }).click()
+  await expect(row.getByRole('button', { name: 'アーカイブ' })).toBeVisible()
+})
+
+test('Workbenchレイアウトの永続化（UI-041、Primary幅の再読込復元）', async () => {
+  // Primary Side Bar を表示し、リサイズ境界の矢印キー操作で幅を変更する
+  if (
+    !(await page
+      .getByTestId('primary-sidebar')
+      .isVisible()
+      .catch(() => false))
+  ) {
+    await page.getByTestId('activity-explorer').click()
+  }
+  const handle = page.getByTestId('primary-resize-handle')
+  await handle.focus()
+  for (let i = 0; i < 3; i++) await page.keyboard.press('ArrowRight')
+  const width = await page.locator('.wb-primary-slot').evaluate((el) => (el as HTMLElement).style.width)
+
+  // 再読込後、プロジェクト単位の保存レイアウト（localStorage）から同じ幅を復元する
+  await page.reload()
+  await expect(page.getByTestId('workbench')).toBeVisible({ timeout: 15_000 })
+  await expect(page.getByTestId('primary-sidebar')).toBeVisible()
+  await expect
+    .poll(async () => page.locator('.wb-primary-slot').evaluate((el) => (el as HTMLElement).style.width))
+    .toBe(width)
+})
+
 test('スクリーンショットを保存する', async () => {
   await page.screenshot({ path: 'test-results/workbench.png' })
 })

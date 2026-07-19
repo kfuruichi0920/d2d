@@ -21,7 +21,7 @@ function run(label, command) {
 
 let failed = false
 const steps = [
-  ['ABI: Node（vitest 用）', 'npm rebuild better-sqlite3'],
+  ['ABI: Node（vitest 用）', 'node scripts/ensure-abi.mjs node'],
   ['型検査', 'npm run typecheck'],
   ['Lint', 'npm run lint'],
   ['フォーマット検査', 'npm run format:check'],
@@ -36,7 +36,7 @@ for (const [label, command] of steps) {
 
 if (!failed && e2e) {
   const e2eSteps = [
-    ['ABI: Electron', 'npm run rebuild:electron'],
+    ['ABI: Electron', 'node scripts/ensure-abi.mjs electron'],
     ['ビルド', 'npm run build'],
     ['E2E（Playwright）', 'npx playwright test']
   ]
@@ -47,7 +47,7 @@ if (!failed && e2e) {
     }
   }
   // 次の vitest 実行に備えて必ず Node ABI へ戻す（E2E 失敗時も）
-  run('ABI: Node へ復帰', 'npm rebuild better-sqlite3')
+  run('ABI: Node へ復帰', 'node scripts/ensure-abi.mjs node')
 }
 
 console.log('\n================ 品質ゲート結果 ================')

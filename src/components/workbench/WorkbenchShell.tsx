@@ -58,36 +58,27 @@ export function WorkbenchShell(): React.JSX.Element {
     loadPersisted('global')
     loadEditorPersisted('global')
     useFavoritesStore.getState().loadPersisted('global')
-    void Promise.all([
-      invoke<unknown>('settings.get', { key: 'theme.displayMode' }),
-      invoke<unknown>('settings.get', { key: 'theme.colorTheme' }),
-      invoke<unknown>('settings.get', { key: 'theme.fontSize' }),
-      invoke<unknown>('settings.get', { key: 'theme.customColors' })
-    ]).then(([displayModeResult, colorThemeResult, fontSizeResult, customColorsResult]) => {
+    // テーマ関連キーは settings.getAll 1回で取得する（改善対応4: 操作単位APIへの集約）
+    void invoke('settings.getAll').then((settingsResult) => {
+      if (!settingsResult.ok) return
+      const all = settingsResult.result
+      const displayMode = all['theme.displayMode']
+      const colorTheme = all['theme.colorTheme']
+      const fontSize = all['theme.fontSize']
+      const customColors = all['theme.customColors']
       const theme: Partial<ThemeState> = {}
-      if (displayModeResult.ok && DISPLAY_MODES.includes(displayModeResult.result as (typeof DISPLAY_MODES)[number])) {
-        theme.displayMode = displayModeResult.result as ThemeState['displayMode']
+      if (DISPLAY_MODES.includes(displayMode as (typeof DISPLAY_MODES)[number])) {
+        theme.displayMode = displayMode as ThemeState['displayMode']
       }
-      if (colorThemeResult.ok && COLOR_THEMES.includes(colorThemeResult.result as (typeof COLOR_THEMES)[number])) {
-        theme.colorTheme = colorThemeResult.result as ThemeState['colorTheme']
+      if (COLOR_THEMES.includes(colorTheme as (typeof COLOR_THEMES)[number])) {
+        theme.colorTheme = colorTheme as ThemeState['colorTheme']
       }
-      if (
-        fontSizeResult.ok &&
-        typeof fontSizeResult.result === 'number' &&
-        fontSizeResult.result >= 10 &&
-        fontSizeResult.result <= 20
-      ) {
-        theme.fontSize = fontSizeResult.result
+      if (typeof fontSize === 'number' && fontSize >= 10 && fontSize <= 20) {
+        theme.fontSize = fontSize
       }
-      if (
-        customColorsResult.ok &&
-        typeof customColorsResult.result === 'object' &&
-        customColorsResult.result !== null
-      ) {
+      if (typeof customColors === 'object' && customColors !== null) {
         theme.customColors = Object.fromEntries(
-          Object.entries(customColorsResult.result).filter(
-            ([, value]) => typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value)
-          )
+          Object.entries(customColors).filter(([, value]) => typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value))
         )
       }
       if (Object.keys(theme).length > 0) useWorkbenchStore.getState().setTheme(theme)
@@ -142,11 +133,24 @@ export function WorkbenchShell(): React.JSX.Element {
           'relation.updated'
         ].includes(event)
       ) {
-        void useProjectStore.getState().refreshStats()
+        // 取込ジョブ等でイベントが連続する場合に備え、集計取得を1回へ集約する（改善対応3）
+        useProjectStore.getState().requestStatsRefresh()
       }
     })
 
-    void useProjectStore.getState().refresh()
+    // 起動・再読込時は project.opened イベントが再発火しないため、
+    // プロジェクト復元後にプロジェクト単位の保存レイアウトを明示的に読み込む（UI-041）
+    void useProjectStore
+      .getState()
+      .refresh()
+      .then(() => {
+        const info = useProjectStore.getState().project
+        if (info) {
+          useWorkbenchStore.getState().loadPersisted(info.projectUid)
+          useEditorStore.getState().loadPersisted(info.projectUid)
+          useFavoritesStore.getState().loadPersisted(info.projectUid)
+        }
+      })
     void useJobsStore.getState().refresh()
 
     return () => {

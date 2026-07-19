@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ColumnDef } from '@tanstack/react-table'
 import { invoke, onBackendEvent } from '../../services/backend'
+import type { ApiMethod } from '../../types/api-methods'
 import { moveKeyboardRangeSelection } from '../../utils/keyboard-range-selection'
 import { useJobsStore } from '../../stores/jobs-store'
 import { useProjectStore } from '../../stores/project-store'
@@ -327,7 +328,11 @@ export function IntermediateDocumentEditor({
     await call('intermediate.changeHierarchy', { elementIds: [...selectedIds], delta }, '階層を更新しました')
   }
 
-  const call = async (method: string, params: Record<string, unknown>, successMessage?: string): Promise<boolean> => {
+  const call = async (
+    method: ApiMethod,
+    params: Record<string, unknown>,
+    successMessage?: string
+  ): Promise<boolean> => {
     const res = await invoke(method, { uid, ...params })
     if (res.ok) {
       if (successMessage) notify('info', successMessage)
