@@ -158,7 +158,7 @@ export function PipelineNavigator(): React.JSX.Element {
           value={address}
           data-testid="resource-address"
           aria-label="現在のResourceアドレス"
-          title="現在のResource URI。Alt+Gで移動し、既知のURIを入力してEnterで開きます（例: resource://<uid>）"
+          title="現在のResource URI。Alt+Dで移動し、既知のURIを入力してEnterで開きます（例: resource://<uid>）"
           placeholder="resource://..."
           onChange={(event) => setAddress(event.target.value)}
           onKeyDown={(event) => {

@@ -1,8 +1,11 @@
-/** Title Bar（P3-1、UI-041）。Command入口と外周パネルの表示切替を右側へ集約する。 */
+/** Title Bar（P3-1、UI-041/059）。Command入口と外周パネルの表示切替を右側へ集約する。 */
+import { APP_VERSION } from '../../config/app-config'
+import { useProjectStore } from '../../stores/project-store'
 import { useWorkbenchStore } from '../../stores/workbench-store'
 import { AppMenu } from './AppMenu'
 
 export function TitleBar(): React.JSX.Element {
+  const project = useProjectStore((state) => state.project)
   const setPaletteOpen = useWorkbenchStore((state) => state.setPaletteOpen)
   const sideBarVisible = useWorkbenchStore((state) => state.sideBarVisible)
   const secondaryVisible = useWorkbenchStore((state) => state.secondaryVisible)
@@ -13,7 +16,15 @@ export function TitleBar(): React.JSX.Element {
 
   return (
     <header className="wb-titlebar">
-      <span className="wb-app-name">D2D</span>
+      <span className="wb-brand" data-testid="title-brand">
+        <span className="wb-app-name">D2D</span>
+        <span className="wb-version" data-testid="title-app-version">
+          v{APP_VERSION}
+        </span>
+        <span className="wb-schema-version" data-testid="title-schema-version">
+          schema {project?.schemaVersion ?? '—'}
+        </span>
+      </span>
       <button
         type="button"
         className="wb-command-center"

@@ -47,6 +47,7 @@ interface EditorState {
   closeTab(uri: string, groupId?: number): void
   activateTab(uri: string, groupId: number): void
   activateGroup(groupId: number): void
+  activateGroupAt(index: number): void
   pinTab(uri: string): void
   togglePinTab(uri: string): void
   setDirty(uri: string, dirty: boolean): void
@@ -189,6 +190,12 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const group = get().groups.find((candidate) => candidate.id === groupId)
     if (!group || group.id === get().activeGroupId) return
     commit(set, get, { activeGroupId: group.id, activeUri: group.activeUri })
+  },
+
+  activateGroupAt: (index) => {
+    if (!Number.isInteger(index) || index < 0) return
+    const groupId = groupOrder(get().layout)[index]
+    if (groupId !== undefined) get().activateGroup(groupId)
   },
 
   pinTab: (uri) => {

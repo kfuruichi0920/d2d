@@ -248,9 +248,21 @@
 .wb-titlebar .wb-command-center {
   -webkit-app-region: no-drag;
 }
+.wb-titlebar .wb-brand {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  min-width: 0;
+  white-space: nowrap;
+}
 .wb-titlebar .wb-app-name {
   font-weight: 700;
   color: var(--d2d-accent);
+}
+.wb-titlebar .wb-version,
+.wb-titlebar .wb-schema-version {
+  color: var(--d2d-fg-muted);
+  font-size: 10.5px;
 }
 .wb-command-center {
   width: 100%;
@@ -614,13 +626,30 @@
   display: flex;
   align-items: center;
   gap: 4px;
+  min-width: max-content;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
   cursor: default;
+}
+.wb-statusbar .item svg {
+  flex: 0 0 auto;
+}
+.wb-statusbar .status-llm-group {
+  display: contents;
 }
 .wb-statusbar .item.status-failed {
   color: color-mix(in srgb, var(--d2d-error) 60%, var(--d2d-fg));
 }
 .wb-statusbar .item.clickable {
   cursor: pointer;
+}
+.wb-statusbar .item.clickable:hover,
+.wb-statusbar .item.clickable:focus-visible {
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 .wb-statusbar .spacer {
   flex: 1;
