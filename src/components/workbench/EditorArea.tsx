@@ -34,10 +34,16 @@ import { ReportPreviewEditor } from '../views/ReportViews'
 import { ResourceEditorPage } from '../editors/ResourceEditor'
 import { PipelineStageEditor, type PipelineStage } from '../editors/PipelineStageEditor'
 import { ResizeHandle } from './ResizeHandle'
+import { ResourceAddressListEditor, type ListableResourceScheme } from '../editors/ResourceAddressListEditor'
+import { EmptyEditor } from '../editors/EmptyEditor'
+import { openEmptyTab } from '../../services/empty-tab'
 
 const TAB_DRAG_TYPE = 'application/x-d2d-editor-tab'
 
 function resolveEditor(uri: string): React.JSX.Element {
+  if (uri.startsWith('empty://')) return <EmptyEditor />
+  const addressList = /^(original|extracted|intermediate|chunk|candidate|design|resource):\/\/$/.exec(uri)
+  if (addressList) return <ResourceAddressListEditor scheme={addressList[1] as ListableResourceScheme} />
   if (uri.startsWith('help://')) return <HelpEditor topic={uri.slice('help://'.length) as HelpTopic} />
   if (uri === 'project://current') return <DashboardEditor />
   if (uri.startsWith('stage://')) return <PipelineStageEditor stage={uri.slice('stage://'.length) as PipelineStage} />
@@ -136,6 +142,9 @@ function LayoutNodeView({ node }: { node: EditorLayoutNode }): React.JSX.Element
 
 function GroupView({ group }: { group: EditorGroup }): React.JSX.Element {
   const activateTab = useEditorStore((state) => state.activateTab)
+  const activateGroup = useEditorStore((state) => state.activateGroup)
+  const activeGroupId = useEditorStore((state) => state.activeGroupId)
+  const groupCount = useEditorStore((state) => state.groups.length)
   const closeTab = useEditorStore((state) => state.closeTab)
   const pinTab = useEditorStore((state) => state.pinTab)
   const togglePinTab = useEditorStore((state) => state.togglePinTab)
@@ -158,10 +167,13 @@ function GroupView({ group }: { group: EditorGroup }): React.JSX.Element {
 
   return (
     <div
-      className="wb-editor-group"
+      className={`wb-editor-group ${groupCount > 1 && group.id === activeGroupId ? 'is-active-group' : ''}`}
       data-workbench-tab-region="editor"
       tabIndex={-1}
-      onPointerDown={(event) => event.currentTarget.focus({ preventScroll: true })}
+      onPointerDown={(event) => {
+        activateGroup(group.id)
+        event.currentTarget.focus({ preventScroll: true })
+      }}
       data-testid={'editor-group-' + group.id}
       onDragOver={(event) => event.preventDefault()}
       onDrop={acceptDrop}
@@ -238,6 +250,15 @@ function GroupView({ group }: { group: EditorGroup }): React.JSX.Element {
         <span className="wb-tab-actions">
           <button
             type="button"
+            title="新しいタブ (Ctrl+T)"
+            aria-label="新しいタブ"
+            data-testid={'editor-new-tab-' + group.id}
+            onClick={() => openEmptyTab(group.id)}
+          >
+            ＋
+          </button>
+          <button
+            type="button"
             title="左右に分割"
             aria-label="左右に分割"
             data-testid={'editor-split-horizontal-' + group.id}
@@ -258,7 +279,12 @@ function GroupView({ group }: { group: EditorGroup }): React.JSX.Element {
       </div>
       <div className="wb-editor-body">
         {activeTab ? (
-          <div key={`${activeTab.uri}:${refreshVersion}`} className="wb-editor-refresh-root">
+          <div
+            key={`${activeTab.uri}:${refreshVersion}`}
+            className="wb-editor-refresh-root"
+            data-testid="editor-refresh-root"
+            data-refresh-version={refreshVersion}
+          >
             {resolveEditor(activeTab.uri)}
           </div>
         ) : (

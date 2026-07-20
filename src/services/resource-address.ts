@@ -1,11 +1,13 @@
-/** WorkbenchアドレスバーのResource URI検証（P3-7、UI-046）。 */
+/** WorkbenchアドレスバーのResource URI検証（P3-7、UI-046/057）。 */
 const RESOURCE_ADDRESS_PATTERNS: Array<{ pattern: RegExp; title: string }> = [
   { pattern: /^project:\/\/current$/, title: 'ダッシュボード' },
   { pattern: /^stage:\/\/(source|extracted|intermediate|design)$/, title: 'ステージ一覧' },
   { pattern: /^settings:\/\/tool$/, title: 'ツール設定' },
   { pattern: /^project-settings:\/\/current$/, title: 'プロジェクト設定' },
-  { pattern: /^help:\/\/(workflow|schema|design-model)$/, title: 'ヘルプ' },
+  { pattern: /^help:\/\/(workflow|schema|design-model|addresses)$/, title: 'ヘルプ' },
+  { pattern: /^(original|extracted|intermediate|chunk|candidate|design|resource):\/\/$/, title: 'Resource一覧' },
   { pattern: /^(original|extracted|intermediate|chunk|candidate|design|resource):\/\/[^\s/]+$/, title: 'Resource' },
+  { pattern: /^empty:\/\/[^\s/]+$/, title: '新しいタブ' },
   { pattern: /^log:\/\/(job|llm)\/[^\s/]+$/, title: 'ログ' },
   { pattern: /^trace:\/\/(?:graph|matrix)\/[^\s]+$/, title: 'トレーサビリティ' },
   { pattern: /^trace:\/\/list-link(?:\/[^\s]+)?$/, title: 'トレーサビリティ' },
@@ -19,6 +21,7 @@ const RESOURCE_ADDRESS_PATTERNS: Array<{ pattern: RegExp; title: string }> = [
 export function resolveResourceAddress(input: string): { uri: string; title: string } | null {
   const uri = input.trim()
   if (!uri) return null
+  if (uri.toLowerCase() === 'help') return { uri: 'help://addresses', title: 'アドレスの使い方' }
   const matched = RESOURCE_ADDRESS_PATTERNS.find(({ pattern }) => pattern.test(uri))
   return matched ? { uri, title: matched.title } : null
 }

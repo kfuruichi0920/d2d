@@ -1,5 +1,6 @@
 /**
- * 汎用インパクト分析Editor（P9-5、TRACE-030〜039、UI-015）。
+ * 汎用インパクト分析Editor（P9-5、TRACE-030〜040、UI-015）。
+ * SVG座標系をcanvas実寸へ同期し、独立scroll時の端点ずれを防ぐ（TRACE-034/035）。
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { invoke, onBackendEvent } from '../../services/backend'
@@ -9,7 +10,7 @@ import { useSelectionStore } from '../../stores/selection-store'
 
 interface ImpactScope {
   id: string
-  kind: 'design' | 'extracted' | 'intermediate' | 'resource_type'
+  kind: 'design' | 'extracted' | 'intermediate' | 'chunk' | 'resource_type'
   label: string
   description: string
   count: number
@@ -172,6 +173,7 @@ export function TraceImpactEditor({ contextUri }: { contextUri: string }): React
   const [columnGaps, setColumnGaps] = useState<Record<string, number>>({})
   const [positionedLinks, setPositionedLinks] = useState<PositionedLink[]>([])
   const [measureVersion, setMeasureVersion] = useState(0)
+  const [canvasSize, setCanvasSize] = useState({ width: 1, height: 1 })
   const notify = useJobsStore((state) => state.notify)
   const persistKey = useEditorStore((state) => state.persistKey)
   const setSelectedItem = useSelectionStore((state) => state.setSelectedItem)
@@ -388,6 +390,10 @@ export function TraceImpactEditor({ contextUri }: { contextUri: string }): React
       return
     }
     const canvasRect = canvas.getBoundingClientRect()
+    const nextCanvasSize = { width: Math.max(1, canvasRect.width), height: Math.max(1, canvasRect.height) }
+    setCanvasSize((current) =>
+      current.width === nextCanvasSize.width && current.height === nextCanvasSize.height ? current : nextCanvasSize
+    )
     const overscan = 160
     const positioned: PositionedLink[] = []
     displayLinks.forEach((link, index) => {
@@ -753,7 +759,13 @@ export function TraceImpactEditor({ contextUri }: { contextUri: string }): React
 
       <div className="trace-impact-viewport" ref={viewportRef} data-testid="impact-viewport">
         <div className="trace-impact-canvas" ref={canvasRef} style={{ minWidth: `${configs.length * 310 + 60}px` }}>
-          <svg className="trace-impact-links" aria-label="方向付きトレースリンク">
+          <svg
+            className="trace-impact-links"
+            aria-label="方向付きトレースリンク"
+            data-testid="impact-links-svg"
+            viewBox={`0 0 ${canvasSize.width} ${canvasSize.height}`}
+            preserveAspectRatio="none"
+          >
             <defs>
               {allRelationTypes.map((type) => (
                 <marker

@@ -53,5 +53,7 @@ describe('command-registry（P3-2）', () => {
     expect(matchKeybinding('Ctrl+\\', kbEvent({ key: '\\', ctrlKey: true }))).toBe(true)
     expect(matchKeybinding('Ctrl+B', kbEvent({ key: 'b', ctrlKey: true }))).toBe(true)
     expect(matchKeybinding('Ctrl+=', kbEvent({ key: '+', ctrlKey: true }))).toBe(true)
+    expect(matchKeybinding('F5', kbEvent({ key: 'F5' }))).toBe(true)
+    expect(matchKeybinding('Alt+D', kbEvent({ key: 'd', altKey: true }))).toBe(true)
   })
 })

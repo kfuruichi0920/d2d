@@ -102,17 +102,34 @@ describe('トレーサビリティ（P9）', () => {
     expect(matrix.cells[func1.uid]?.[req2.uid]).toBeUndefined()
   })
 
-  it('汎用マトリクス: 複数Resource集合と両方向の関係を返す（TRACE-026/029）', () => {
+  it('汎用マトリクス: 複数Resource集合とチャンクを返す（TRACE-026/029/040）', () => {
+    const intermediate = registerEntity(db, {
+      projectUid,
+      entityType: 'intermediate_document',
+      title: '設計仕様'
+    })
+    db.prepare(
+      `INSERT INTO intermediate_document (uid, artifact_type_id, dev_phase_id, structure_json) VALUES (?, 'spec', 'P1', '{"elements":[]}')`
+    ).run(intermediate.uid)
+    const chunk = registerEntity(db, { projectUid, entityType: 'chunk', title: '対象チャンク' })
+    db.prepare('INSERT INTO chunk (uid, intermediate_document_uid) VALUES (?, ?)').run(chunk.uid, intermediate.uid)
+
     const scopes = listTraceMatrixScopes(db, projectUid)
     expect(scopes).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ id: 'all:design', kind: 'design', count: 5 }),
         expect.objectContaining({ id: 'all:extracted', kind: 'extracted', count: 0 }),
         expect.objectContaining({ id: 'all:intermediate', kind: 'intermediate', count: 0 }),
+        expect.objectContaining({ id: 'all:chunk', kind: 'chunk', count: 1 }),
+        expect.objectContaining({ id: 'chunk:' + intermediate.uid, kind: 'chunk', count: 1 }),
         expect.objectContaining({ id: 'design:FUNC', count: 1 }),
         expect.objectContaining({ id: 'design:REQ', count: 2 })
       ])
     )
+
+    expect(getEditableTraceMatrix(db, projectUid, ['all:chunk'], ['chunk:' + intermediate.uid]).rows).toEqual([
+      expect.objectContaining({ uid: chunk.uid, entityType: 'chunk' })
+    ])
 
     const allDesign = getEditableTraceMatrix(db, projectUid, ['all:design'], ['design:REQ'], ['satisfies'])
     expect(allDesign.rows).toHaveLength(5)

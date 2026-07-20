@@ -53,14 +53,33 @@ export interface GitStatusItem {
   staged: boolean
 }
 
+export interface GitWorkspaceStatus {
+  files: GitStatusItem[]
+  branch: string
+  tracking: string | null
+  ahead: number
+  behind: number
+}
+
+/** 作業ツリーとupstream同期状態（P3-5、UI-009）。fetchは行わずローカル参照だけを読む。 */
+export async function getGitWorkspaceStatus(projectRoot: string): Promise<GitWorkspaceStatus> {
+  const status = await git(projectRoot).status()
+  return {
+    files: status.files.map((f) => ({
+      path: f.path,
+      status: `${f.index}${f.working_dir}`.trim(),
+      staged: f.index !== ' ' && f.index !== '?'
+    })),
+    branch: status.current ?? '',
+    tracking: status.tracking ?? null,
+    ahead: status.ahead ?? 0,
+    behind: status.behind ?? 0
+  }
+}
+
 /** 作業ツリーの変更一覧（Diff ビューの入口） */
 export async function getGitStatus(projectRoot: string): Promise<GitStatusItem[]> {
-  const status = await git(projectRoot).status()
-  return status.files.map((f) => ({
-    path: f.path,
-    status: `${f.index}${f.working_dir}`.trim(),
-    staged: f.index !== ' ' && f.index !== '?'
-  }))
+  return (await getGitWorkspaceStatus(projectRoot)).files
 }
 
 function assertPaths(paths: string[]): string[] {

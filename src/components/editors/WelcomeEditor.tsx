@@ -70,7 +70,7 @@ export function WelcomeEditor(): React.JSX.Element {
         </div>
       </section>
       <p className="d2d-welcome-shortcuts">
-        Ctrl+F 画面内検索 / Ctrl+Shift+P コマンドパレット / Ctrl+1〜6 作業モード切替
+        Alt+D アドレスバー / Ctrl+Shift+P コマンドパレット / Ctrl+1〜9 Editor Group切替
       </p>
     </main>
   )

@@ -248,9 +248,21 @@
 .wb-titlebar .wb-command-center {
   -webkit-app-region: no-drag;
 }
+.wb-titlebar .wb-brand {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  min-width: 0;
+  white-space: nowrap;
+}
 .wb-titlebar .wb-app-name {
   font-weight: 700;
   color: var(--d2d-accent);
+}
+.wb-titlebar .wb-version,
+.wb-titlebar .wb-schema-version {
+  color: var(--d2d-fg-muted);
+  font-size: 10.5px;
 }
 .wb-command-center {
   width: 100%;
@@ -602,23 +614,42 @@
 .wb-statusbar {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 10px;
   padding: 0 10px;
+  overflow-x: auto;
   background: var(--d2d-accent);
   color: var(--d2d-on-accent);
   font-size: 11.5px;
+  white-space: nowrap;
 }
 .wb-statusbar .item {
   display: flex;
   align-items: center;
   gap: 4px;
+  min-width: max-content;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
   cursor: default;
+}
+.wb-statusbar .item svg {
+  flex: 0 0 auto;
+}
+.wb-statusbar .status-llm-group {
+  display: contents;
 }
 .wb-statusbar .item.status-failed {
   color: color-mix(in srgb, var(--d2d-error) 60%, var(--d2d-fg));
 }
 .wb-statusbar .item.clickable {
   cursor: pointer;
+}
+.wb-statusbar .item.clickable:hover,
+.wb-statusbar .item.clickable:focus-visible {
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 .wb-statusbar .spacer {
   flex: 1;
@@ -1471,6 +1502,13 @@ mark.d2d-term {
   min-height: 0;
   overflow: hidden;
   border: 1px solid transparent;
+}
+.wb-editor-group.is-active-group {
+  border-color: var(--d2d-accent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--d2d-accent) 35%, transparent);
+}
+.wb-editor-group.is-active-group > .wb-tabs {
+  background: color-mix(in srgb, var(--d2d-accent) 12%, var(--d2d-surface-raised));
 }
 .wb-tabs {
   height: auto;

@@ -12,6 +12,7 @@ import {
   bundledPlantUmlJar,
   bundledRoot,
   bundledUnidic,
+  resolveRuntimeCapabilityStatus,
   resolveWorkerLaunch,
   type RuntimeEnv
 } from './runtime-paths'
@@ -63,6 +64,37 @@ describe('resolveWorkerLaunch', () => {
       cwd: '/ignored'
     })
     expect(launch.command).toBe(join('/opt/app/resources', 'workers', 'python', 'd2d-worker'))
+  })
+})
+
+describe('Status Bar実行機能可否（P3-5、UI-009）', () => {
+  it('設定済み実体と同梱実体を有効、存在しない設定を無効として判定する', () => {
+    const root = mkdtempSync(join(tmpdir(), 'd2d-runtime-capability-'))
+    try {
+      const env = packagedEnv(root)
+      mkdirSync(join(root, 'third_party', 'mecab', 'bin'), { recursive: true })
+      writeFileSync(join(root, 'third_party', 'mecab', 'bin', 'mecab.exe'), '')
+      const configuredJar = join(root, 'configured-plantuml.jar')
+      writeFileSync(configuredJar, '')
+      expect(resolveRuntimeCapabilityStatus(fakeSettings({ 'plantuml.jarPath': configuredJar }), env)).toEqual({
+        plantUml: { enabled: true, source: 'configured' },
+        mecab: { enabled: true, source: 'bundled' }
+      })
+      expect(
+        resolveRuntimeCapabilityStatus(
+          fakeSettings({
+            'plantuml.jarPath': join(root, 'missing.jar'),
+            'search.mecabPath': join(root, 'missing.exe')
+          }),
+          env
+        )
+      ).toEqual({
+        plantUml: { enabled: false, source: 'configured' },
+        mecab: { enabled: false, source: 'configured' }
+      })
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 })
 

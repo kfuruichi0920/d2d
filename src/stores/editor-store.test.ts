@@ -51,6 +51,33 @@ describe('editor-store（P3-1、UI-006/039/040）', () => {
     })
   })
 
+  it('Group内操作でアクティブGroupとResourceを切り替える（UI-058）', () => {
+    const state = useEditorStore.getState()
+    state.openResource('a://1', 'A')
+    state.splitActiveGroup('horizontal')
+    expect(useEditorStore.getState().activeGroupId).not.toBe(1)
+    useEditorStore.getState().activateGroup(1)
+    expect(useEditorStore.getState()).toMatchObject({ activeGroupId: 1, activeUri: 'a://1' })
+  })
+
+  it('分割ツリーの画面順で1〜9番目のGroupをアクティブ化する（UI-058）', () => {
+    const state = useEditorStore.getState()
+    state.openResource('a://1', 'A')
+    state.splitActiveGroup('horizontal')
+    const secondGroup = useEditorStore.getState().activeGroupId
+    state.splitGroup(secondGroup, 'vertical')
+    const thirdGroup = useEditorStore.getState().activeGroupId
+
+    useEditorStore.getState().activateGroupAt(0)
+    expect(useEditorStore.getState().activeGroupId).toBe(1)
+    useEditorStore.getState().activateGroupAt(1)
+    expect(useEditorStore.getState().activeGroupId).toBe(secondGroup)
+    useEditorStore.getState().activateGroupAt(2)
+    expect(useEditorStore.getState().activeGroupId).toBe(thirdGroup)
+    useEditorStore.getState().activateGroupAt(8)
+    expect(useEditorStore.getState().activeGroupId).toBe(thirdGroup)
+  })
+
   it('分割比率は15〜85%に制限する', () => {
     useEditorStore.getState().openResource('a://1', 'A')
     useEditorStore.getState().splitActiveGroup('horizontal')

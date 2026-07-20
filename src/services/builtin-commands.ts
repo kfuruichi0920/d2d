@@ -12,6 +12,7 @@ import { performRedo, performUndo } from './undo-service'
 import { navigateBack, navigateForward } from './navigation-history'
 import { OPEN_SCREEN_TEXT_SEARCH } from '../components/workbench/ScreenTextSearch'
 import { DEFAULT_ACTIVITY_ORDER, type Activity } from '../stores/workbench-store'
+import { openEmptyTab } from './empty-tab'
 
 /** サイドバー等の遅延マウントを待ってフォーカスする（W10） */
 function focusWhenVisible(selector: string): void {
@@ -126,7 +127,15 @@ export function registerBuiltinCommands(): void {
     id: 'nav.refresh',
     title: '現在のEditorを更新',
     category: '移動',
+    keybinding: 'F5',
     run: () => editor().refreshActiveResource()
+  })
+  registerCommand({
+    id: 'nav.focusAddress',
+    title: 'アドレスバーへ移動',
+    category: '移動',
+    keybinding: 'Alt+D',
+    run: () => focusWhenVisible('[data-testid="resource-address"]')
   })
   registerCommand({
     id: 'nav.home',
@@ -237,13 +246,23 @@ export function registerBuiltinCommands(): void {
     run: () => editor().openResource('help://design-model', '設計モデル')
   })
 
-  // 作業モード切替（Ctrl+1〜6、§15）
-  for (const [i, { mode, label }] of WORK_MODES.entries()) {
+  // Editor Groupを分割ツリーの画面順で選択する（UI-058）。存在しない番号は何もしない。
+  for (let index = 0; index < 9; index++) {
+    registerCommand({
+      id: `editor.group.activate.${index + 1}`,
+      title: `アクティブEditor Group: ${index + 1}番目`,
+      category: '表示',
+      keybinding: `Ctrl+${index + 1}`,
+      run: () => editor().activateGroupAt(index)
+    })
+  }
+
+  // 作業モード切替はCommandとして維持し、キー競合を避けるため既定割当を持たせない。
+  for (const { mode, label } of WORK_MODES) {
     registerCommand({
       id: `mode.switch.${mode}`,
       title: `作業モード: ${mode} ${label}`,
       category: 'モード',
-      keybinding: `Ctrl+${i + 1}`,
       run: () => wb().switchMode(mode as WorkMode)
     })
   }
@@ -283,6 +302,14 @@ export function registerBuiltinCommands(): void {
       const { uri, title, preview } = arg as { uri: string; title: string; preview?: boolean }
       editor().openResource(uri, title, { preview })
     }
+  })
+
+  registerCommand({
+    id: 'editor.newTab',
+    title: '新しい空のタブを開く',
+    category: '表示',
+    keybinding: 'Ctrl+T',
+    run: () => openEmptyTab()
   })
 
   registerCommand({

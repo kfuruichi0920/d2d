@@ -1,5 +1,5 @@
 /**
- * 汎用トレースマトリクスEditor（P9-4、TRACE-026〜029、UI-014）。
+ * 汎用トレースマトリクスEditor（P9-4、TRACE-026〜029/040、UI-014）。
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { invoke, onBackendEvent } from '../../services/backend'
@@ -8,7 +8,7 @@ import { pushUndo } from '../../services/undo-service'
 
 interface MatrixScope {
   id: string
-  kind: 'design' | 'extracted' | 'intermediate' | 'resource_type'
+  kind: 'design' | 'extracted' | 'intermediate' | 'chunk' | 'resource_type'
   label: string
   description: string
   count: number

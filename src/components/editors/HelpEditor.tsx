@@ -1,12 +1,13 @@
-/** D2Dの概念を視覚的に説明する読取専用Help Resource（P3-10、UI-051）。 */
+/** D2Dの概念を視覚的に説明する読取専用Help Resource（P3-10、UI-051/057）。 */
 import { useEditorStore } from '../../stores/editor-store'
 
-export type HelpTopic = 'workflow' | 'schema' | 'design-model'
+export type HelpTopic = 'workflow' | 'schema' | 'design-model' | 'addresses'
 
 const topics: { id: HelpTopic; label: string; title: string }[] = [
   { id: 'workflow', label: '操作の流れ', title: '①原本からトレーサビリティ分析まで' },
   { id: 'schema', label: 'データスキーマ', title: 'D2Dのデータスキーマ' },
-  { id: 'design-model', label: '設計モデル', title: '設計モデルの考え方' }
+  { id: 'design-model', label: '設計モデル', title: '設計モデルの考え方' },
+  { id: 'addresses', label: 'アドレス', title: 'アドレスの使い方' }
 ]
 
 const modelGroups = [
@@ -51,7 +52,15 @@ export function HelpEditor({ topic }: { topic: HelpTopic }): React.JSX.Element {
           ))}
         </nav>
       </header>
-      {topic === 'workflow' ? <WorkflowHelp /> : topic === 'schema' ? <SchemaHelp /> : <DesignModelHelp />}
+      {topic === 'workflow' ? (
+        <WorkflowHelp />
+      ) : topic === 'schema' ? (
+        <SchemaHelp />
+      ) : topic === 'design-model' ? (
+        <DesignModelHelp />
+      ) : (
+        <AddressHelp />
+      )}
     </article>
   )
 }
@@ -230,6 +239,48 @@ function DesignModelHelp(): React.JSX.Element {
           <p>どの構造要素が責務を担うかという関係</p>
         </section>
       </div>
+    </>
+  )
+}
+
+function AddressHelp(): React.JSX.Element {
+  const formats = [
+    ['original://<uid>', '原本を開く'],
+    ['extracted://<uid>', '抽出データ編集を開く'],
+    ['intermediate://<uid>', '中間データ編集を開く'],
+    ['chunk://<中間データuid>', '中間成果物のチャンク編集を開く'],
+    ['candidate://<LLM実行uid>', '設計候補セットを開く'],
+    ['design://<uid>', '設計モデルを開く'],
+    ['resource://<uid>', '共通Resource Editorを開く']
+  ]
+  return (
+    <>
+      <p className="d2d-help-lead">
+        上部のアドレスバーへResource URIを入力してEnterを押します。UIDを省略した
+        <code>resource://</code>等では、該当する全リンクの一覧を表示します。
+      </p>
+      <table className="d2d-table" data-testid="address-help-formats">
+        <thead>
+          <tr>
+            <th>書式</th>
+            <th>用途</th>
+          </tr>
+        </thead>
+        <tbody>
+          {formats.map(([format, purpose]) => (
+            <tr key={format}>
+              <td>
+                <code>{format}</code>
+              </td>
+              <td>{purpose}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <aside className="d2d-help-note">
+        <b>空タブ</b>
+        タブ列の「＋」または <code>Ctrl+T</code> で追加できます。ショートカットはツール設定から変更できます。
+      </aside>
     </>
   )
 }

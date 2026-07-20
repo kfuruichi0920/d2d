@@ -86,3 +86,46 @@ export function bundledMecab(env: RuntimeEnv = currentRuntimeEnv()): string | nu
 export function bundledUnidic(env: RuntimeEnv = currentRuntimeEnv()): string | null {
   return ifExists(join(bundledRoot(env), 'third_party', 'mecab', 'unidic'))
 }
+export interface RuntimeCapabilityStatus {
+  plantUml: { enabled: boolean; source: 'configured' | 'bundled' | 'unavailable' }
+  mecab: { enabled: boolean; source: 'configured' | 'bundled' | 'unavailable' }
+}
+
+export interface RuntimeSettingsReader {
+  get(key: string): unknown
+}
+
+/** Status Bar用の実行機能可否（P3-5、UI-009）。設定値を同梱物より優先する。 */
+export function resolveRuntimeCapabilityStatus(
+  settings: RuntimeSettingsReader,
+  env: RuntimeEnv = currentRuntimeEnv()
+): RuntimeCapabilityStatus {
+  const configuredPlantUml = settings.get('plantuml.jarPath')
+  const plantUmlPath =
+    typeof configuredPlantUml === 'string' && configuredPlantUml.trim()
+      ? configuredPlantUml.trim()
+      : bundledPlantUmlJar(env)
+  const configuredMecab = settings.get('search.mecabPath')
+  const mecabPath =
+    typeof configuredMecab === 'string' && configuredMecab.trim() ? configuredMecab.trim() : bundledMecab(env)
+  return {
+    plantUml: {
+      enabled: Boolean(plantUmlPath && existsSync(plantUmlPath)),
+      source:
+        typeof configuredPlantUml === 'string' && configuredPlantUml.trim()
+          ? 'configured'
+          : plantUmlPath
+            ? 'bundled'
+            : 'unavailable'
+    },
+    mecab: {
+      enabled: Boolean(mecabPath && existsSync(mecabPath)),
+      source:
+        typeof configuredMecab === 'string' && configuredMecab.trim()
+          ? 'configured'
+          : mecabPath
+            ? 'bundled'
+            : 'unavailable'
+    }
+  }
+}
