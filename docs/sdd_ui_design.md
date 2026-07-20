@@ -112,7 +112,7 @@ Workbench は、Title Bar、**Pipeline Navigator(新設)**、Activity Bar、Prim
 | Editor Group | 分割単位 | 左右・上下分割、タブ移動、比較表示、プレビュータブ |
 | Secondary Side Bar | 現在対象の補助情報 | Properties、Relations、Review、Dictionary。前3者はWorkbench共通Selectionに連動し、Dictionaryはプロジェクト辞書を前方一致検索する |
 | Panel | 実行結果・問題・ログ | 問題／出力／ジョブ／検証／LLMログ（タブID: problems/output/jobs/validation/llm）。全文検索結果はSearch Activity内に表示する |
-| Status Bar | 軽量な常時状態表示 | プロジェクト、ジョブ状態、警告数、外部 LLM 送信可否、Git 差分状態。作業モード名とResource URIは表示しない |
+| Status Bar | 軽量な常時状態表示 | プロジェクト、ジョブ状態、警告数、Gitブランチとローカルupstream参照に対するahead／behind、PlantUML／MeCab利用可否、LLM Provider設定状態と外部送信可否、デバッグログレベル。作業モード名とResource URIは表示しない |
 
 ### 3.1 Pipeline Navigator の仕様
 
@@ -637,7 +637,7 @@ Primary Side Bar では探索、選択、絞り込みを基本とする。Explor
 | プレビュー状態 | 一時表示タブか、ピン留め済みタブか |
 | レビュー状態 | 未確認残数バッジ(対照レビューエディタのタブに表示) |
 
-Editor Groupはgroupノードとsplitノードからなる再帰ツリーで保持する。splitノードは左右（horizontal）または上下（vertical）の方向と分割比率を持ち、境界ドラッグで比率を更新する。分割操作は選択Groupを同方向・異方向のいずれにも再分割できる。タブのドラッグ＆ドロップと `editor.moveTabToNextGroup` / `editor.moveTabToPreviousGroup` Commandは同じmoveTab操作へ集約し、移動元が空になった場合はsplitツリーを縮約する。タブは最大幅を持つ省略表示とし、tab stripは横スクロールではなくflex-wrapで多段化する。
+Editor Groupはgroupノードとsplitノードからなる再帰ツリーで保持する。splitノードは左右（horizontal）または上下（vertical）の方向と分割比率を持ち、境界ドラッグで比率を更新する。分割操作は選択Groupを同方向・異方向のいずれにも再分割できる。タブのドラッグ＆ドロップと `editor.moveTabToNextGroup` / `editor.moveTabToPreviousGroup` Commandは同じmoveTab操作へ集約し、移動元が空になった場合はsplitツリーを縮約する。タブは最大幅を持つ省略表示とし、tab stripは横スクロールではなくflex-wrapで多段化する。分割中のアクティブGroupはaccent枠線とタブ列背景で識別し、Group内のクリックまたはタブ選択で切り替える。
 
 ### 10.2 Editor Provider
 
@@ -884,7 +884,7 @@ Secondary Side BarのProperties、Relations、Review、Dictionaryは定義順で
 ### A.2 Explorer・Pipeline Navigator・Search
 
 - SearchのMeCab未使用時はNFKC正規化したFTS結果と全文部分一致結果を常に併合する。FTSが1件以上返した場合もLIKE結果を省略しない。MeCab使用時は形態素解析により時間がかかる場合がある旨をSearch Activityへ表示する。
-- Pipeline Navigatorは `①原本-(抽出)->②抽出-(統合)->③中間-(モデル化)->④モデル`、分析、用語集、Resourceアドレスバーを固定順で表示する。選択表示はactiveなステージURIだけを基準とし、①〜④を排他的に表示する。分析は全抽出／全中間／全モデルの3列で汎用インパクト分析を開く。アドレスバーは既知URIだけを受理し、不正時は通知して遷移しない。Status Barには作業モード名・Resource URI・テーマ名を表示しない（プロジェクト名とジョブ状態のみ）。①〜④の一覧行は薄青背景で選択を示し、上下矢印で選択行を移動、Enter／Spaceでクリックと同じ操作を実行する。④モデルは単一クリックで開く。①〜③の一覧／プレビュー境界は共通 `ResizablePaneGroup` で変更する。
+- Pipeline Navigatorは `①原本-(抽出)->②抽出-(統合)->③中間-(モデル化)->④モデル`、分析、用語集、Resourceアドレスバーを固定順で表示する。選択表示はactiveなステージURIだけを基準とし、①〜④を排他的に表示する。分析は全抽出／全中間／全モデルの3列で汎用インパクト分析を開く。アドレスバーは既知URIだけを受理し、不正時は通知して遷移しない。`nav.focusAddress`（既定Alt+G）はアドレスバーへフォーカスして全選択し、`nav.refresh`（既定F5）はメニューバーの更新と同じくアクティブEditorを再読込する。Status Barには作業モード名・Resource URI・テーマ名を表示せず、プロジェクト名、ジョブ状態、Gitブランチ／upstream同期状態、PlantUML／MeCab利用可否、LLM Provider設定状態／外部送信可否、デバッグログレベルを表示する。Git同期状態はネットワーク通信を行わず、ローカルに保持されたupstream参照に対するahead／behindとする。①〜④の一覧行は薄青背景で選択を示し、上下矢印で選択行を移動、Enter／Spaceでクリックと同じ操作を実行する。④モデルは単一クリックで開く。①〜③の一覧／プレビュー境界は共通 `ResizablePaneGroup` で変更する。
 - Explorer未確定Badgeは文書状態ではなく要素単位で集計し、extracted_itemはresource_uid、intermediate_itemはitem uidに対応するentity_registry.statusがapproved／deleted以外の件数を表示する。削除済みを除く子要素が1件以上かつ全件approvedの場合だけ抽出／中間文書もapprovedとし、それ以外はdraftへ同期する。
 - Explorerはプロジェクト名をルートとするVS Code風の単一Treeとし、①〜④、③のフェーズ階層、成果物配下の統合元を折りたためる。上下矢印で表示ノードを移動し、右矢印で展開、左矢印で折畳または親へ移動する。プロジェクト行に全展開／全折畳を置き、文字強調はプロジェクト行だけとする。原本・抽出・中間・設計モデル・統合元はResource種別別ファイル系アイコンを名称左へ、状態・形式・分類・件数タグを名称右へ表示する。③成果物は「成果物」Badgeを表示せず、要素が1件以上ある場合だけレビュー状態・未確定数・要素数を表示する。要素0件（未取込）の成果物はバッジを出さず「未取込」タグのみを表示し、統合元0件の代替行は表示しない。Explorerには常設の取込・名称変更・チャンク・モデル追加ボタンを置かないが、右クリックは①原本フォルダの「取込」、③中間フォルダの「中間データへ取込」、③成果物の取込先初期選択済み「取込」だけを提供し、②抽出フォルダには提供しない。Pipeline Navigatorの各ステージはEditor Areaにソート可能な一覧を開き、①は一覧上部の取込からWindows複数ファイル選択を直接開く読取専用詳細、②は独自プレビューと文書行の右クリック編集、③は一覧上部の取込、フェーズ－成果物階層、文書行の右クリック編集、④はモデル一覧と追加操作を表示する。原本はファイルごとに独立した `import.source` Jobへ登録する（実行はJob Managerの直列制約を維持）。
 - ①原本はPipeline NavigatorとExplorerのどちらから選択しても「OSアプリで開く」と「②抽出データの生成（抽出ジョブ実行）」を表示する。`source_document.uid`を参照する`extracted_document`が存在する場合は抽出実行を無効表示し、Backendも重複実行を拒否する。
@@ -920,5 +920,5 @@ Secondary Side BarのProperties、Relations、Review、Dictionaryは定義順で
 - 汎用インパクト分析は固有URI `trace://list-link/<view-id>`で開き、設計分類、②抽出文書、③中間文書、チャンク、Resource種別のスコープを各列へ複数配置する。列は最大8、1列1000項目、表示中の全列組合せリンクは全体5000件を上限とし、上限到達を画面へ明示する。トレースマトリクスも`trace://matrix/<row>/<col>/<view-id>`で開き、両EditorはTrace Side Barから同種の別タブを複数作成できる。
 - インパクト分析は選択項目を起点に、表示中の全列組合せの`trace_link`を双方向BFSで辿って全列の到達項目とリンクを強調する。関連項目限定表示では起点列の全項目を維持し、他列を到達項目とその祖先だけへ絞る。DB正本は変更しない。
 - ②・③の階層は`structure_json.elements`の文書順・見出しlevel・list levelから派生し、折畳中の子リンクは最寄りの表示中祖先へ集約する。項目・リンクは台帳プロパティTooltipを表示する。
-- インパクト分析の各列は独立縦スクロールとし、列scroll／横viewport scrollに追従するリンク再計測を`requestAnimationFrame`で1フレームへ集約する。表示領域と160px overscan内に端点を持つリンクだけをSVG描画し、画面外端点は各列の表示端へクランプする。リンク表示OFF時は再計測とSVG描画を停止する。
+- インパクト分析の各列は独立縦スクロールとし、列scroll／横viewport scrollに追従するリンク再計測を`requestAnimationFrame`で1フレームへ集約する。表示領域と160px overscan内に端点を持つリンクだけをSVG描画し、画面外端点は各列の表示端へクランプする。SVGのviewBoxは描画canvasのCSS pixel寸法へ同期し、上端から離れるほど端点がずれる座標スケール差を発生させない。リンク表示OFF時は再計測とSVG描画を停止する。
 - インパクト分析の項目クリック／上下キー／Shift+上下キーはWorkbench共通Selectionへアクティブ項目を通知する。列順・列スコープ・列間隔・関係種別・リンク表示状態の名前付き構成は`d2d.trace-impact.configurations.<project-key>`のlocalStorageへ複数保存し、正本DBへは保存しない。列順は見出しDnDで変更する。見出しの間隔ハンドルは直前列との間隔を24〜320pxで調整し、その列以降の外側列を同じ差分だけ連動移動する。

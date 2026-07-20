@@ -98,7 +98,8 @@ export function installKeybindings(getContext: () => CommandContext): () => void
       if (!binding) continue
       if (inEditable && def.skipInEditable) continue
       const lower = binding.toLowerCase()
-      if (inEditable && !lower.includes('ctrl') && !lower.includes('alt')) continue
+      const isFunctionKey = /^f(?:[1-9]|1[0-2])$/i.test(binding)
+      if (inEditable && !lower.includes('ctrl') && !lower.includes('alt') && !isFunctionKey) continue
       if (matchKeybinding(binding, e)) {
         e.preventDefault()
         void executeCommand(def.id, undefined, getContext())

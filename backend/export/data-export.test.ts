@@ -27,6 +27,7 @@ import {
   getGitLog,
   getGitShow,
   getGitStatus,
+  getGitWorkspaceStatus,
   getGitWorkingFilePair,
   isGitRepo,
   stageGitFiles,
@@ -189,12 +190,43 @@ describe('P12 データ出力・アーカイブ・Git', () => {
         'コミット対象要求'
       )
 
+      const initialStatus = await getGitWorkspaceStatus(root)
+      expect(initialStatus).toMatchObject({ tracking: null, ahead: 0, behind: 0 })
+      expect(initialStatus.branch).toBeTruthy()
+
+      // Status Barはfetchせず、ローカルupstream参照との差分を表示する（UI-009）。
+      const remoteRoot = mkdtempSync(join(tmpdir(), 'd2d-git-remote-'))
+      try {
+        await simpleGit({ baseDir: remoteRoot }).init(true)
+        await repository.addRemote('origin', remoteRoot)
+        await repository.push(['-u', 'origin', initialStatus.branch])
+        expect(await getGitWorkspaceStatus(root)).toMatchObject({
+          tracking: `origin/${initialStatus.branch}`,
+          ahead: 0,
+          behind: 0
+        })
+        writeFileSync(join(root, 'sync-probe.txt'), 'ahead\n', 'utf-8')
+        await repository.add('sync-probe.txt')
+        await repository.raw([
+          '-c',
+          'user.name=D2D Test',
+          '-c',
+          'user.email=d2d@example.test',
+          'commit',
+          '-m',
+          'ahead probe'
+        ])
+        expect(await getGitWorkspaceStatus(root)).toMatchObject({ ahead: 1, behind: 0 })
+      } finally {
+        rmSync(remoteRoot, { recursive: true, force: true })
+      }
+
       const initialBranch = (await getGitBranches(root)).current
       const created = await createGitBranch(root, 'review/snapshot')
       expect(created.current).toBe('review/snapshot')
       expect((await getGitBranches(root)).branches).toContain('review/snapshot')
       expect((await checkoutGitBranch(root, initialBranch)).current).toBe(initialBranch)
-    }, 15_000)
+    }, 20_000)
     it('履歴・patch・過去版ファイル内容を読み取り専用で参照できる', async () => {
       // 履歴比較用の既存コミットをテスト前提として準備する。
       const git = simpleGit({ baseDir: root })

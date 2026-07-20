@@ -148,6 +148,7 @@ export const API_METHODS = [
   'resource.mergePreview',
   'resource.revise',
   'resource.types',
+  'runtime.capabilities',
   'search.elements',
   'search.rebuildIndex',
   'secondary.addReview',

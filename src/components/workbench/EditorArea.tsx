@@ -142,6 +142,9 @@ function LayoutNodeView({ node }: { node: EditorLayoutNode }): React.JSX.Element
 
 function GroupView({ group }: { group: EditorGroup }): React.JSX.Element {
   const activateTab = useEditorStore((state) => state.activateTab)
+  const activateGroup = useEditorStore((state) => state.activateGroup)
+  const activeGroupId = useEditorStore((state) => state.activeGroupId)
+  const groupCount = useEditorStore((state) => state.groups.length)
   const closeTab = useEditorStore((state) => state.closeTab)
   const pinTab = useEditorStore((state) => state.pinTab)
   const togglePinTab = useEditorStore((state) => state.togglePinTab)
@@ -164,10 +167,13 @@ function GroupView({ group }: { group: EditorGroup }): React.JSX.Element {
 
   return (
     <div
-      className="wb-editor-group"
+      className={`wb-editor-group ${groupCount > 1 && group.id === activeGroupId ? 'is-active-group' : ''}`}
       data-workbench-tab-region="editor"
       tabIndex={-1}
-      onPointerDown={(event) => event.currentTarget.focus({ preventScroll: true })}
+      onPointerDown={(event) => {
+        activateGroup(group.id)
+        event.currentTarget.focus({ preventScroll: true })
+      }}
       data-testid={'editor-group-' + group.id}
       onDragOver={(event) => event.preventDefault()}
       onDrop={acceptDrop}
@@ -273,7 +279,12 @@ function GroupView({ group }: { group: EditorGroup }): React.JSX.Element {
       </div>
       <div className="wb-editor-body">
         {activeTab ? (
-          <div key={`${activeTab.uri}:${refreshVersion}`} className="wb-editor-refresh-root">
+          <div
+            key={`${activeTab.uri}:${refreshVersion}`}
+            className="wb-editor-refresh-root"
+            data-testid="editor-refresh-root"
+            data-refresh-version={refreshVersion}
+          >
             {resolveEditor(activeTab.uri)}
           </div>
         ) : (

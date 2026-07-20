@@ -46,6 +46,7 @@ interface EditorState {
   openResource(uri: string, title: string, options?: { preview?: boolean; groupId?: number }): void
   closeTab(uri: string, groupId?: number): void
   activateTab(uri: string, groupId: number): void
+  activateGroup(groupId: number): void
   pinTab(uri: string): void
   togglePinTab(uri: string): void
   setDirty(uri: string, dirty: boolean): void
@@ -182,6 +183,12 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   activateTab: (uri, groupId) => {
     const groups = get().groups.map((group) => (group.id === groupId ? { ...group, activeUri: uri } : group))
     commit(set, get, { groups, activeGroupId: groupId, activeUri: uri })
+  },
+
+  activateGroup: (groupId) => {
+    const group = get().groups.find((candidate) => candidate.id === groupId)
+    if (!group || group.id === get().activeGroupId) return
+    commit(set, get, { activeGroupId: group.id, activeUri: group.activeUri })
   },
 
   pinTab: (uri) => {

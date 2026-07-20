@@ -10,6 +10,7 @@ import type { SettingsService } from '../settings/settings-service'
 import { getProjectSettings, setProjectSetting } from '../settings/settings-service'
 import { listFeatures } from '../features/feature-registry'
 import { requireProject } from '../project/project-service'
+import { resolveRuntimeCapabilityStatus } from '../runtime-paths'
 
 function asRecord(params: unknown): Record<string, unknown> {
   if (typeof params !== 'object' || params === null) {
@@ -27,6 +28,7 @@ function requireString(params: Record<string, unknown>, key: string): string {
 }
 
 export function registerSettingsApi(router: ApiRouter, settings: SettingsService): void {
+  router.register('runtime.capabilities', () => resolveRuntimeCapabilityStatus(settings))
   router.register('settings.getStorageInfo', () => settings.getStorageInfo())
   router.register('settings.getAll', () => settings.getAll())
   router.register('settings.get', (params) => settings.get(requireString(asRecord(params), 'key')))

@@ -28,6 +28,7 @@ import {
   getGitLog,
   getGitShow,
   getGitStatus,
+  getGitWorkspaceStatus,
   getGitWorkingFilePair,
   isGitRepo,
   stageGitFiles,
@@ -138,8 +139,10 @@ export function registerDataApi(router: ApiRouter, jobs: JobManager): void {
 
   router.register('git.status', async () => {
     const { info } = requireProject()
-    if (!(await isGitRepo(info.rootPath))) return { isRepo: false, files: [] }
-    return { isRepo: true, files: await getGitStatus(info.rootPath) }
+    if (!(await isGitRepo(info.rootPath))) {
+      return { isRepo: false, files: [], branch: '', tracking: null, ahead: 0, behind: 0 }
+    }
+    return { isRepo: true, ...(await getGitWorkspaceStatus(info.rootPath)) }
   })
 
   router.register('git.branches', async () => {

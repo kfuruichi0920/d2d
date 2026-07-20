@@ -127,7 +127,15 @@ export function registerBuiltinCommands(): void {
     id: 'nav.refresh',
     title: '現在のEditorを更新',
     category: '移動',
+    keybinding: 'F5',
     run: () => editor().refreshActiveResource()
+  })
+  registerCommand({
+    id: 'nav.focusAddress',
+    title: 'アドレスバーへ移動',
+    category: '移動',
+    keybinding: 'Alt+G',
+    run: () => focusWhenVisible('[data-testid="resource-address"]')
   })
   registerCommand({
     id: 'nav.home',

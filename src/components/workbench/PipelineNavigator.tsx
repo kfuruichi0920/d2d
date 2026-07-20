@@ -93,7 +93,7 @@ export function PipelineNavigator(): React.JSX.Element {
             className="wb-nav-icon"
             data-testid="nav-refresh"
             disabled={!activeUri}
-            title="現在のEditorを更新"
+            title="現在のEditorを更新（F5）"
             aria-label="更新"
             onClick={() => run('nav.refresh')}
           >
@@ -158,7 +158,7 @@ export function PipelineNavigator(): React.JSX.Element {
           value={address}
           data-testid="resource-address"
           aria-label="現在のResourceアドレス"
-          title="現在のResource URI。既知のURIを入力してEnterで移動します（例: resource://<uid>）"
+          title="現在のResource URI。Alt+Gで移動し、既知のURIを入力してEnterで開きます（例: resource://<uid>）"
           placeholder="resource://..."
           onChange={(event) => setAddress(event.target.value)}
           onKeyDown={(event) => {
