@@ -1,7 +1,7 @@
 # D2D データ構造詳細設計書
 
 > **実装準拠状態（2026-07-20 整理）**: スキーマの**正本は実装**（`backend/db/schema/initial-schema.ts` + `backend/db/migrations.ts`、現在 schema_version 1.10.0）である。
-> 本書の §7「SQLite DDL案」は初期設計時（1.0.0 相当）のスナップショットであり、以後の変更は migrations.ts に追記されている（下記「スキーマ版数履歴」参照）。本書と実装が食い違う場合は実装を正とする。
+> 本書の §7「SQLite DDL案」は初期設計を基礎に目標設計を追記したものであり、実装済み変更は migrations.ts に記録する（下記「スキーマ版数履歴」参照）。本書と実装が食い違う場合は、実装準拠状態の把握には実装を、次期変更の要求・設計には本書の【未適用】記述を正とする。
 > 実装が存在しない記述には【未適用】を付す。
 
 ## スキーマ版数履歴（実装準拠）
@@ -20,7 +20,7 @@
 | 1.9.0 | Resource編集・LLM文脈・管理情報の拡張（EDIT-074〜086） |
 | 1.10.0 | 図・表・コードResource編集情報の拡張（EDIT-087〜091） |
 
-> 既知の未適用事項: `resource_table_cell` への `entity_registry` CHECK 制約追加はテーブル再構築を要するため見送り中（将来 2.0.0）【未適用】。マイグレーションの上位桁更新条件・バックアップ手順の詳細は TBD-06【未適用】。
+> 既知の未適用事項: `resource_table_cell` への `entity_registry` CHECK 制約追加はテーブル再構築を要するため見送り中（将来 2.0.0）【未適用】。マイグレーションの上位桁更新条件・バックアップ手順の詳細は TBD-06【未適用】。SRS 9章のオントロジー再定義（10 relation_type、固定方向、属性・許可表・重複制約の改定）は次期スキーママイグレーションが必要であり【未適用】。
 
 ## 1. 設計方針の要約
 
@@ -31,6 +31,8 @@
 すべての設計リソースは共通台帳 `entity_registry` に登録する。label、text、list、figure、table、formula、code、model、scenario、interface、state_transition、data_structure、reference、metadata などのリソース詳細テーブルは `uid` を `entity_registry.uid` と共有し、`uid` を Primary Key かつ Foreign Key とする。これにより、全体検索、トレーサビリティ、DB to Text 出力で共通の参照方法を使える。
 
 設計要素の分類（SRS 9.1 の13分類: SRC / STD / REQ / CST / FUNC / STRUCT / BEH / STATE / IF / DATA / VERIF / MGMT / IMPL）は、`entity_registry.design_category` に保持する。`entity_type` は格納先の物理テーブル名を表し、`design_category` は設計上の意味分類を表す。同じ `resource_text` でも、REQ（要求）と FUNC（機能）は `design_category` で区別する。
+
+【未適用】13分類は、文書・入力層（SRC/STD）、要求層（REQ/CST）、論理設計層（FUNC/STRUCT/BEH/STATE）、情報・契約層（IF/DATA）、実装・検証層（IMPL/VERIF）、管理層（MGMT）として扱う。STRUCTは物理構造に限定せず、`resource_model.model_elements_json` または `resource_metadata` の `structure_kind` で system / subsystem / device / software / service / component / module / process / task / physical を区別する。BEHの処理順序、STATEの遷移、IFの入出力、DATAの項目・型、VERIFの試験手順等は各 `resource_*` の内部構造で管理し、独立relation_typeにはしない。
 
 大容量ファイル、画像、Office/PDF 抽出物、LLM プロンプトログ、結果ログは DB 外の blob 領域に置き、DB には参照パス、ハッシュ、MIME 種別、サイズ等の参照情報だけを持たせる。
 
@@ -45,7 +47,7 @@
 | 文書層 | `source_document`、`source_location`、`extracted_document.structure_json`、`blob_resource` | 原本構造、位置、順序、階層、出典を保持し、設計意味は確定しない |
 | 記述資源層 | `extracted_item`、`intermediate_item`、`resource_text`、`resource_list`、`resource_table`、`resource_figure`、`resource_formula`、`resource_code`、`resource_model` 等 | ②抽出データから③中間データを生成する過程で、設計記述要素の抽出と記述型への分類結果を管理し、1つの記述資源が複数の意味候補へ昇格し得ることを許容する |
 | 設計意味層 | `resource_scenario`、`resource_interface`、`resource_state_transition`、`resource_data_structure`、`resource_glossary`、`resource_metadata`、その他 `resource_*` | ③中間データから④設計モデルを生成する過程で、設計意味候補への昇格、同一対象の統合・正規化結果を `entity_registry.status` とレビュー情報で管理する |
-| 設計関係層 | `trace_link`、`relation_rule_master`、`llm_run_ref`、`entity_registry.review_info_json` | ③中間データから④設計モデルを生成する過程で付与した根拠関係、設計意味関係、実装・検証関係を、ノード統合・正規化とは独立して管理する。relation_type は11種類に限定し、差分は属性で表現する。検査は双方向トレーサビリティ分析により実現する |
+| 設計関係層 | `trace_link`、`relation_rule_master`、`llm_run_ref`、`entity_registry.review_info_json` | ③中間データから④設計モデルを生成する過程で付与した根拠関係、設計意味関係、実装・検証関係を、ノード統合・正規化とは独立して管理する。【未適用】relation_type は文書由来専用 `based_on` と設計モデル間9種類の計10種類に限定し、差分は属性で表現する。検査は双方向トレーサビリティ分析により実現する |
 
 ## 2. 全体DB構成案
 
@@ -225,13 +227,13 @@ resource_text.text_body = 利用者は...
 
 `trace_link` は `from_uid` と `to_uid` の両方で `entity_registry.uid` を参照する。`extracted_item` と `intermediate_item` も台帳登録し、抽出→中間の行単位由来やWorkbenchで選択したアイテムへのレビューコメントなど、行自体を特定する必要がある関係ではトレース端点にできる。設計意味上の関係は、原則として `item_type` が示す `resource_*` 詳細テーブルの `resource_uid` を端点とする。text、table、figure、model、scenario、interface、state_transition、data_structure、reference、metadata、glossary、LLM実行参照など、台帳に登録された設計リソースや用語を同じ形式でリンクする。用語と文書・設計要素との対応も、別の `trace_subject` は作らず `trace_link` で管理する。
 
-`trace_link` は関係付与の正本であり、同一対象の統合・正規化によるノード整理とは独立してレビュー、再生成できるようにする。文書構成上の章節配下は `structure_json` に保持し、設計上の根拠、要求充足、責務割当、検証、構造包含、意味分解、実装、利用、呼び出し、競合、暫定関連は `trace_link.relation_type` と関係属性で表現する。relation_type は `based_on`、`satisfies`、`allocated_to`、`verifies`、`contains`、`decomposes`、`implements`、`uses`、`calls`、`conflicts_with`、`relates_to` の11種類に限定する。関係の未接続、不整合、根拠不足、循環等の検査は、`trace_link` と `relation_rule_master` を用いた双方向トレーサビリティ分析で実現する。
+【未適用】`trace_link` は関係付与の正本であり、同一対象の統合・正規化によるノード整理とは独立してレビュー、再生成できるようにする。文書構成上の章節配下は通常 `structure_json` に保持し、明示的なSRC要素としてモデル化した文書階層だけSRC間の `contains` を使用する。文書由来は `based_on`、設計モデル間の要求充足、責務割当、検証、階層・包含・部分化・詳細化、実装、利用、呼び出し、競合、暫定関連は `satisfies`、`allocated_to`、`verifies`、`contains`、`implements`、`uses`、`calls`、`conflicts_with`、`relates_to` の9種類で表現する。`decomposes` は使用しない。関係の未接続、不整合、根拠不足、循環、型・方向違反、意味重複、暫定関係率等の検査は、`trace_link` と `relation_rule_master` を用いた双方向トレーサビリティ分析で実現する。
 
-Secondary Side BarのReviewコメントは、状態遷移や承認履歴を保持する `entity_registry.review_info_json` とは分離する。コメント本文を独立した `resource_text(text_role='comment')` として登録し、コメントResourceを `from_uid`、選択中アイテムを `to_uid` とする `trace_link(relation_type='relates_to', direction='forward', basis_kind='human_approved')` を同一トランザクションで保存する。Relationsは選択UIDを `from_uid` と `to_uid` の双方から検索し、選択対象から見た相対方向と相手アイテムを表示する。
+【未適用】Secondary Side BarのReviewコメントは、状態遷移や承認履歴を保持する `entity_registry.review_info_json` とは分離する。コメント本文を `entity_registry.design_category='MGMT'` の独立した `resource_text(text_role='comment')` として登録する。①〜③のSRC対象へのコメントは、コメントResourceを `from_uid`、対象を `to_uid` とする `based_on(basis_kind='human_approved')`、④設計要素へのコメントは同じ方向の `relates_to(status='provisional', reason='awaiting_review')` として同一トランザクションで保存する。Relationsは選択UIDを `from_uid` と `to_uid` の双方から検索し、選択対象から見た相対方向と相手アイテムを表示する。
 
-同一関係の重複防止は、`relation_rule_master`、`relation_type`、文脈属性（例: `context_uid`、`condition`）を含めてアプリ側で検査する。`conflicts_with` は文脈や条件が異なれば同じ2要素間に複数存在できるため、DBでは `from_uid, to_uid, relation_type` の単純UNIQUE制約を置かない。
+【未適用】同じ `from_uid + relation_type + to_uid` の重複関係を禁止する。`conflicts_with` は端点UIDを正規順序へ並べた1件だけを保存し、検索時に双方向として扱う。逆向きの重複も保存しない。文脈、条件、競合状態は同じ関係エンティティの属性として更新する。
 
-`relation_rule_master` の `source_category` / `target_category` は、from/to エンティティの `entity_registry.design_category`（設計13分類）で解決する。文書層エンティティ（`source_document`、`source_location`、`extracted_document` 等）は `SRC` として扱う。`design_category` が未設定のエンティティは、`relates_to` と `based_on` 以外の関係の端点にしない。
+【未適用】`relation_rule_master` の `source_category` / `target_category` は、from/to エンティティの `entity_registry.design_category`（設計13分類）で解決する。文書層エンティティ（`source_document`、`source_location`、`extracted_document`、`extracted_item`、`intermediate_document`、`intermediate_item` 等）は `SRC` として扱う。`based_on` はSRC→SRCまたは設計要素→SRCに限定し、④設計モデル間の意味関係には使用しない。`design_category` が未設定で文書層にも分類できないエンティティは関係端点にしない。
 
 抽出要素・中間要素・設計リソースの分割・マージ・削除の由来（SRS EXT-015、MID-005）は、新リソース→旧リソースの `trace_link`（`based_on`、`basis_kind`、`transform_note` に merge / split / delete 等の操作種別）として保持する。DB内に履歴テーブルは作らず、由来リンクとGit履歴で追跡する。
 
@@ -309,7 +311,7 @@ PDFのbbox編集、LLM OCR、表OCR、テキスト補正は、D2D上のレビュ
 | --- | --- | --- |
 | 正規化テキスト | `llm_run_ref.result_blob_uid`、候補セット表示、採用時は `resource_text` または③中間データのレビュー補正 | 元本文を直接上書きしない。差分と根拠範囲を保持する |
 | 設計要素候補 | `llm_run_ref` の候補JSON、採用時は `entity_registry` + `resource_*` | 候補中は一時IDで管理し、採用時にUUIDv7の `uid` と表示用 `code` を採番する |
-| 関係候補 | `llm_run_ref` の候補JSON、採用時は `trace_link` | 関係分類はD2Dの11種類の `relation_type` と属性へ写像する |
+| 関係候補 | `llm_run_ref` の候補JSON、採用時は `trace_link` | 【未適用】関係分類はD2Dの10種類の `relation_type` と属性へ写像する |
 | 候補レビュー状態 | `entity_registry.review_info_json`、`llm_run_ref.status`、候補セットの表示状態 | 採用、修正して採用、棄却、保留の判断履歴を残す |
 | LLM実行条件 | `llm_run_ref`、`blobs/llm/` | 入力チャンク、プロンプト、モデル、応答、検証エラーを追跡する。APIキー実値は保存しない |
 | 影響範囲確認 | `trace_link`、関係グラフ索引またはSQLite再帰CTEの結果 | グラフ表示は派生表示であり、正本は `trace_link` と `relation_rule_master` である |
@@ -358,7 +360,7 @@ PDFのbbox編集、LLM OCR、表OCR、テキスト補正は、D2D上のレビュ
 | `resource_metadata` | メタデータリソース | メタデータ種別、対象UID、キー、値、値型 | `uid` | `entity_registry(uid)` | 文書属性・品質属性等 |
 | `resource_glossary` | 用語 | 用語、正規化表記、定義、略語、言語、分類、禁止語フラグ | `uid` | `entity_registry(uid)`, `llm_run_ref(uid)` | 用語の状態は `entity_registry.status` で管理する |
 | `resource_glossary_synonym` | 用語同義語 | 用語リソース参照、同義語・表記揺れ、種別 | `uid` | `entity_registry(uid)`, `resource_glossary(uid)` | 同義語の候補/確定も `entity_registry.status` で管理する |
-| `trace_link` | トレース関係 | from/to、関係種別、関係属性、根拠、信頼度、レビュー状態 | `uid` | `entity_registry(uid)`, `llm_run_ref(uid)` | 11種類の relation_type に限定する。方向は原則 `forward` 固定、`uses` のみ `bidirectional` を許容 |
+| `trace_link` | トレース関係 | from/to、関係種別、関係属性、根拠、信頼度、レビュー状態 | `uid` | `entity_registry(uid)`, `llm_run_ref(uid)` | 【未適用】10種類の relation_type に限定する。正規方向だけを `forward` で保存し、逆方向は検索時に解決する |
 | `relation_rule_master` | 関係ルール | relation_type、source/target分類、必須属性、説明 | 複合 | なし | アプリ側検査とUI候補制御に使う。分類は `entity_registry.design_category` で解決する |
 | `llm_run_ref` | LLM実行参照 | モデル、入力、テンプレート参照、トークン使用量、概算コスト、処理時間、エラー内容、ログ参照、状態 | `uid` | `entity_registry(uid)`, `blob_resource(uid)`, `prompt_template(uid)` | LLM出力は候補情報として扱う |
 | `prompt_template` | プロンプトテンプレート | テンプレート名、バージョン、用途分類、本文、変数定義 | `uid` | `entity_registry(uid)` | 用途別・バージョン管理（SRS LLM-020〜023、NFR-031） |
@@ -479,7 +481,7 @@ PDFのbbox編集、LLM OCR、表OCR、テキスト補正は、D2D上のレビュ
 | `resource_metadata` | `uid`, `metadata_kind`, `target_resource_uid`, `metadata_key`, `metadata_value`, `value_type`, `unit`, `metadata_source` | メタデータリソース | 文書属性、抽出属性、品質属性等 |
 | `resource_glossary` | `uid`, `term_text`, `normalized_text`, `definition`, `abbreviation`, `language`, `category`, `is_prohibited`, `dictionary_scope`, `version_tag`, `is_deprecated`, `access_level`, `llm_run_uid`, `confirmed_at` | 用語 | 用語状態は `entity_registry.status`。`project_id` は持たせない |
 | `resource_glossary_synonym` | `uid`, `glossary_uid`, `synonym_text`, `synonym_kind`, `created_at` | 用語同義語 | `glossary_uid` は `resource_glossary(uid)`。候補/確定は `entity_registry.status` |
-| `trace_link` | `uid`, `from_uid`, `to_uid`, `relation_type`, `direction`, `rationale`, `confidence`, `created_by`, `review_status`, `basis_kind`, `usage_kind`, `allocation_kind`, `decomposition_kind`, `context_uid`, `condition`, `llm_run_uid` | トレース関係 | 11種類の relation_type と属性で管理。単純な `from/to/type` UNIQUE は置かずアプリで重複検査。`direction` は原則 `forward` 固定、`uses` のみ `bidirectional` を許容 |
+| `trace_link` | `uid`, `from_uid`, `to_uid`, `relation_type`, `direction`, `status`, `rationale`, `confidence`, `created_by`, `review_status`, `basis_kind`, `usage_kind`, `allocation_kind`, `conflict_kind`, `context_uid`, `condition`, `reason`, `valid_from`, `valid_to`, `version`, `llm_run_uid` | トレース関係 | 【未適用】10種類の relation_type と属性で管理。`from_uid + relation_type + to_uid` を一意とし、`direction` は `forward` 固定。`conflicts_with` は端点順も正規化する |
 | `relation_rule_master` | `relation_type`, `source_category`, `target_category`, `allowed`, `required_attr`, `description` | 関係ルール | UI候補制御、保存前検査、双方向トレーサビリティ分析で利用する。分類は `entity_registry.design_category` で解決する |
 | `llm_run_ref` | `uid`, `tool_name`, `process_name`, `model_name`, `prompt_template_uid`, `input_ref_type`, `input_ref_uid`, `input_tokens`, `output_tokens`, `estimated_cost`, `duration_ms`, `error_detail`, `prompt_blob_uid`, `result_blob_uid`, `status`, `executed_at` | LLM実行参照 | prompt/resultはDB外blob参照。トークン使用量、概算コスト、処理時間、エラー内容を記録する（SRS LLM-013〜014） |
 | `prompt_template` | `uid`, `template_name`, `template_version`, `purpose`, `template_text`, `variables_json`, `model_hint`, `is_active` | プロンプトテンプレート | 用途別（抽出・要約・分類・関係候補・レビュー支援・正規化・用語）にテンプレートを分け、`template_name + template_version` で版管理する（SRS LLM-020〜023） |
@@ -1410,32 +1412,35 @@ CREATE TABLE trace_link (
         'allocated_to',
         'verifies',
         'contains',
-        'decomposes',
         'implements',
         'uses',
         'calls',
         'conflicts_with',
         'relates_to'
     )),
-    -- 方向は relation_type ごとに固定（forward、SRS 9.2 の推奨方向）。
-    -- uses の相互利用に限り bidirectional を許容する（アプリ側で relation_type='uses' の場合のみ設定可とする）。
-    direction TEXT NOT NULL DEFAULT 'forward' CHECK (direction IN ('forward', 'bidirectional')),
+    -- 【未適用】relation_typeごとの正規方向だけを保存し、逆方向は検索時に解決する。
+    direction TEXT NOT NULL DEFAULT 'forward' CHECK (direction = 'forward'),
+    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'provisional', 'deprecated', 'rejected')),
     rationale TEXT,
     confidence REAL CHECK (confidence IS NULL OR (confidence >= 0.0 AND confidence <= 1.0)),
-    created_by TEXT CHECK (created_by IS NULL OR created_by IN ('human', 'rule', 'llm')),
-    review_status TEXT DEFAULT 'draft' CHECK (review_status IS NULL OR review_status IN ('draft', 'review', 'approved', 'rejected', 'provisional')),
+    created_by TEXT CHECK (created_by IS NULL OR created_by IN ('human', 'llm', 'rule', 'import', 'static_analysis')),
+    review_status TEXT DEFAULT 'unreviewed' CHECK (review_status IS NULL OR review_status IN ('unreviewed', 'llm_proposed', 'human_reviewed', 'confirmed', 'rejected')),
     basis_kind TEXT CHECK (basis_kind IS NULL OR basis_kind IN ('original', 'extracted', 'normalized', 'inferred', 'human_approved')),
     evidence_span TEXT,
     transform_note TEXT,
-    allocation_kind TEXT CHECK (allocation_kind IS NULL OR allocation_kind IN ('structure', 'behavior', 'state', 'interface', 'data')),
+    allocation_kind TEXT CHECK (allocation_kind IS NULL OR allocation_kind IN ('structure', 'behavior', 'state')),
     allocation_role TEXT CHECK (allocation_role IS NULL OR allocation_role IN ('primary', 'supporting')),
-    decomposition_kind TEXT CHECK (decomposition_kind IS NULL OR decomposition_kind IN ('structural', 'functional', 'behavioral', 'logical', 'refinement')),
     usage_kind TEXT CHECK (usage_kind IS NULL OR usage_kind IN ('input', 'output', 'read', 'write', 'update', 'publish', 'subscribe')),
     context_uid TEXT,
     condition TEXT,
     severity TEXT,
-    conflict_status TEXT CHECK (conflict_status IS NULL OR conflict_status IN ('suspected', 'confirmed', 'resolved', 'dismissed')),
+    conflict_kind TEXT CHECK (conflict_kind IS NULL OR conflict_kind IN ('logical', 'requirement', 'constraint', 'resource', 'timing', 'safety', 'security', 'interface', 'data', 'implementation', 'priority')),
+    conflict_status TEXT CHECK (conflict_status IS NULL OR conflict_status IN ('suspected', 'confirmed', 'resolved', 'accepted', 'rejected')),
     resolution_note TEXT,
+    reason TEXT CHECK (reason IS NULL OR reason IN ('relation_type_unknown', 'insufficient_information', 'awaiting_review', 'imported_legacy_relation')),
+    valid_from TEXT,
+    valid_to TEXT,
+    version TEXT,
     llm_run_uid TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -1443,9 +1448,9 @@ CREATE TABLE trace_link (
     FOREIGN KEY (from_uid) REFERENCES entity_registry(uid) ON DELETE CASCADE,
     FOREIGN KEY (to_uid) REFERENCES entity_registry(uid) ON DELETE CASCADE,
     FOREIGN KEY (context_uid) REFERENCES entity_registry(uid) ON DELETE SET NULL,
-    FOREIGN KEY (llm_run_uid) REFERENCES llm_run_ref(uid) ON DELETE SET NULL
+    FOREIGN KEY (llm_run_uid) REFERENCES llm_run_ref(uid) ON DELETE SET NULL,
+    UNIQUE (from_uid, relation_type, to_uid)
 );
-
 CREATE TABLE relation_rule_master (
     relation_type TEXT NOT NULL,
     source_category TEXT NOT NULL,
@@ -1625,36 +1630,24 @@ exports/manifest/
 
 ### 9.1 relation_rule_master
 
-`relation_rule_master` は、`trace_link` の保存前検査、UI候補制御、双方向トレーサビリティ分析で利用する関係ルール表である。`source_category` / `target_category` は、from/to エンティティの `entity_registry.design_category`（設計13分類）で解決する。`SRC` は設計意味関係マトリクスからは除外し、`based_on` の根拠対象として扱う。
+`relation_rule_master` は、`trace_link` の保存前検査、UI候補制御、LLM出力検証、双方向トレーサビリティ分析で共通利用する正規メタモデルである。許可ルールをサービスや画面へ分散してハードコードしない。`source_category` / `target_category` は `entity_registry.design_category`（設計13分類）で解決し、①〜③の文書・項目はSRCとして扱う。以下の全組合せを初期データとして明示登録し、表にない組合せを禁止する。【未適用】
 
-| relation_type | 主な source_category | 主な target_category | required_attr | 方針 |
-| --- | --- | --- | --- | --- |
-| `based_on` | STD/REQ/CST/FUNC/STRUCT/BEH/STATE/IF/DATA/VERIF/MGMT/IMPL/trace_link | SRC/中間要素/判断根拠 | `basis_kind` | 根拠関係専用 |
-| `based_on` | 中間文書（③成果物） | 中間文書（③成果物） | `basis_kind` | 開発フェーズ間の成果物トレース（SRS DATA-018）。前フェーズ成果物を根拠とする場合に用いる |
-| `satisfies` | FUNC/STRUCT/BEH/STATE/IF/DATA/IMPL | STD/REQ/CST | なし | 設計要素が規範・要求・制約を満たす |
-| `allocated_to` | REQ/CST/FUNC/BEH | STRUCT/BEH/STATE/IF/DATA | `allocation_kind` | 要求・制約・機能・責務を担当設計要素へ割り当てる |
-| `verifies` | VERIF | STD/REQ/CST/FUNC/STRUCT/BEH/STATE/IF/DATA/IMPL | なし | 検証情報が対象を検証する |
-| `contains` | STRUCT/DATA/IF | STRUCT/DATA/IF | なし | 構造的包含に限定する |
-| `decomposes` | STD/REQ/CST/FUNC/BEH/STATE/IF/VERIF/MGMT | 同種または詳細要素 | `decomposition_kind` | 詳細化は `refinement` として扱う |
-| `implements` | IMPL | FUNC/STRUCT/BEH/STATE/IF/DATA | なし | 実装要素が設計要素を実装する |
-| `uses` | STRUCT/BEH/STATE/IF | STATE/IF/DATA | `usage_kind` | 入出力・読書き・発行購読は属性で表す。相互利用に限り `direction=bidirectional` を許容する |
-| `calls` | IMPL/IF/BEH | IMPL/IF/BEH | なし | 呼び出し関係が明確な場合に限定する |
-| `conflicts_with` | 任意の設計要素/MGMT/IMPL | 任意の設計要素/MGMT/IMPL | `conflict_status` | 文脈依存の競合として扱う |
-| `relates_to` | any | any | `review_status` | 暫定リンク専用。レビュー後に可能な限り置換する |
+| relation_type | 許容 source_category | 許容 target_category | required_attr / 制約 |
+| --- | --- | --- | --- |
+| `based_on` | SRC/STD/REQ/CST/FUNC/STRUCT/BEH/STATE/IF/DATA/VERIF/MGMT/IMPL | SRC | `basis_kind`。SRC→SRCまたは設計要素→SRCだけを許可し、④設計モデル間には使用しない |
+| `satisfies` | FUNC/STRUCT/BEH/STATE/IF/DATA/IMPL | STD/REQ/CST | 正規方向を固定する |
+| `allocated_to` | FUNC/STRUCT/BEH | FUNC→STRUCT/BEH/STATE、STRUCT→BEH、BEH→STATE | `allocation_kind`。表記外の組合せは禁止する |
+| `verifies` | VERIF | STD/REQ/CST/FUNC/STRUCT/BEH/STATE/IF/DATA/MGMT/IMPL | VERIF→対象に固定する |
+| `contains` | SRC/STD/REQ/CST/FUNC/STRUCT/BEH/STATE/IF/DATA/VERIF/MGMT/IMPL | sourceと同じ分類 | 自己包含、循環、異種分類を禁止し、正規の直接親は原則一つとする |
+| `implements` | IMPL | FUNC/STRUCT/BEH/STATE/IF/DATA | IMPL→設計要素に固定する |
+| `uses` | FUNC/STRUCT/BEH/STATE/IF | FUNC→FUNC/IF/DATA、STRUCT→BEH/DATA、BEH→BEH/STATE/IF/DATA、STATE→BEH/STATE/IF/DATA、IF→DATA | 明確な利用対象に限定する |
+| `calls` | IMPL | IMPL | 実装間の実行時呼出しに限定する |
+| `conflicts_with` | SRCを除く12分類 | SRCを除く12分類 | `conflict_status`。端点UID順を正規化した1件だけを保存し、検索時に双方向化する |
+| `relates_to` | SRCを除く12分類 | SRCを除く12分類 | `status=provisional` と `reason` を必須とする |
 
-非採用 relation_type の扱いは以下とする。
+保存時は型・方向・必須属性、同じ `from_uid + relation_type + to_uid` の重複、`contains` の自己包含・循環・異種分類、`conflicts_with` の逆向き重複を検査する。品質分析では `FUNC uses STRUCT/BEH/STATE`、`VERIF uses X`、`IMPL uses IMPL`、異種分類間 `contains` を意味重複として検出し、正式関係への置換候補を提示する。`relates_to` は暫定関係率を算出し、定期レビューで正式関係へ置換する。
 
-| 非採用 | 代替 |
-| --- | --- |
-| `derived_from` / `normalized_from` | `based_on + basis_kind` |
-| `owns` | `entity_registry.owner_uid` |
-| `realizes` | `satisfies` または `implements` |
-| `depends_on` | `uses` / `calls` / 関係探索 |
-| `inputs` / `outputs` | `uses + usage_kind=input/output` |
-| `constrains` | 設計要素 `satisfies` 制約 |
-| `impacts` | 関係探索により導出 |
-| `refines` | `decomposes + decomposition_kind=refinement` |
-
+非採用relation_typeは、文書由来の `derived_from` / `normalized_from` を `based_on + basis_kind`、所有を `owner_uid`、階層・詳細化を同種間 `contains`、実装を `implements`、呼出しをIMPL間 `calls`、明確な設計利用を許可表内 `uses`、影響を関係探索で表現する。状態遷移、処理順序、IF入出力、データ内部構造、検証手順は各モデル内部で管理する。
 ### 9.2 chunk / chunk_item
 
 LLM入力、検索、将来のGraph RAG、部分レポート生成のため、③中間データをチャンク化して管理する。RAGは初期導入しないため、初期用途は検索補助、LLM入力単位、部分レポート生成単位とする。
