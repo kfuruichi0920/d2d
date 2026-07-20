@@ -9,7 +9,7 @@ function params(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object') throw new BackendError('validation', 'パラメータが必要です', '')
   return value as Record<string, unknown>
 }
-function searchSettings(settings: SettingsService, useMecab: boolean): SearchSettings {
+export function searchSettings(settings: SettingsService, useMecab: boolean): SearchSettings {
   const userDictionaryPaths = settings.get('search.userDictionaryPaths')
   const mecabPath = settings.get('search.mecabPath')
   const dictionaryPath = settings.get('search.dictionaryPath')

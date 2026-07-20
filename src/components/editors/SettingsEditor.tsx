@@ -21,6 +21,7 @@ import { SearchEngineSettingsSection } from '../views/SearchSettingsView'
 import { PlantUmlSettingsSection } from '../views/PlantUmlSettingsView'
 import { AppSettingsStorageNotice } from '../views/AppSettingsStorageNotice'
 import { KeybindingSettingsSection } from '../views/KeybindingSettingsView'
+import { McpServerSettingsSection } from '../views/McpSettingsView'
 
 function toColorInputValue(value: string, fallback: string): string {
   const trimmed = value.trim()
@@ -230,6 +231,7 @@ export function SettingsEditor(): React.JSX.Element {
       <AppSettingsStorageNotice />
       <PlantUmlSettingsSection />
       <SearchEngineSettingsSection />
+      <McpServerSettingsSection />
 
       <h2 style={{ fontSize: 14, marginTop: 20 }}>APIキー等の機密情報（CORE-044/045）</h2>
       <p style={{ color: 'var(--d2d-fg-muted)', fontSize: 11.5 }}>

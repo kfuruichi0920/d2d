@@ -20,7 +20,7 @@ import { SettingsService, type SecretCipher } from './settings/settings-service'
 import { registerBuiltinFeatures } from './features/feature-registry'
 import { callMain, handleBridgeMessage, initMainBridge } from './main-bridge'
 import { runWorker } from './workers/worker-runner'
-import { requireProject, type ProjectInfo } from './project/project-service'
+import { currentProject, requireProject, type ProjectInfo } from './project/project-service'
 import { registerDocumentApi } from './api/documents'
 import { registerLlmApi } from './api/llm'
 import { registerIntermediateApi } from './api/intermediate'
@@ -29,7 +29,9 @@ import { registerTraceApi } from './api/trace'
 import { registerSecondaryApi } from './api/secondary'
 import { registerEditApi } from './api/edit'
 import { registerDataApi, registerDbToTextHook } from './api/data'
-import { registerSearchApi } from './api/search'
+import { registerSearchApi, searchSettings as buildSearchSettings } from './api/search'
+import { applyMcpSettings, readMcpSettings, registerMcpApi } from './api/mcp'
+import { McpServerService } from './mcp/mcp-service'
 import { registerResourceApi } from './api/resource'
 import { parseLlmMergeCandidate } from './resource/resource-service'
 import { createArchive } from './export/archive-service'
@@ -422,6 +424,27 @@ function main(): void {
   registerResourceApi(router, jobs)
   registerSemanticApi(router, settings)
   registerLogsApi(router)
+
+  // MCP サーバ（MCP-001〜003）。設計情報クエリを AI エージェントへ公開する
+  const mcp = new McpServerService(() => {
+    const project = currentProject()
+    if (!project) return null
+    return {
+      db: project.db,
+      projectUid: project.info.projectUid,
+      searchSettings: buildSearchSettings(settings, false)
+    }
+  })
+  registerMcpApi(router, settings, mcp)
+  // 設定が有効なら Backend 起動時に自動起動する（失敗しても Backend は継続）
+  void applyMcpSettings(mcp, readMcpSettings(settings)).catch((error) => {
+    appendDebugLog(
+      'backend',
+      'warn',
+      'MCPサーバの自動起動に失敗しました',
+      error instanceof Error ? error.message : String(error)
+    )
+  })
   // Backend API の失敗をデバッグログへ記録する（W11）。log.* 自身は除外
   router.onDispatchError = (method, error) => {
     if (method.startsWith('log.')) return

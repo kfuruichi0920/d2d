@@ -119,6 +119,8 @@ export const API_METHODS = [
   'llm.runConfirmed',
   'log.append',
   'log.tail',
+  'mcp.applySettings',
+  'mcp.status',
   'model.getConfig',
   'model.render',
   'model.save',
