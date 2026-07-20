@@ -15,7 +15,7 @@ export interface GlossaryHighlightTerm {
   definition: string | null
 }
 
-const CODE_PATTERN = /\b(?:STD|REQ|CST|FUNC|STRUCT|ACTION|STATE|IF|DATA|VERIF|MGMT|IMPL)-\d{6}\b/g
+const CODE_PATTERN = /\b(?:STD|REQ|CST|FUNC|STRUCT|BEH|STATE|IF|DATA|VERIF|MGMT|IMPL)-\d{6}\b/g
 
 /** サニタイズ済み HTML のテキストノードに用語ハイライトと要素リンクを適用する */
 function decorate(html: string, terms: GlossaryHighlightTerm[]): string {

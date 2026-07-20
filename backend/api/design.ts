@@ -15,6 +15,8 @@ import {
   listDesignElements,
   listAllowedRelationRules,
   listTraceLinks,
+  prepareRelationDraft,
+  checkRelationAllowed,
   setVerificationDetail,
   type TraceLinkAttributes,
   updateDesignElement
@@ -148,6 +150,8 @@ export function registerDesignApi(router: ApiRouter, jobs: JobManager): void {
       label: requireString(p, 'label'),
       definition: requireString(p, 'definition'),
       requiredAttr: p.requiredAttr === undefined ? undefined : String(p.requiredAttr),
+      iconColor: p.iconColor === undefined ? undefined : String(p.iconColor),
+      iconText: p.iconText === undefined ? undefined : String(p.iconText),
       enabled: p.enabled !== false
     })
     return getOntology(db)
@@ -203,13 +207,25 @@ export function registerDesignApi(router: ApiRouter, jobs: JobManager): void {
     const { db, info } = requireProject()
     const relationType = requireString(p, 'relationType')
 
-    return createTraceLink(db, info.projectUid, {
-      fromUid: requireString(p, 'fromUid'),
-      toUid: requireString(p, 'toUid'),
+    const fromUid = requireString(p, 'fromUid')
+    const toUid = requireString(p, 'toUid')
+    const endpointTypes = db
+      .prepare(`SELECT uid,entity_type FROM entity_registry WHERE uid IN (?,?) AND status<>'deleted'`)
+      .all(fromUid, toUid) as { uid: string; entity_type: string }[]
+    const requiredAttr = checkRelationAllowed(
+      db,
       relationType,
-      attributes: (p.attributes as TraceLinkAttributes | undefined) ?? {},
+      endpointTypes.find((row) => row.uid === fromUid)?.entity_type ?? null,
+      endpointTypes.find((row) => row.uid === toUid)?.entity_type ?? null
+    ).requiredAttr
+    const prepared = prepareRelationDraft(requiredAttr, (p.attributes as TraceLinkAttributes | undefined) ?? {})
+    return createTraceLink(db, info.projectUid, {
+      fromUid,
+      toUid,
+      relationType,
+      attributes: prepared.attributes,
       createdBy: 'human',
-      reviewStatus: 'approved'
+      reviewStatus: prepared.reviewStatus
     })
   })
 

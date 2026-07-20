@@ -74,7 +74,7 @@ describe('createDatabase / openDatabase（P1-1）', () => {
       'model_cst',
       'model_func',
       'model_struct',
-      'model_action',
+      'model_beh',
       'model_state',
       'model_data',
       'model_if',
@@ -103,7 +103,7 @@ describe('createDatabase / openDatabase（P1-1）', () => {
     expect(tables).toContain('fts_entity_text')
     expect(tables).toContain('llm_candidate_draft')
 
-    expect(getSchemaVersion(db)).toBe('2.1.0')
+    expect(getSchemaVersion(db)).toBe('2.2.0')
     expect(getProjectRow(db).name).toBe('テスト')
     checkIntegrity(db) // 例外が出ないこと
   })
@@ -149,6 +149,8 @@ describe('createDatabase / openDatabase（P1-1）', () => {
       relationType: 'mitigates',
       label: '軽減',
       definition: '設計要素がリスクを軽減する。',
+      iconColor: '#123456',
+      iconText: 'M',
       enabled: true
     })
     setAllowance(db, {
@@ -164,6 +166,9 @@ describe('createDatabase / openDatabase（P1-1）', () => {
         )
         .get()
     ).toEqual({ allowed: 1 })
+    expect(
+      db.prepare(`SELECT icon_color,icon_text FROM ontology_relation_definition WHERE relation_type='mitigates'`).get()
+    ).toEqual({ icon_color: '#123456', icon_text: 'M' })
     expect(confirmOntology(db)).toBe('0.1.1')
   })
   it('不正な独自項目定義を拒否し、追加model_*テーブルを残さない', () => {
@@ -232,7 +237,7 @@ describe('createDatabase / openDatabase（P1-1）', () => {
     closeDatabase(created)
 
     db = openDatabase(path)
-    expect(getSchemaVersion(db)).toBe('2.1.0')
+    expect(getSchemaVersion(db)).toBe('2.2.0')
   })
 
   it('存在しない DB を開くと not_found エラーになる', () => {

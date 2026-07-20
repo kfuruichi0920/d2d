@@ -472,7 +472,7 @@ CREATE TABLE ontology_model_definition (
 );
 CREATE TABLE ontology_relation_definition (
     relation_type TEXT PRIMARY KEY CHECK (relation_type GLOB '[a-z][a-z0-9_]*'), label TEXT NOT NULL, definition TEXT NOT NULL,
-    required_attr TEXT, is_enabled INTEGER NOT NULL DEFAULT 1 CHECK (is_enabled IN (0, 1)),
+    required_attr TEXT, icon_color TEXT NOT NULL DEFAULT '#9099a8', icon_text TEXT NOT NULL DEFAULT '?', is_enabled INTEGER NOT NULL DEFAULT 1 CHECK (is_enabled IN (0, 1)),
     is_builtin INTEGER NOT NULL DEFAULT 0 CHECK (is_builtin IN (0, 1)), sort_order INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -489,7 +489,7 @@ CREATE TABLE model_req (uid TEXT PRIMARY KEY, summary TEXT NOT NULL DEFAULT '', 
 CREATE TABLE model_cst (uid TEXT PRIMARY KEY, summary TEXT NOT NULL DEFAULT '', detail_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(detail_json) AND json_type(detail_json)='object'), model_version INTEGER NOT NULL DEFAULT 1, FOREIGN KEY (uid) REFERENCES entity_registry(uid) ON DELETE CASCADE);
 CREATE TABLE model_func (uid TEXT PRIMARY KEY, summary TEXT NOT NULL DEFAULT '', detail_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(detail_json) AND json_type(detail_json)='object'), model_version INTEGER NOT NULL DEFAULT 1, FOREIGN KEY (uid) REFERENCES entity_registry(uid) ON DELETE CASCADE);
 CREATE TABLE model_struct (uid TEXT PRIMARY KEY, summary TEXT NOT NULL DEFAULT '', detail_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(detail_json) AND json_type(detail_json)='object'), model_version INTEGER NOT NULL DEFAULT 1, FOREIGN KEY (uid) REFERENCES entity_registry(uid) ON DELETE CASCADE);
-CREATE TABLE model_action (uid TEXT PRIMARY KEY, summary TEXT NOT NULL DEFAULT '', detail_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(detail_json) AND json_type(detail_json)='object'), model_version INTEGER NOT NULL DEFAULT 1, FOREIGN KEY (uid) REFERENCES entity_registry(uid) ON DELETE CASCADE);
+CREATE TABLE model_beh (uid TEXT PRIMARY KEY, summary TEXT NOT NULL DEFAULT '', detail_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(detail_json) AND json_type(detail_json)='object'), model_version INTEGER NOT NULL DEFAULT 1, FOREIGN KEY (uid) REFERENCES entity_registry(uid) ON DELETE CASCADE);
 CREATE TABLE model_state (uid TEXT PRIMARY KEY, summary TEXT NOT NULL DEFAULT '', detail_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(detail_json) AND json_type(detail_json)='object'), model_version INTEGER NOT NULL DEFAULT 1, FOREIGN KEY (uid) REFERENCES entity_registry(uid) ON DELETE CASCADE);
 CREATE TABLE model_data (uid TEXT PRIMARY KEY, summary TEXT NOT NULL DEFAULT '', detail_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(detail_json) AND json_type(detail_json)='object'), model_version INTEGER NOT NULL DEFAULT 1, FOREIGN KEY (uid) REFERENCES entity_registry(uid) ON DELETE CASCADE);
 CREATE TABLE model_if (uid TEXT PRIMARY KEY, summary TEXT NOT NULL DEFAULT '', detail_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(detail_json) AND json_type(detail_json)='object'), model_version INTEGER NOT NULL DEFAULT 1, FOREIGN KEY (uid) REFERENCES entity_registry(uid) ON DELETE CASCADE);
@@ -506,7 +506,7 @@ CREATE TABLE trace_link (
     rationale TEXT,
     confidence REAL CHECK (confidence IS NULL OR (confidence >= 0.0 AND confidence <= 1.0)),
     created_by TEXT CHECK (created_by IS NULL OR created_by IN ('human', 'rule', 'llm')),
-    review_status TEXT DEFAULT 'draft' CHECK (review_status IS NULL OR review_status IN ('draft', 'review', 'approved', 'rejected', 'provisional')),
+    review_status TEXT DEFAULT 'draft' CHECK (review_status IS NULL OR review_status IN ('creating', 'draft', 'review', 'approved', 'rejected', 'provisional')),
     basis_kind TEXT CHECK (basis_kind IS NULL OR basis_kind IN ('original', 'extracted', 'normalized', 'inferred', 'human_approved')),
     evidence_span TEXT,
     transform_note TEXT,

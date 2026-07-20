@@ -23,17 +23,33 @@ interface CandidateRelation {
   to_temp_id: string
   relation_type: string
   rationale?: string | null
+  attributes?: Record<string, unknown> | null
 }
 
 interface AllowedRelationRule {
   relationType: string
   sourceModelType: string
   targetModelType: string
+  requiredAttr: string | null
 }
 
 interface CandidateDraftResponse {
   candidateSet: { elements: CandidateElement[]; relations: CandidateRelation[] }
   updatedAt: string
+}
+
+const ATTRIBUTE_KEYS: Record<string, string> = {
+  basis_kind: 'basisKind',
+  allocation_kind: 'allocationKind',
+  usage_kind: 'usageKind',
+  conflict_status: 'conflictStatus'
+}
+const ATTRIBUTE_OPTIONS: Record<string, string[]> = {
+  basis_kind: ['original', 'extracted', 'normalized', 'inferred', 'human_approved'],
+  allocation_kind: ['structure', 'behavior', 'state', 'interface', 'data'],
+  usage_kind: ['input', 'output', 'read', 'write', 'update', 'publish', 'subscribe'],
+  conflict_status: ['suspected', 'confirmed', 'resolved', 'dismissed'],
+  review_status: ['creating', 'draft', 'review', 'approved', 'rejected', 'provisional']
 }
 
 const candidatePrefix = (modelType: string): string => modelType.replace(/^model_/, '').replaceAll('_', '-') || 'model'
@@ -166,6 +182,18 @@ export function CandidateSetReviewEditor({ llmRunUid }: { llmRunUid: string }): 
           .map((rule) => rule.relationType)
       )
     ]
+  }
+  const requiredAttrOf = (relation: CandidateRelation): string | null => {
+    const source = elements.find((e) => e.temp_id === relation.from_temp_id)?.category
+    const target = elements.find((e) => e.temp_id === relation.to_temp_id)?.category
+    return (
+      allowedRules.find(
+        (rule) =>
+          rule.relationType === relation.relation_type &&
+          rule.sourceModelType === source &&
+          rule.targetModelType === target
+      )?.requiredAttr ?? null
+    )
   }
   const relationAllowed = (relation: CandidateRelation): boolean =>
     allowedTypes(relation).includes(relation.relation_type)
@@ -393,6 +421,7 @@ export function CandidateSetReviewEditor({ llmRunUid }: { llmRunUid: string }): 
             <th style={thStyle}>From（要素名に追従）</th>
             <th style={{ ...thStyle, width: 130 }}>関係</th>
             <th style={thStyle}>To（要素名に追従）</th>
+            <th style={{ ...thStyle, width: 180 }}>必須属性</th>
             <th style={thStyle}>根拠</th>
             <th style={{ ...thStyle, width: 40 }} />
           </tr>
@@ -419,7 +448,7 @@ export function CandidateSetReviewEditor({ llmRunUid }: { llmRunUid: string }): 
               <td style={tdStyle}>
                 <select
                   value={relation.relation_type}
-                  onChange={(e) => updateRelation(i, { relation_type: e.target.value })}
+                  onChange={(e) => updateRelation(i, { relation_type: e.target.value, attributes: null })}
                 >
                   {[
                     ...new Set([
@@ -442,6 +471,33 @@ export function CandidateSetReviewEditor({ llmRunUid }: { llmRunUid: string }): 
                     </option>
                   ))}
                 </select>
+              </td>
+              <td style={tdStyle}>
+                {requiredAttrOf(relation) ? (
+                  <select
+                    value={String(
+                      relation.attributes?.[ATTRIBUTE_KEYS[requiredAttrOf(relation)!] ?? 'reviewStatus'] ?? ''
+                    )}
+                    aria-label={`${relation.relation_type} 必須属性`}
+                    data-testid={`candidate-relation-attribute-${i}`}
+                    onChange={(e) => {
+                      const requiredAttr = requiredAttrOf(relation)!
+                      const key = ATTRIBUTE_KEYS[requiredAttr] ?? 'reviewStatus'
+                      updateRelation(i, {
+                        attributes: e.target.value ? { ...(relation.attributes ?? {}), [key]: e.target.value } : null
+                      })
+                    }}
+                  >
+                    <option value="">仮設定（作成中）</option>
+                    {(ATTRIBUTE_OPTIONS[requiredAttrOf(relation)!] ?? []).map((value) => (
+                      <option key={value} value={value}>
+                        {value}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  '—'
+                )}
               </td>
               <td style={tdStyle}>
                 <input

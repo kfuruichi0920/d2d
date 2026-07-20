@@ -4,7 +4,12 @@
  */
 import type { Database } from 'better-sqlite3'
 import { BackendError } from '../api/errors'
-import { createTraceLink, RELATION_TYPES, type RelationType, type TraceLinkAttributes } from '../design/design-service'
+import {
+  createTraceLink,
+  prepareRelationDraft,
+  type RelationType,
+  type TraceLinkAttributes
+} from '../design/design-service'
 import { eventBus } from '../events/event-bus'
 import { updateEntityStatus } from '../store/entity-registry'
 
@@ -41,6 +46,16 @@ export interface EditableTraceMatrix {
   cols: TraceMatrixResource[]
   cells: Record<string, Record<string, EditableMatrixLink[]>>
   relationTypes: readonly string[]
+  relationDefinitions: readonly MatrixRelationDefinition[]
+}
+
+export interface MatrixRelationDefinition {
+  relationType: string
+  label: string
+  requiredAttr: string | null
+  isEnabled: boolean
+  iconColor: string
+  iconText: string
 }
 
 const MATRIX_CATEGORIES = [
@@ -50,7 +65,7 @@ const MATRIX_CATEGORIES = [
   'model_cst',
   'model_func',
   'model_struct',
-  'model_action',
+  'model_beh',
   'model_state',
   'model_if',
   'model_data',
@@ -347,8 +362,20 @@ export function getEditableTraceMatrix(
   const rows = resolveMatrixResources(db, projectUid, rowScopeIds)
   const cols = resolveMatrixResources(db, projectUid, colScopeIds)
   const cells: EditableTraceMatrix['cells'] = {}
-  const allowedTypes = (relationTypes ?? []).filter((type) => RELATION_TYPES.includes(type as RelationType))
-  if (rows.length === 0 || cols.length === 0) return { rows, cols, cells, relationTypes: RELATION_TYPES }
+  const relationDefinitions = db
+    .prepare(
+      `SELECT relation_type AS relationType,label,required_attr AS requiredAttr,is_enabled AS isEnabled,icon_color AS iconColor,icon_text AS iconText FROM ontology_relation_definition ORDER BY sort_order,relation_type`
+    )
+    .all()
+    .map((row) => ({
+      ...(row as Omit<MatrixRelationDefinition, 'isEnabled'> & { isEnabled: number }),
+      isEnabled: (row as { isEnabled: number }).isEnabled === 1
+    })) as MatrixRelationDefinition[]
+  const definedTypes = new Set(relationDefinitions.map((definition) => definition.relationType))
+  const allowedTypes = (relationTypes ?? []).filter((type) => definedTypes.has(type))
+  const allRelationTypes = relationDefinitions.map((definition) => definition.relationType)
+  if (rows.length === 0 || cols.length === 0)
+    return { rows, cols, cells, relationTypes: allRelationTypes, relationDefinitions }
 
   const rowSet = new Set(rows.map((row) => row.uid))
   const colSet = new Set(cols.map((col) => col.uid))
@@ -393,7 +420,7 @@ export function getEditableTraceMatrix(
       })
     }
   }
-  return { rows, cols, cells, relationTypes: RELATION_TYPES }
+  return { rows, cols, cells, relationTypes: allRelationTypes, relationDefinitions }
 }
 
 export interface MatrixUpdateInput {
@@ -401,22 +428,15 @@ export interface MatrixUpdateInput {
   relationTypes: readonly RelationType[]
   direction: 'row_to_col' | 'col_to_row'
   operation: 'add' | 'delete' | 'toggle'
+  relationAttributes?: Readonly<Record<string, string>>
 }
 
-function defaultRelationAttributes(relationType: RelationType, targetCategory: string | null): TraceLinkAttributes {
-  if (relationType === 'based_on') return { basisKind: 'human_approved' }
-  if (relationType === 'allocated_to') {
-    const kinds = {
-      model_struct: 'structure',
-      model_action: 'behavior',
-      model_state: 'state',
-      model_if: 'interface',
-      model_data: 'data'
-    } as const
-    return { allocationKind: kinds[targetCategory as keyof typeof kinds] ?? 'structure' }
-  }
-  if (relationType === 'uses') return { usageKind: 'read' }
-  if (relationType === 'conflicts_with') return { conflictStatus: 'suspected' }
+function explicitRelationAttributes(requiredAttr: string | null, value: string | undefined): TraceLinkAttributes {
+  if (!requiredAttr || !value) return {}
+  if (requiredAttr === 'basis_kind') return { basisKind: value }
+  if (requiredAttr === 'allocation_kind') return { allocationKind: value }
+  if (requiredAttr === 'usage_kind') return { usageKind: value }
+  if (requiredAttr === 'conflict_status') return { conflictStatus: value }
   return {}
 }
 
@@ -426,7 +446,11 @@ export function updateTraceMatrixLinks(
   projectUid: string,
   input: MatrixUpdateInput
 ): { added: number; deleted: number; unchanged: number } {
-  const relationTypes = [...new Set(input.relationTypes)].filter((type) => RELATION_TYPES.includes(type))
+  const definitions = db
+    .prepare(`SELECT relation_type AS relationType,required_attr AS requiredAttr FROM ontology_relation_definition`)
+    .all() as { relationType: string; requiredAttr: string | null }[]
+  const definitionByType = new Map(definitions.map((definition) => [definition.relationType, definition]))
+  const relationTypes = [...new Set(input.relationTypes)].filter((type) => definitionByType.has(type))
   const pairs = [...new Map(input.pairs.map((pair) => [`${pair.rowUid}\0${pair.colUid}`, pair])).values()].slice(
     0,
     5000
@@ -472,13 +496,24 @@ export function updateTraceMatrixLinks(
         } else if (existing.length > 0) {
           unchanged += 1
         } else {
+          const requiredAttr = definitionByType.get(relationType)?.requiredAttr ?? null
+          const explicitValue = input.relationAttributes?.[relationType]
+          const requestedStatus =
+            requiredAttr === 'review_status' && explicitValue
+              ? (explicitValue as 'creating' | 'draft' | 'review' | 'approved' | 'rejected' | 'provisional')
+              : 'approved'
+          const prepared = prepareRelationDraft(
+            requiredAttr,
+            explicitRelationAttributes(requiredAttr, explicitValue),
+            requestedStatus
+          )
           createTraceLink(db, projectUid, {
             fromUid,
             toUid,
             relationType,
-            attributes: defaultRelationAttributes(relationType, target.model_type),
+            attributes: prepared.attributes,
             createdBy: 'human',
-            reviewStatus: relationType === 'relates_to' ? 'provisional' : 'approved'
+            reviewStatus: prepared.reviewStatus
           })
           added += 1
         }

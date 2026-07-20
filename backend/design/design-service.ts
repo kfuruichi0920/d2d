@@ -266,8 +266,46 @@ export interface CreateTraceLinkInput {
   relationType: string
   attributes?: TraceLinkAttributes
   createdBy: 'human' | 'rule' | 'llm'
-  reviewStatus?: 'draft' | 'review' | 'approved' | 'rejected' | 'provisional'
+  reviewStatus?: 'creating' | 'draft' | 'review' | 'approved' | 'rejected' | 'provisional'
   llmRunUid?: string
+}
+
+export const REQUIRED_RELATION_ATTRIBUTE_OPTIONS: Record<string, readonly string[]> = {
+  basis_kind: ['original', 'extracted', 'normalized', 'inferred', 'human_approved'],
+  allocation_kind: ['structure', 'behavior', 'state', 'interface', 'data'],
+  usage_kind: ['input', 'output', 'read', 'write', 'update', 'publish', 'subscribe'],
+  conflict_status: ['suspected', 'confirmed', 'resolved', 'dismissed'],
+  review_status: ['creating', 'draft', 'review', 'approved', 'rejected', 'provisional']
+}
+const REQUIRED_RELATION_ATTRIBUTE_DEFAULTS: Record<string, string> = {
+  basis_kind: 'inferred',
+  allocation_kind: 'behavior',
+  usage_kind: 'read',
+  conflict_status: 'suspected'
+}
+const REQUIRED_RELATION_ATTRIBUTE_KEYS: Record<string, keyof TraceLinkAttributes> = {
+  basis_kind: 'basisKind',
+  allocation_kind: 'allocationKind',
+  usage_kind: 'usageKind',
+  conflict_status: 'conflictStatus'
+}
+
+/** 未入力の必須属性を仮値で補い、レビュー状態を「作成中」にする。 */
+export function prepareRelationDraft(
+  requiredAttr: string | null,
+  attributes: TraceLinkAttributes = {},
+  requestedStatus: CreateTraceLinkInput['reviewStatus'] = 'approved'
+): { attributes: TraceLinkAttributes; reviewStatus: CreateTraceLinkInput['reviewStatus'] } {
+  if (!requiredAttr) return { attributes, reviewStatus: requestedStatus }
+  if (requiredAttr === 'review_status') {
+    return { attributes, reviewStatus: requestedStatus === 'approved' ? 'creating' : requestedStatus }
+  }
+  const key = REQUIRED_RELATION_ATTRIBUTE_KEYS[requiredAttr]
+  if (!key || attributes[key]) return { attributes, reviewStatus: requestedStatus }
+  return {
+    attributes: { ...attributes, [key]: REQUIRED_RELATION_ATTRIBUTE_DEFAULTS[requiredAttr] ?? 'temporary' },
+    reviewStatus: 'creating'
+  }
 }
 function endpoint(db: Database, uid: string): { entity_type: string; exists: boolean } {
   const r = db.prepare(`SELECT entity_type FROM entity_registry WHERE uid=? AND status<>'deleted'`).get(uid) as
@@ -440,17 +478,20 @@ export function adoptCandidates(db: Database, projectUid: string, input: AdoptCa
         to = map.get(rel.to_temp_id)
       if (!from || !to)
         throw new BackendError('validation', `関係候補の参照が未解決です: ${rel.from_temp_id} -> ${rel.to_temp_id}`, '')
+      const attributes = {
+        rationale: rel.rationale ?? null,
+        confidence: rel.confidence ?? null,
+        ...(rel.attributes as TraceLinkAttributes | undefined)
+      }
+      const requiredAttr = checkRelationAllowed(db, rel.relation_type, from.modelType, to.modelType).requiredAttr
+      const prepared = prepareRelationDraft(requiredAttr, attributes)
       createTraceLink(db, projectUid, {
         fromUid: from.uid,
         toUid: to.uid,
         relationType: rel.relation_type,
-        attributes: {
-          rationale: rel.rationale ?? null,
-          confidence: rel.confidence ?? null,
-          ...(rel.attributes as TraceLinkAttributes | undefined)
-        },
+        attributes: prepared.attributes,
         createdBy: 'llm',
-        reviewStatus: 'approved',
+        reviewStatus: prepared.reviewStatus,
         llmRunUid: input.llmRunUid
       })
       relationCount++

@@ -142,7 +142,7 @@ flowchart TD
 | 抽出データ | `extracted_document`、`extracted_item` |
 | 中間データ | `intermediate_document`、`intermediate_item`、`chunk`、`chunk_item` |
 | ②③Resource | `resource_label`、`resource_text`、`resource_list`、`resource_figure`、`resource_table`、`resource_formula`、`resource_code`、`resource_model`、`resource_reference`、`resource_glossary`、`resource_glossary_synonym` |
-| ④設計モデル | `model_src`、`model_std`、`model_req`、`model_cst`、`model_func`、`model_struct`、`model_action`、`model_state`、`model_data`、`model_if`、`model_verif`、`model_impl`、`model_mgmt` |
+| ④設計モデル | `model_src`、`model_std`、`model_req`、`model_cst`、`model_func`、`model_struct`、`model_beh`、`model_state`、`model_data`、`model_if`、`model_verif`、`model_impl`、`model_mgmt` |
 | オントロジー | `ontology_version`、`ontology_model_definition`、`ontology_relation_definition`、`ontology_relation_allowance` |
 | トレース・LLM | `trace_link`、`llm_run_ref`、`prompt_template` |
 

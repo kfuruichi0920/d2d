@@ -105,9 +105,7 @@ export function registerTraceApi(router: ApiRouter): void {
     if (!['row_to_col', 'col_to_row'].includes(direction)) {
       throw new BackendError('validation', 'direction は row_to_col/col_to_row のいずれかです', direction)
     }
-    if (relationTypes.some((type) => !RELATION_TYPES.includes(type))) {
-      throw new BackendError('validation', 'relationTypesに未定義の関係種別があります', relationTypes.join(','))
-    }
+
     const pairs = Array.isArray(p.pairs)
       ? p.pairs.map((value) => {
           const pair = asRecord(value)
@@ -118,7 +116,16 @@ export function registerTraceApi(router: ApiRouter): void {
       pairs,
       relationTypes,
       direction,
-      operation
+      operation,
+      relationAttributes:
+        typeof p.relationAttributes === 'object' && p.relationAttributes !== null
+          ? Object.fromEntries(
+              Object.entries(p.relationAttributes as Record<string, unknown>).map(([key, value]) => [
+                key,
+                String(value)
+              ])
+            )
+          : {}
     } as MatrixUpdateInput)
   })
   /** 複数のResource集合列と方向付きリンクを返すインパクト分析（TRACE-030〜038、UI-015）。 */

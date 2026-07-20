@@ -147,6 +147,22 @@ describe('トレーサビリティ（P9）', () => {
     })
   })
 
+  it('汎用マトリクス: 設計モデル設定の無効な関係定義とアイコンも返す', () => {
+    db.prepare(
+      `UPDATE ontology_relation_definition SET is_enabled=0,icon_color='#123456',icon_text='Use' WHERE relation_type='uses'`
+    ).run()
+    const matrix = getEditableTraceMatrix(db, projectUid, ['design:model_func'], ['design:model_req'], [])
+    expect(matrix.relationDefinitions).toContainEqual(
+      expect.objectContaining({
+        relationType: 'uses',
+        isEnabled: false,
+        iconColor: '#123456',
+        iconText: 'Use',
+        requiredAttr: 'usage_kind'
+      })
+    )
+  })
+
   it('汎用マトリクス: 選択セルへ関係を一括追加・論理削除できる（TRACE-027）', () => {
     const added = updateTraceMatrixLinks(db, projectUid, {
       pairs: [{ rowUid: func1.uid, colUid: req2.uid }],

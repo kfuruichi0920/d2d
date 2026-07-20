@@ -598,8 +598,8 @@ sequenceDiagram
 | JSON検証 | LLMプロバイダ機能 | JSONパース、必須項目、候補一時ID、関係From/To参照、relation_type候補を検査する |
 | 候補セット表示 | UI Workbench | 正規化テキスト、要素候補、関係候補、警告、LLMログを `candidate://<llm_run_uid>` として開く |
 | 候補編集 | 設計編集機能 | 保存前に候補の追加、修正、削除、種別変更、要素名変更時の関係参照追従を行う |
-| 採用前検査 | トレーサビリティ機能 / ストアアクセス管理 | `ontology_relation_definition` と `ontology_relation_allowance` により型・固定方向・必須属性・重複・自己包含・循環・意味重複・未解決参照・SRC根拠リンク・レビュー状態を検査する |
-| 正本反映 | ストアアクセス管理 | 採用された候補だけを `entity_registry`、対応 `model_*`、`trace_link` に同一トランザクションで保存する |
+| 採用前検査 | トレーサビリティ機能 / ストアアクセス管理 | `ontology_relation_definition` と `ontology_relation_allowance` により型・固定方向・重複・自己包含・循環・意味重複・未解決参照・SRC根拠リンク・レビュー状態を検査する。必須属性が未入力の場合は関係種別ごとの仮値を補い、レビュー状態を `creating`（作成中）とする |
+| 正本反映 | ストアアクセス管理 | 採用された候補だけを `entity_registry`、対応 `model_*`、`trace_link` に同一トランザクションで保存し、各設計モデルから候補生成を要求したチャンクへ `based_on` を付与する |
 
 ### 10.3 実装時に落とさない観点
 
@@ -609,7 +609,7 @@ sequenceDiagram
 | 一時IDと確定ID | 候補セット内ではモデル分類接頭辞と全モデル共通連番の一時ID（例: `req-01`、`struct-02`）で要素・関係を参照する。採用時は現在のDB採番状態から正式codeとUUIDv7の`uid`を割り当て、一時IDは保存しない |
 | 編集状態保持 | タブ間移動はRendererメモリで保持し、タブを閉じるかF5で破棄する。明示的な一時保存は`llm_candidate_draft`へLLM実行ごとに1件だけ保持し、原本とは自動合成しない |
 | 正規化テキスト | 正規化テキストは③本文の上書きではなく候補であり、採用時も根拠範囲と差分を残す |
-| 関係候補 | 現在有効な `ontology_relation_definition` と `ontology_relation_allowance` をLLM入力とし、定義済みかつ許容された関係候補を生成する。非採用関係は同種間 `contains`、モデル内部情報、または関係探索へ変換する |
+| 関係候補 | 現在有効な `ontology_relation_definition` と `ontology_relation_allowance` をLLM入力とし、定義済みかつ許容された関係候補を生成する。必須属性は候補編集で明示でき、未入力採用時は仮値と `creating` を付与する。非採用関係は同種間 `contains`、モデル内部情報、または関係探索へ変換する |
 | 検証 | JSONパース失敗、スキーマ不一致、候補From/To未解決、型・方向・階層違反、許容外関係、重複・意味重複候補、SRC根拠なし候補を採用前に止める |
 | 影響確認 | 採用前後にTrace Graph Editorで起点要素、方向、深さ、関係種別を指定し、ホップ強調で影響範囲を確認できるようにする |
 | ログ | 入力チャンク、プロンプト、モデル、応答、検証エラー、レビュー判断は `llm_run_ref` と `review_info_json` から辿れるようにする |

@@ -299,6 +299,26 @@ describe('④設計モデル（P8）', () => {
       .get(result.elements[0]!.uid) as { to_uid: string }
     expect(link.to_uid).toBe(chunk.chunkUid)
   })
+  it('候補関係の必須属性が未入力なら仮値と作成中で採用する', () => {
+    const result = adoptCandidates(db, projectUid, {
+      intermediateDocumentUid: intermediateUid,
+      candidateSet: {
+        elements: [
+          { temp_id: 'struct-01', category: 'model_struct', title: '利用側' },
+          { temp_id: 'data-02', category: 'model_data', title: '利用データ' }
+        ],
+        relations: [{ from_temp_id: 'struct-01', to_temp_id: 'data-02', relation_type: 'uses' }]
+      }
+    })
+    const link = db
+      .prepare(`SELECT usage_kind,review_status FROM trace_link WHERE relation_type='uses' AND from_uid=?`)
+      .get(result.elements.find((element) => element.tempId === 'struct-01')!.uid) as {
+      usage_kind: string
+      review_status: string
+    }
+    expect(link).toEqual({ usage_kind: 'read', review_status: 'creating' })
+  })
+
   it('採用トランザクション: 許容外関係が 1 件でもあれば全体を反映しない（MODEL-009 同一トランザクション）', () => {
     const before = listDesignElements(db, projectUid).length
     expect(() =>

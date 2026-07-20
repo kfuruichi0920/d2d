@@ -12,6 +12,13 @@ export interface DesignRelationRule {
   requiredAttr: string | null
 }
 
+const ATTRIBUTE_OPTIONS: Record<string, string[]> = {
+  basis_kind: ['original', 'extracted', 'normalized', 'inferred', 'human_approved'],
+  allocation_kind: ['structure', 'behavior', 'state', 'interface', 'data'],
+  usage_kind: ['input', 'output', 'read', 'write', 'update', 'publish', 'subscribe'],
+  conflict_status: ['suspected', 'confirmed', 'resolved', 'dismissed']
+}
+
 const ATTRIBUTE_NAMES: Record<string, string> = {
   basis_kind: 'basisKind',
   allocation_kind: 'allocationKind',
@@ -122,12 +129,19 @@ export function DesignRelationDialog({
         </label>
         {editableRequiredAttr && (
           <label>
-            {editableRequiredAttr}（必須）
-            <input
+            {editableRequiredAttr}（未設定時は仮設定・作成中）
+            <select
               value={requiredValue}
               onChange={(event) => setRequiredValue(event.target.value)}
               data-testid="relation-required-attribute"
-            />
+            >
+              <option value="">仮設定（作成中）</option>
+              {(ATTRIBUTE_OPTIONS[editableRequiredAttr] ?? []).map((value) => (
+                <option key={value} value={value}>
+                  {value}
+                </option>
+              ))}
+            </select>
           </label>
         )}
         <label>
@@ -144,7 +158,7 @@ export function DesignRelationDialog({
           <button
             type="button"
             className="d2d-btn primary"
-            disabled={!target || !selectedRule || Boolean(editableRequiredAttr && !requiredValue.trim())}
+            disabled={!target || !selectedRule}
             onClick={() => void save()}
             data-testid="relation-save"
           >

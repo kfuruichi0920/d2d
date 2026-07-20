@@ -27,6 +27,8 @@ export interface OntologyRelationDefinition {
   label: string
   definition: string
   required_attr: string | null
+  icon_color: string
+  icon_text: string
   is_enabled: number
   is_builtin: number
   sort_order: number
@@ -146,8 +148,8 @@ const MODELS: Array<
     ]
   },
   {
-    model_type: 'model_action',
-    code_prefix: 'ACTION',
+    model_type: 'model_beh',
+    code_prefix: 'BEH',
     label: '振舞',
     layer: '論理設計',
     definition: 'シナリオ、処理手順、イベント、アクションなど、時間順序を持つ振舞を表す。',
@@ -245,7 +247,7 @@ const MODELS: Array<
   }
 ]
 
-const RELATIONS: OntologyRelationDefinition[] = [
+const RELATIONS: Array<Omit<OntologyRelationDefinition, 'icon_color' | 'icon_text'>> = [
   {
     relation_type: 'based_on',
     label: '根拠',
@@ -338,6 +340,18 @@ const RELATIONS: OntologyRelationDefinition[] = [
     sort_order: 100
   }
 ]
+const RELATION_ICONS: Record<string, { color: string; text: string }> = {
+  based_on: { color: '#4aa3df', text: 'B' },
+  satisfies: { color: '#50b36b', text: 'S' },
+  allocated_to: { color: '#b08adf', text: 'A' },
+  verifies: { color: '#df789e', text: 'V' },
+  contains: { color: '#d99b42', text: 'C' },
+  implements: { color: '#7e9ddd', text: 'I' },
+  uses: { color: '#50aaa0', text: 'U' },
+  calls: { color: '#8d8dd8', text: 'Call' },
+  conflicts_with: { color: '#df5c5c', text: '!' },
+  relates_to: { color: '#9099a8', text: 'R' }
+}
 const mt = (short: string): string =>
   (
     ({
@@ -347,7 +361,7 @@ const mt = (short: string): string =>
       CST: 'model_cst',
       FUNC: 'model_func',
       STRUCT: 'model_struct',
-      ACTION: 'model_action',
+      BEH: 'model_beh',
       STATE: 'model_state',
       DATA: 'model_data',
       IF: 'model_if',
@@ -366,23 +380,23 @@ const cross = (relation_type: string, sources: string[], targets: string[]): Ont
     }))
   )
 function initialAllowances(): OntologyAllowance[] {
-  const all = ['SRC', 'STD', 'REQ', 'CST', 'FUNC', 'STRUCT', 'ACTION', 'STATE', 'DATA', 'IF', 'VERIF', 'IMPL', 'MGMT']
+  const all = ['SRC', 'STD', 'REQ', 'CST', 'FUNC', 'STRUCT', 'BEH', 'STATE', 'DATA', 'IF', 'VERIF', 'IMPL', 'MGMT']
   return [
-    ...cross('satisfies', ['FUNC', 'STRUCT', 'ACTION', 'STATE', 'IF', 'DATA', 'IMPL'], ['STD', 'REQ', 'CST']),
-    ...cross('allocated_to', ['FUNC'], ['STRUCT', 'ACTION', 'STATE']),
-    ...cross('allocated_to', ['STRUCT'], ['ACTION']),
-    ...cross('allocated_to', ['ACTION'], ['STATE']),
+    ...cross('satisfies', ['FUNC', 'STRUCT', 'BEH', 'STATE', 'IF', 'DATA', 'IMPL'], ['STD', 'REQ', 'CST']),
+    ...cross('allocated_to', ['FUNC'], ['STRUCT', 'BEH', 'STATE']),
+    ...cross('allocated_to', ['STRUCT'], ['BEH']),
+    ...cross('allocated_to', ['BEH'], ['STATE']),
     ...cross(
       'verifies',
       ['VERIF'],
-      ['STD', 'REQ', 'CST', 'FUNC', 'STRUCT', 'ACTION', 'STATE', 'IF', 'DATA', 'MGMT', 'IMPL']
+      ['STD', 'REQ', 'CST', 'FUNC', 'STRUCT', 'BEH', 'STATE', 'IF', 'DATA', 'MGMT', 'IMPL']
     ),
     ...all.map((x) => ({ relation_type: 'contains', source_model_type: mt(x), target_model_type: mt(x), allowed: 1 })),
-    ...cross('implements', ['IMPL'], ['FUNC', 'STRUCT', 'ACTION', 'STATE', 'IF', 'DATA']),
+    ...cross('implements', ['IMPL'], ['FUNC', 'STRUCT', 'BEH', 'STATE', 'IF', 'DATA']),
     ...cross('uses', ['FUNC'], ['FUNC', 'IF', 'DATA']),
-    ...cross('uses', ['STRUCT'], ['ACTION', 'DATA']),
-    ...cross('uses', ['ACTION'], ['ACTION', 'STATE', 'IF', 'DATA']),
-    ...cross('uses', ['STATE'], ['ACTION', 'STATE', 'IF', 'DATA']),
+    ...cross('uses', ['STRUCT'], ['BEH', 'DATA']),
+    ...cross('uses', ['BEH'], ['BEH', 'STATE', 'IF', 'DATA']),
+    ...cross('uses', ['STATE'], ['BEH', 'STATE', 'IF', 'DATA']),
     ...cross('uses', ['IF'], ['DATA']),
     ...cross('calls', ['IMPL'], ['IMPL']),
     ...cross('conflicts_with', all, all),
@@ -398,9 +412,12 @@ export function seedOntology(db: Database): void {
   for (const m of MODELS)
     im.run(m.model_type, m.code_prefix, m.label, m.layer, m.definition, JSON.stringify(m.fields), m.sort_order)
   const ir = db.prepare(
-    `INSERT OR IGNORE INTO ontology_relation_definition(relation_type,label,definition,required_attr,is_enabled,is_builtin,sort_order) VALUES(?,?,?,?,1,1,?)`
+    `INSERT OR IGNORE INTO ontology_relation_definition(relation_type,label,definition,required_attr,icon_color,icon_text,is_enabled,is_builtin,sort_order) VALUES(?,?,?,?,?,?,1,1,?)`
   )
-  for (const r of RELATIONS) ir.run(r.relation_type, r.label, r.definition, r.required_attr, r.sort_order)
+  for (const r of RELATIONS) {
+    const icon = RELATION_ICONS[r.relation_type] ?? { color: '#9099a8', text: '?' }
+    ir.run(r.relation_type, r.label, r.definition, r.required_attr, icon.color, icon.text, r.sort_order)
+  }
   const ia = db.prepare(
     `INSERT OR IGNORE INTO ontology_relation_allowance(relation_type,source_model_type,target_model_type,allowed) VALUES(?,?,?,?)`
   )
@@ -550,15 +567,28 @@ export function saveModelDefinition(
 }
 export function saveRelationDefinition(
   db: Database,
-  input: { relationType: string; label: string; definition: string; requiredAttr?: string | null; enabled: boolean }
+  input: {
+    relationType: string
+    label: string
+    definition: string
+    requiredAttr?: string | null
+    iconColor?: string
+    iconText?: string
+    enabled: boolean
+  }
 ): void {
   assertRelationType(input.relationType)
   const requiredAttr = input.requiredAttr?.trim() || null
   if (requiredAttr && !/^[a-z][a-z0-9_]{0,63}$/.test(requiredAttr))
     throw new BackendError('validation', 'required_attr が不正です', requiredAttr)
+  const iconColor = input.iconColor?.trim() || '#9099a8'
+  const iconText = input.iconText?.trim() || '?'
+  if (!/^#[0-9a-fA-F]{6}$/.test(iconColor))
+    throw new BackendError('validation', 'icon_color は #RRGGBB 形式にしてください', iconColor)
+  if (iconText.length > 8) throw new BackendError('validation', 'icon_text は8文字以下にしてください', iconText)
   db.prepare(
-    `INSERT INTO ontology_relation_definition(relation_type,label,definition,required_attr,is_enabled,is_builtin,sort_order) VALUES(?,?,?,?,?,0,(SELECT COALESCE(MAX(sort_order),0)+10 FROM ontology_relation_definition)) ON CONFLICT(relation_type) DO UPDATE SET label=excluded.label,definition=excluded.definition,required_attr=excluded.required_attr,is_enabled=excluded.is_enabled,updated_at=CURRENT_TIMESTAMP`
-  ).run(input.relationType, input.label, input.definition, requiredAttr, input.enabled ? 1 : 0)
+    `INSERT INTO ontology_relation_definition(relation_type,label,definition,required_attr,icon_color,icon_text,is_enabled,is_builtin,sort_order) VALUES(?,?,?,?,?,?,?,0,(SELECT COALESCE(MAX(sort_order),0)+10 FROM ontology_relation_definition)) ON CONFLICT(relation_type) DO UPDATE SET label=excluded.label,definition=excluded.definition,required_attr=excluded.required_attr,icon_color=excluded.icon_color,icon_text=excluded.icon_text,is_enabled=excluded.is_enabled,updated_at=CURRENT_TIMESTAMP`
+  ).run(input.relationType, input.label, input.definition, requiredAttr, iconColor, iconText, input.enabled ? 1 : 0)
   eventBus.emit('ontology.updated', { kind: 'relation-saved', relationType: input.relationType })
 }
 export function setAllowance(

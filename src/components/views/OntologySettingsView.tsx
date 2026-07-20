@@ -25,6 +25,8 @@ interface RelationDef {
   label: string
   definition: string
   required_attr: string | null
+  icon_color: string
+  icon_text: string
   is_enabled: number
   is_builtin: number
 }
@@ -51,7 +53,14 @@ export function OntologySettingsSection(): React.JSX.Element {
       definition: '',
       fieldSchemaJson: '[]'
     }),
-    [newRelation, setNewRelation] = useState({ relationType: '', label: '', definition: '', requiredAttr: '' })
+    [newRelation, setNewRelation] = useState({
+      relationType: '',
+      label: '',
+      definition: '',
+      requiredAttr: '',
+      iconColor: '#9099a8',
+      iconText: '?'
+    })
   const notify = useJobsStore((s) => s.notify)
   const load = useCallback(async () => {
     const r = await invoke<Snapshot>('ontology.get')
@@ -97,6 +106,8 @@ export function OntologySettingsSection(): React.JSX.Element {
       label: x.label,
       definition: x.definition,
       requiredAttr: x.required_attr ?? '',
+      iconColor: x.icon_color,
+      iconText: x.icon_text,
       enabled: x.is_enabled === 1
     })
     if (r.ok) {
@@ -300,7 +311,7 @@ export function OntologySettingsSection(): React.JSX.Element {
             key={r.relation_type}
             style={{
               display: 'grid',
-              gridTemplateColumns: '130px 120px minmax(260px,1fr) 150px auto auto',
+              gridTemplateColumns: '130px 120px minmax(240px,1fr) 150px 70px 70px auto auto',
               gap: 6,
               margin: '6px 0',
               alignItems: 'start'
@@ -344,6 +355,35 @@ export function OntologySettingsSection(): React.JSX.Element {
                 )
               }
             />
+            <input
+              type="color"
+              value={r.icon_color}
+              aria-label={`${r.relation_type} アイコン背景色`}
+              onChange={(e) =>
+                setData(
+                  (d) =>
+                    d && {
+                      ...d,
+                      relations: d.relations.map((x, j) => (j === i ? { ...x, icon_color: e.target.value } : x))
+                    }
+                )
+              }
+            />
+            <input
+              value={r.icon_text}
+              maxLength={8}
+              placeholder="表示文字"
+              aria-label={`${r.relation_type} アイコン文字`}
+              onChange={(e) =>
+                setData(
+                  (d) =>
+                    d && {
+                      ...d,
+                      relations: d.relations.map((x, j) => (j === i ? { ...x, icon_text: e.target.value } : x))
+                    }
+                )
+              }
+            />
             <label>
               <input
                 type="checkbox"
@@ -367,7 +407,9 @@ export function OntologySettingsSection(): React.JSX.Element {
             </button>
           </div>
         ))}
-        <div style={{ display: 'grid', gridTemplateColumns: '130px 120px minmax(260px,1fr) 150px auto', gap: 6 }}>
+        <div
+          style={{ display: 'grid', gridTemplateColumns: '130px 120px minmax(240px,1fr) 150px 70px 70px auto', gap: 6 }}
+        >
           <input
             value={newRelation.relationType}
             onChange={(e) => setNewRelation((v) => ({ ...v, relationType: e.target.value }))}
@@ -388,13 +430,33 @@ export function OntologySettingsSection(): React.JSX.Element {
             onChange={(e) => setNewRelation((v) => ({ ...v, requiredAttr: e.target.value }))}
             placeholder="必須属性（任意）"
           />
+          <input
+            type="color"
+            value={newRelation.iconColor}
+            aria-label="追加する関係のアイコン背景色"
+            onChange={(e) => setNewRelation((v) => ({ ...v, iconColor: e.target.value }))}
+          />
+          <input
+            value={newRelation.iconText}
+            maxLength={8}
+            placeholder="表示文字"
+            aria-label="追加する関係のアイコン文字"
+            onChange={(e) => setNewRelation((v) => ({ ...v, iconText: e.target.value }))}
+          />
           <button
             className="d2d-btn"
             onClick={() =>
               void invoke<Snapshot>('ontology.saveRelation', { ...newRelation, enabled: true }).then((r) => {
                 if (r.ok) {
                   setData(r.result)
-                  setNewRelation({ relationType: '', label: '', definition: '', requiredAttr: '' })
+                  setNewRelation({
+                    relationType: '',
+                    label: '',
+                    definition: '',
+                    requiredAttr: '',
+                    iconColor: '#9099a8',
+                    iconText: '?'
+                  })
                 } else notify('error', '関係を追加できませんでした', r.error.message)
               })
             }

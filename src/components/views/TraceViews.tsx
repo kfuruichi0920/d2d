@@ -329,7 +329,7 @@ const CATEGORIES = [
   'model_cst',
   'model_func',
   'model_struct',
-  'model_action',
+  'model_beh',
   'model_state',
   'model_data',
   'model_if',
