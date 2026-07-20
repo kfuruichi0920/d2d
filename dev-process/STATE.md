@@ -76,7 +76,7 @@
 | P8/P9関係チューニング | schema 2.2.0。`model_beh`、関係の作成中状態、候補→チャンクのbased_on、関係アイコン設定、設定駆動マトリクス必須属性編集を追加（Unit 272／E2E 28）                                                                                                                              | —               |
 | P9トレース編集改善    | 根拠Resource間のbased_on許可（model同士のみ禁止）、関係種別の全選択ON/OFF、操作名短縮、Activity Barの全設計モデル初期化、分析の4リスト初期化（Unit 274／E2E 28）                                                                                                              | —               |
 | MCPサーバ機能         | MCP-001〜008。ローカルMCPサーバ（Streamable HTTP・127.0.0.1・依存追加なし）、設計要素一覧／種別情報／検索（スコア上位・AND/OR・既定20件）／詳細（複数UID）／上流・下流トレースの6ツール、ツール設定「MCPサーバ設定」、Status Bar起動状態（Unit 283／E2E 29）                  | 984e8f6         |
-| MCPログ＋設計分析     | MCP-009/010: アクセスログ（メモリ500件＋logs/mcp/JSONL、Panel「MCPログ」）。ANA-001〜006: 推論規則DSL（FROM/TRAVERSE/FILTER/PATH）、影響分析・経路検索の決定論的実行、設計モデル設定のクエリ規則10スロット、Trace分析サイドバー、過程付きMarkdownレポート（Unit 291／E2E 31） | —               |
+| MCPログ＋設計分析     | MCP-009/010: アクセスログ（メモリ500件＋logs/mcp/JSONL、Panel「MCPログ」）。ANA-001〜006: 推論規則DSL（FROM/TRAVERSE/FILTER/PATH）、影響分析・経路検索の決定論的実行、設計モデル設定のクエリ規則10スロット、Trace分析サイドバー、過程付きMarkdownレポート（Unit 291／E2E 31） | 5a90f9e         |
 
 ## 恒久制約（違反するとビルド/実行が壊れる、または設計方針違反）
 
