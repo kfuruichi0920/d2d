@@ -4,6 +4,7 @@ import { JobsListView } from '../views/JobsListView'
 import { LlmLogsPanel } from '../views/LlmViews'
 import { ProblemsView } from '../views/TraceViews'
 import { LogsPanel } from '../views/LogsPanel'
+import { McpLogPanel } from '../views/McpLogPanel'
 
 // 表示名は他UIと同じ日本語へ統一する（UI点検対応。testid は英語IDのまま維持）
 const LABELS: Record<PanelTab, string> = {
@@ -11,7 +12,8 @@ const LABELS: Record<PanelTab, string> = {
   output: '出力',
   jobs: 'ジョブ',
   validation: '検証',
-  llm: 'LLMログ'
+  llm: 'LLMログ',
+  mcp: 'MCPログ'
 }
 
 export function PanelArea(): React.JSX.Element {
@@ -52,6 +54,8 @@ export function PanelArea(): React.JSX.Element {
           <ProblemsView />
         ) : tab === 'output' ? (
           <LogsPanel />
+        ) : tab === 'mcp' ? (
+          <McpLogPanel />
         ) : (
           <div className="d2d-empty">Validation は対応機能の実装時に接続します。</div>
         )}

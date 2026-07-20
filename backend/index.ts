@@ -31,6 +31,7 @@ import { registerEditApi } from './api/edit'
 import { registerDataApi, registerDbToTextHook } from './api/data'
 import { registerSearchApi, searchSettings as buildSearchSettings } from './api/search'
 import { applyMcpSettings, readMcpSettings, registerMcpApi } from './api/mcp'
+import { registerAnalysisApi } from './api/analysis'
 import { McpServerService } from './mcp/mcp-service'
 import { registerResourceApi } from './api/resource'
 import { parseLlmMergeCandidate } from './resource/resource-service'
@@ -436,6 +437,7 @@ function main(): void {
     }
   })
   registerMcpApi(router, settings, mcp)
+  registerAnalysisApi(router)
   // 設定が有効なら Backend 起動時に自動起動する（失敗しても Backend は継続）
   void applyMcpSettings(mcp, readMcpSettings(settings)).catch((error) => {
     appendDebugLog(

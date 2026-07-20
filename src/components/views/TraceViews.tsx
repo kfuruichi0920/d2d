@@ -11,6 +11,7 @@ import { invoke, onBackendEvent } from '../../services/backend'
 import { useEditorStore } from '../../stores/editor-store'
 import { useJobsStore } from '../../stores/jobs-store'
 import type { DesignElementRow } from './DesignModelViews'
+import { AnalysisSideBarSection } from './AnalysisViews'
 
 interface TraceNode {
   uid: string
@@ -156,6 +157,7 @@ export function TraceSideBar(): React.JSX.Element {
       >
         新しい分析ビュー
       </button>
+      <AnalysisSideBarSection />
     </div>
   )
 }

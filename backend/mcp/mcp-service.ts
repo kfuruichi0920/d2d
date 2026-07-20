@@ -11,6 +11,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { BackendError } from '../api/errors'
 import { eventBus } from '../events/event-bus'
 import { MCP_TOOL_DEFINITIONS, callMcpTool, type McpToolContext } from './mcp-tools'
+import { McpAccessLog } from './access-log'
 
 /** MCP プロトコル版数。initialize でクライアント指定があればそれを尊重する */
 const DEFAULT_PROTOCOL_VERSION = '2025-06-18'
@@ -49,6 +50,8 @@ class MethodNotFoundError extends Error {}
 export class McpServerService {
   private server: Server | null = null
   private port: number | null = null
+  /** アクセスログ（MCP-009）。JSON-RPC リクエスト単位で記録する */
+  readonly accessLog = new McpAccessLog()
 
   constructor(private readonly contextProvider: McpContextProvider) {}
 
@@ -155,6 +158,33 @@ export class McpServerService {
 
   private dispatch(request: JsonRpcRequest): JsonRpcResponse {
     const id = request.id ?? null
+    const startedAt = Date.now()
+    const params = (request.params ?? {}) as Record<string, unknown>
+    const toolName = request.method === 'tools/call' && typeof params.name === 'string' ? params.name : null
+    const logResult = (ok: boolean, errorMessage: string | null): void => {
+      this.accessLog.record({
+        method: request.method,
+        toolName,
+        args: toolName ? params.arguments : undefined,
+        ok,
+        errorMessage,
+        durationMs: Date.now() - startedAt
+      })
+    }
+    const response = this.dispatchInner(request, id)
+    if (response.error) {
+      logResult(false, response.error.message)
+    } else {
+      const isError = (response.result as { isError?: boolean } | undefined)?.isError === true
+      const errorText = isError
+        ? ((response.result as { content?: { text?: string }[] }).content?.[0]?.text ?? 'ツールエラー')
+        : null
+      logResult(!isError, errorText)
+    }
+    return response
+  }
+
+  private dispatchInner(request: JsonRpcRequest, id: number | string | null): JsonRpcResponse {
     try {
       return { jsonrpc: '2.0', id, result: this.handleMethod(request) }
     } catch (error) {

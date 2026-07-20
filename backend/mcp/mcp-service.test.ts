@@ -214,6 +214,25 @@ describe('MCPサーバ（MCP-001〜008）', () => {
       expect(JSON.parse(content.content[0]!.text)).toMatchObject({ results: [{ code: 'REQ-000001' }] })
     })
 
+    it('アクセスログがリクエスト単位で記録される（MCP-009）', async () => {
+      await rpc({ jsonrpc: '2.0', id: 1, method: 'tools/list' })
+      await rpc({
+        jsonrpc: '2.0',
+        id: 2,
+        method: 'tools/call',
+        params: { name: 'search_elements', arguments: { queries: ['REQ-000001'] } }
+      })
+      await rpc({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'unknown_tool' } })
+      const entries = service.accessLog.list()
+      // 新しい順: unknown_tool(NG) → search_elements(OK) → tools/list(OK)
+      expect(entries[0]).toMatchObject({ method: 'tools/call', toolName: 'unknown_tool', ok: false })
+      expect(entries[0]!.errorMessage).toContain('未定義のツール')
+      expect(entries[1]).toMatchObject({ method: 'tools/call', toolName: 'search_elements', ok: true })
+      expect(entries[1]!.argsSummary).toContain('REQ-000001')
+      expect(entries[2]).toMatchObject({ method: 'tools/list', toolName: null, ok: true })
+      expect(typeof entries[0]!.durationMs).toBe('number')
+    })
+
     it('通知は202、未知メソッドは-32601、プロジェクト未オープンはツールエラーを返す', async () => {
       const notification = await rpc({ jsonrpc: '2.0', method: 'notifications/initialized' })
       expect(notification.status).toBe(202)

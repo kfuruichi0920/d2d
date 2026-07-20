@@ -35,6 +35,12 @@ export function registerMcpApi(router: ApiRouter, settings: SettingsService, mcp
   /** 起動状態（Status Bar・設定画面の表示用） */
   router.register('mcp.status', () => ({ ...readMcpSettings(settings), ...mcp.status() }))
 
+  /** アクセスログの参照（MCP-009/010。下部パネル「MCPログ」が使用、新しい順） */
+  router.register('mcp.getAccessLog', (params) => {
+    const p = typeof params === 'object' && params !== null ? (params as Record<string, unknown>) : {}
+    return mcp.accessLog.list(typeof p.limit === 'number' ? p.limit : undefined)
+  })
+
   /** 設定の保存とサーバ状態への反映（MCP-002）。起動失敗時は設定を保存したままエラーを返す */
   router.register('mcp.applySettings', async (params) => {
     const p = asRecord(params)

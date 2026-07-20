@@ -5,6 +5,10 @@
  * メソッドを追加・削除した場合は本配列も更新すること。
  */
 export const API_METHODS = [
+  'analysis.getSlots',
+  'analysis.run',
+  'analysis.saveSlots',
+  'analysis.validateDsl',
   'app.listMethods',
   'app.ping',
   'archive.create',
@@ -120,6 +124,7 @@ export const API_METHODS = [
   'log.append',
   'log.tail',
   'mcp.applySettings',
+  'mcp.getAccessLog',
   'mcp.status',
   'model.getConfig',
   'model.render',

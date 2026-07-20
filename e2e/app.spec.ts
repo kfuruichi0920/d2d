@@ -2727,6 +2727,76 @@ test('MCPサーバの設定・起動・応答・停止（MCP-001〜008）', asyn
   await expect(statusMcp).toContainText('MCP: 停止')
 })
 
+test('MCPアクセスログを下部パネルで参照できる（MCP-009/010）', async () => {
+  // 直前のMCPテストで発生したアクセスがメモリリングに残っている
+  await page.getByTestId('status-jobs').click()
+  await page.getByTestId('panel-tab-mcp').click()
+  const panel = page.getByTestId('mcp-log-panel')
+  await expect(panel).toBeVisible()
+  await expect(panel).toContainText('tools/call')
+  await expect(panel).toContainText('list_element_types')
+  await expect(panel.getByTestId('mcp-log-row-0')).toBeVisible()
+  // 更新ボタンで再読込できる
+  await panel.getByTestId('mcp-log-reload').click()
+  await expect(panel.getByTestId('mcp-log-row-0')).toBeVisible()
+})
+
+test('設計分析: クエリ規則の定義・検証・実行→過程付きレポート（ANA-001〜006）', async () => {
+  await closeAllEditorTabs()
+
+  // 設計モデル設定にクエリ規則10種の編集がある（ANA-004。既定スロット2件入り）
+  await page.getByTestId('activity-settings').click()
+  await page.getByTestId('open-design-model-settings').click()
+  const slotSettings = page.getByTestId('analysis-slot-settings')
+  await slotSettings.scrollIntoViewIfNeeded()
+  await expect(slotSettings.getByTestId('analysis-slot-name-0')).toHaveValue('影響範囲（下流3段）')
+  await expect(slotSettings.getByTestId('analysis-slot-9')).toBeVisible()
+
+  // スロット3へ規則を定義し、DSL検証がOK/NGを行番号付きで返す（ANA-001）
+  await slotSettings.getByTestId('analysis-slot-name-2').fill('検証トレース（上流）')
+  await slotSettings.getByTestId('analysis-slot-dsl-2').fill('TRAVERSE bad_relation UP')
+  await slotSettings.getByTestId('analysis-slot-validate-2').click()
+  await expect(slotSettings.getByTestId('analysis-slot-validation-2')).toContainText('未定義の関係種別')
+  await slotSettings.getByTestId('analysis-slot-dsl-2').fill('TRAVERSE satisfies,verifies UP DEPTH 2')
+  await slotSettings.getByTestId('analysis-slot-validate-2').click()
+  await expect(slotSettings.getByTestId('analysis-slot-validation-2')).toContainText('OK')
+  await slotSettings.getByTestId('analysis-slots-save').click()
+  await expect(page.getByTestId('notifications')).toContainText('分析クエリ規則を保存しました')
+
+  // Trace（分析）サイドバーへボタンが反映され、起点を指定して影響分析を実行（ANA-002/005）
+  await page.getByTestId('activity-trace').click()
+  const section = page.getByTestId('analysis-sidebar-section')
+  await expect(section).toBeVisible()
+  await expect(section.getByTestId('analysis-run-2')).toContainText('検証トレース（上流）')
+  // 起点 = FUNC-000001（P8で採用済み。satisfies 下流に REQ-000001 がある）
+  const funcValue = await page.getByTestId('analysis-start-select').evaluate((el) => {
+    const select = el as HTMLSelectElement
+    return Array.from(select.options).find((option) => option.text.includes('FUNC-000001'))?.value ?? ''
+  })
+  await page.getByTestId('analysis-start-select').selectOption(funcValue)
+  await section.getByTestId('analysis-run-0').click()
+  await expect(page.getByTestId('notifications')).toContainText('設計分析を実行しました')
+
+  // 分析過程を含むレポートが report:// プレビューで開く（ANA-006）
+  const preview = page.locator('[data-testid="report-md-preview"]:visible')
+  await expect(preview).toContainText('設計分析レポート: 影響範囲（下流3段）')
+  await expect(preview).toContainText('分析過程')
+  await expect(preview).toContainText('REQ-000001')
+
+  // 経路検索: 起点FUNC→終点REQ の意味的経路（ANA-003）
+  const reqValue = await page.getByTestId('analysis-end-select').evaluate((el) => {
+    const select = el as HTMLSelectElement
+    return Array.from(select.options).find((option) => option.text.includes('REQ-000001'))?.value ?? ''
+  })
+  await page.getByTestId('analysis-end-select').selectOption(reqValue)
+  await section.getByTestId('analysis-run-1').click()
+  await expect(page.getByTestId('notifications')).toContainText('経路検索（起点→終点）')
+  const pathPreview = page.locator('[data-testid="report-md-preview"]:visible').last()
+  await expect(pathPreview).toContainText('意味的経路')
+  await expect(pathPreview).toContainText('FUNC-000001')
+  await closeAllEditorTabs()
+})
+
 test('スクリーンショットを保存する', async () => {
   await page.screenshot({ path: 'test-results/workbench.png' })
 })
