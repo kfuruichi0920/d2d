@@ -25,7 +25,7 @@ import {
 } from '../edit/glossary-service'
 import { editIntermediateTable, getTableCells } from '../edit/table-service'
 import { renderPlantUml, resolvePlantUmlConfig, type ModelIdMapping } from '../edit/plantuml-service'
-import { registerEntity } from '../store/entity-registry'
+import { createDesignElement } from '../design/design-service'
 import { eventBus } from '../events/event-bus'
 
 function asRecord(params: unknown): Record<string, unknown> {
@@ -183,25 +183,25 @@ export function registerEditApi(router: ApiRouter, settings: SettingsService): v
     return { ...config, configured: config.jarPath !== null }
   })
 
-  /** モデル表記 + 要素ID対応表を STRUCT 設計要素（resource_model）として保存（FORM-002） */
+  /** モデル表記 + 要素ID対応表を model_struct として保存（FORM-002）。 */
   router.register('model.save', (params) => {
     const p = asRecord(params)
     const { db, info } = requireProject()
     const name = requireString(p, 'name')
     const text = requireString(p, 'text')
     const mappings = Array.isArray(p.mappings) ? (p.mappings as ModelIdMapping[]) : []
-
-    const element = registerEntity(db, {
-      projectUid: info.projectUid,
-      entityType: 'resource_model',
-      designCategory: 'STRUCT',
+    const element = createDesignElement(db, info.projectUid, {
+      modelType: 'model_struct',
       title: name,
+      summary: name,
+      detail: {
+        structure_kind: 'software',
+        model_notation: 'plantuml',
+        model_source: text,
+        element_mappings: mappings
+      },
       createdBy: 'user'
     })
-    db.prepare(
-      `INSERT INTO resource_model (uid, model_name, model_kind, model_format, model_source, model_elements_json, parse_status)
-       VALUES (?, ?, 'plantuml', 'text', ?, ?, 'not_parsed')`
-    ).run(element.uid, name, text, JSON.stringify(mappings))
     eventBus.emit('design_model.updated', { kind: 'model-saved', uid: element.uid })
     return element
   })

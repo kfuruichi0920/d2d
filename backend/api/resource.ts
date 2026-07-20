@@ -71,11 +71,11 @@ export function registerResourceApi(router: ApiRouter, jobs: JobManager): void {
     const p = record(params)
     const { db, info } = requireProject()
     const relationType = String(p.relationType ?? 'relates_to')
-    if (!['contains', 'decomposes', 'uses', 'relates_to'].includes(relationType))
+    if (!['contains', 'uses', 'relates_to'].includes(relationType))
       throw new BackendError('validation', '未対応の関係種別です', relationType)
     return linkDerivedResource(db, info.projectUid, {
       sourceUid: stringValue(p, 'sourceUid'),
-      relationType: relationType as 'contains' | 'decomposes' | 'uses' | 'relates_to',
+      relationType: relationType as 'contains' | 'uses' | 'relates_to',
       targetUid: typeof p.targetUid === 'string' && p.targetUid ? p.targetUid.replace(/^resource:\/\//, '') : undefined,
       newText: typeof p.newText === 'string' ? p.newText : undefined
     })

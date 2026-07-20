@@ -34,9 +34,17 @@ describe('Secondary Side Bar 共通関係・Review（P3-9）', () => {
     const outgoing = text('出力先')
     const incoming = text('入力元')
     const both = text('双方向先')
+    const design = registerEntity(db, {
+      projectUid,
+      entityType: 'model_req',
+      title: '設計モデル',
+      status: 'approved'
+    })
+    db.prepare(`INSERT INTO model_req (uid, summary) VALUES (?, '要求')`).run(design.uid)
     link(selected.uid, outgoing.uid)
     link(incoming.uid, selected.uid)
     link(selected.uid, both.uid, 'bidirectional')
+    link(selected.uid, design.uid)
     expect(listItemRelations(db, projectUid, selected.uid)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -45,7 +53,8 @@ describe('Secondary Side Bar 共通関係・Review（P3-9）', () => {
           open_uri: 'resource://' + outgoing.uid
         }),
         expect.objectContaining({ other_uid: incoming.uid, relative_direction: 'incoming' }),
-        expect.objectContaining({ other_uid: both.uid, relative_direction: 'bidirectional' })
+        expect.objectContaining({ other_uid: both.uid, relative_direction: 'bidirectional' }),
+        expect.objectContaining({ other_uid: design.uid, open_uri: 'design://' + design.uid })
       ])
     )
   })

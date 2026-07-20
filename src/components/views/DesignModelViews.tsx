@@ -1,7 +1,5 @@
-/**
- * ④設計モデルのツリー・要素ビューア（P8-6、V-04、UI-013）。
- */
-import { useCallback, useEffect, useState } from 'react'
+/** ④設計モデルのツリーと定義駆動型model_*編集画面（P8-6 / MODEL-001〜028）。 */
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { SerendieSymbolCube, SerendieSymbolFolderFilled } from '@serendie/symbols'
 import { invoke, onBackendEvent } from '../../services/backend'
 import { useEditorStore } from '../../stores/editor-store'
@@ -13,14 +11,17 @@ import { StateMachineEditor } from '../editors/StateMachineEditor'
 export interface DesignElementRow {
   uid: string
   code: string
-  design_category: string
+  model_type: string
+  model_label: string
+  layer: string
   title: string | null
   status: string
-  description: string | null
+  summary: string
+  detail_json: string
   entity_type: string
-  verification_json: string | null
+  owner_uid?: string | null
+  updated_at?: string
 }
-
 interface TraceLinkRow {
   uid: string
   code: string
@@ -33,24 +34,47 @@ interface TraceLinkRow {
   to_title: string | null
   to_code: string
 }
+interface FieldDefinition {
+  key: string
+  label: string
+  type: 'text' | 'multiline' | 'json' | 'select'
+  description: string
+  options?: string[]
+}
+interface ModelDefinition {
+  model_type: string
+  label: string
+  layer: string
+  definition: string
+  field_schema_json: string
+  is_enabled: number
+}
+interface OntologySnapshot {
+  version: string
+  models: ModelDefinition[]
+}
 
-/** Explorer の④設計モデルツリー */
 export function DesignModelTree(): React.JSX.Element {
   const [elements, setElements] = useState<DesignElementRow[]>([])
   const openResource = useEditorStore((s) => s.openResource)
-
   const refresh = useCallback(async () => {
-    const res = await invoke<DesignElementRow[]>('design.listElements')
-    if (res.ok) setElements(res.result)
+    const r = await invoke<DesignElementRow[]>('design.listElements')
+    if (r.ok) setElements(r.result)
   }, [])
-
   useEffect(() => {
     void refresh()
     return onBackendEvent((event) => {
-      if (['design_model.updated', 'relation.updated'].includes(event)) void refresh()
+      if (['design_model.updated', 'relation.updated', 'ontology.updated'].includes(event)) void refresh()
     })
   }, [refresh])
-
+  const groups = useMemo(() => {
+    const map = new Map<string, DesignElementRow[]>()
+    for (const e of elements) {
+      const key = `${e.layer} / ${e.model_label}`
+      ;(map.get(key) ?? map.set(key, []).get(key)!).push(e)
+    }
+    return [...map]
+  }, [elements])
   return (
     <details open className="d2d-explorer-section" data-testid="design-tree">
       <summary className="d2d-explorer-section-header" role="treeitem" tabIndex={-1} data-explorer-treeitem>
@@ -58,97 +82,124 @@ export function DesignModelTree(): React.JSX.Element {
         <span className="d2d-explorer-section-title">④設計モデル</span>
         <span className="d2d-explorer-section-count">{elements.length}</span>
       </summary>
-      {elements.map((element) => (
-        <div
-          key={element.uid}
-          className="d2d-list-row"
-          role="treeitem"
-          tabIndex={-1}
-          data-explorer-treeitem
-          data-testid={`design-el-${element.code}`}
-          title={`名称: ${element.title ?? element.code}\nID: ${element.code}\n分類: ${element.design_category}\n種別: ${element.entity_type}\n状態: ${element.status}${element.description ? `\n説明: ${element.description}` : ''}`}
-          onClick={() => openResource(`design://${element.uid}`, element.code, { preview: true })}
-        >
-          <SerendieSymbolCube width={15} height={15} className="d2d-explorer-resource-icon is-design" />
-          <span className="d2d-explorer-resource-name">
-            <span className="d2d-explorer-resource-code">{element.code}</span>
-            {element.title}
-          </span>
-          <span className="d2d-explorer-tags">
-            <span className="d2d-badge status-running">{element.design_category}</span>
-            <ReviewStatusBadge status={reviewStateFromEntityStatus(element.status)} />
-          </span>
-        </div>
+      {groups.map(([group, rows]) => (
+        <details open key={group}>
+          <summary style={{ paddingLeft: 12, fontSize: 11, color: 'var(--d2d-fg-muted)' }}>
+            {group} ({rows.length})
+          </summary>
+          {rows.map((e) => (
+            <div
+              key={e.uid}
+              className="d2d-list-row"
+              role="treeitem"
+              tabIndex={-1}
+              data-explorer-treeitem
+              data-testid={`design-el-${e.code}`}
+              title={`${e.model_type}\n${e.summary}`}
+              onClick={() => openResource(`design://${e.uid}`, e.code, { preview: true })}
+            >
+              <SerendieSymbolCube width={15} height={15} className="d2d-explorer-resource-icon is-design" />
+              <span className="d2d-explorer-resource-name">
+                <span className="d2d-explorer-resource-code">{e.code}</span>
+                {e.title}
+              </span>
+              <span className="d2d-explorer-tags">
+                <span className="d2d-badge status-running">{e.model_label}</span>
+                <ReviewStatusBadge status={reviewStateFromEntityStatus(e.status)} />
+              </span>
+            </div>
+          ))}
+        </details>
       ))}
     </details>
   )
 }
 
-/** 設計要素ビューア（design://<uid>）: 属性 + 関係一覧。STATE 機械は専用エディタへ */
 export function DesignElementViewer({ uid }: { uid: string }): React.JSX.Element {
-  const [element, setElement] = useState<DesignElementRow | null>(null)
-  const [relations, setRelations] = useState<TraceLinkRow[]>([])
-  const openResource = useEditorStore((s) => s.openResource)
-  const setSelectedItem = useSelectionStore((state) => state.setSelectedItem)
-  const clearSelectedItem = useSelectionStore((state) => state.clearSelectedItem)
-
+  const [element, setElement] = useState<DesignElementRow | null>(null),
+    [relations, setRelations] = useState<TraceLinkRow[]>([]),
+    [definition, setDefinition] = useState<ModelDefinition | null>(null)
+  const [title, setTitle] = useState(''),
+    [summary, setSummary] = useState(''),
+    [detail, setDetail] = useState<Record<string, unknown>>({}),
+    [status, setStatus] = useState('draft')
+  const openResource = useEditorStore((s) => s.openResource),
+    notify = useJobsStore((s) => s.notify),
+    setSelectedItem = useSelectionStore((s) => s.setSelectedItem),
+    clearSelectedItem = useSelectionStore((s) => s.clearSelectedItem)
   const load = useCallback(async () => {
-    const [elementsRes, relationsRes] = await Promise.all([
+    const [er, rr, or] = await Promise.all([
       invoke<DesignElementRow[]>('design.listElements'),
-      invoke<TraceLinkRow[]>('design.listRelations', { uid })
+      invoke<TraceLinkRow[]>('design.listRelations', { uid }),
+      invoke<OntologySnapshot>('ontology.get')
     ])
-    if (elementsRes.ok) setElement(elementsRes.result.find((e) => e.uid === uid) ?? null)
-    if (relationsRes.ok) setRelations(relationsRes.result)
+    if (er.ok) {
+      const e = er.result.find((x) => x.uid === uid) ?? null
+      setElement(e)
+      if (e) {
+        setTitle(e.title ?? '')
+        setSummary(e.summary)
+        setStatus(e.status)
+        try {
+          setDetail(JSON.parse(e.detail_json) as Record<string, unknown>)
+        } catch {
+          setDetail({})
+        }
+        if (or.ok) setDefinition(or.result.models.find((m) => m.model_type === e.model_type) ?? null)
+      }
+    }
+    if (rr.ok) setRelations(rr.result)
   }, [uid])
-
   useEffect(() => {
     void load()
-  }, [load])
-
-  useEffect(() => {
-    if (!element) return
-    setSelectedItem({
-      contextUri: `design://${uid}`,
-      uid: element.uid,
-      displayId: element.code,
-      entityType: element.entity_type,
-      itemType: element.design_category,
-      title: element.title,
-      status: element.status,
-      properties: {
-        designCategory: element.design_category,
-        description: element.description,
-        verification: element.verification_json
-      }
+    return onBackendEvent((event) => {
+      if (['design_model.updated', 'relation.updated', 'ontology.updated'].includes(event)) void load()
     })
-  }, [element, setSelectedItem, uid])
-
+  }, [load])
+  useEffect(() => {
+    if (element)
+      setSelectedItem({
+        contextUri: `design://${uid}`,
+        uid: element.uid,
+        displayId: element.code,
+        entityType: element.entity_type,
+        itemType: element.model_type,
+        title: element.title,
+        status: element.status,
+        properties: { modelType: element.model_type, summary: element.summary, detail: element.detail_json }
+      })
+  }, [detail, element, setSelectedItem, uid])
   useEffect(() => () => clearSelectedItem(`design://${uid}`), [clearSelectedItem, uid])
-
   if (!element) return <div className="d2d-empty">読込中…</div>
-
-  // 状態遷移リソースは専用エディタで開く（P10-4）
-  if (element.entity_type === 'resource_state_transition') {
-    return <StateMachineEditor uid={uid} />
+  let fields: FieldDefinition[] = []
+  try {
+    fields = definition ? (JSON.parse(definition.field_schema_json) as FieldDefinition[]) : []
+  } catch {
+    fields = []
   }
-
+  const save = async (): Promise<void> => {
+    const r = await invoke('design.updateElement', { uid, title, summary, detail, status })
+    if (r.ok) {
+      notify('info', `${element.code} を保存しました`)
+      await load()
+    } else notify('error', '設計モデルを保存できませんでした', r.error.message)
+  }
   return (
-    <div style={{ padding: 16 }} data-testid="design-element-viewer">
+    <div style={{ padding: 16, maxWidth: 900 }} data-testid="design-element-viewer">
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <span className="d2d-badge status-running">{element.design_category}</span>
+        <span className="d2d-badge status-running">{element.model_label}</span>
         <h1 style={{ fontSize: 15, margin: 0 }}>
-          {element.code} — {element.title}
+          {element.code} — {element.model_type}
         </h1>
         <ReviewStatusBadge status={reviewStateFromEntityStatus(element.status)} />
-        {['REQ', 'CST', 'FUNC'].includes(element.design_category) && (
+        {['model_req', 'model_cst', 'model_func'].includes(element.model_type) && (
           <button
             type="button"
             className="d2d-btn small"
-            title="検証項目を作成して verifies で紐づける（EDIT-040/041）"
             data-testid="create-verification"
             onClick={() =>
-              void invoke('design.createVerification', { targetUid: uid }).then((res) => {
-                if (res.ok) void load()
+              void invoke('design.createVerification', { targetUid: uid }).then((r) => {
+                if (r.ok) void load()
               })
             }
           >
@@ -156,30 +207,97 @@ export function DesignElementViewer({ uid }: { uid: string }): React.JSX.Element
           </button>
         )}
       </div>
-      {element.description && <p style={{ whiteSpace: 'pre-wrap' }}>{element.description}</p>}
-
-      {element.design_category === 'VERIF' && <VerificationDetailForm element={element} onSaved={load} />}
-
+      {definition && (
+        <p style={{ color: 'var(--d2d-fg-muted)', fontSize: 12 }}>
+          {definition.layer}：{definition.definition}
+        </p>
+      )}
+      {element.model_type === 'model_state' && <StateMachineEditor uid={uid} />}
+      <section style={{ border: '1px solid var(--d2d-border)', padding: 12, borderRadius: 4 }}>
+        <h2 style={{ fontSize: 13 }}>共通部</h2>
+        <Field label="タイトル">
+          <input value={title} onChange={(e) => setTitle(e.target.value)} />
+        </Field>
+        <Field label="概要">
+          <textarea value={summary} onChange={(e) => setSummary(e.target.value)} style={{ minHeight: 70 }} />
+        </Field>
+        <Field label="状態">
+          <select value={status} onChange={(e) => setStatus(e.target.value)}>
+            {['draft', 'review', 'approved', 'rejected'].map((x) => (
+              <option key={x}>{x}</option>
+            ))}
+          </select>
+        </Field>
+        <h2 style={{ fontSize: 13, marginTop: 16 }}>{element.model_label} 固有情報</h2>
+        {fields.map((field) => (
+          <Field key={field.key} label={field.label} description={field.description}>
+            {field.type === 'select' ? (
+              <select
+                data-testid={`design-field-${field.key}`}
+                value={String(detail[field.key] ?? '')}
+                onChange={(e) => setDetail((v) => ({ ...v, [field.key]: e.target.value }))}
+              >
+                <option value="">未設定</option>
+                {field.options?.map((x) => (
+                  <option key={x}>{x}</option>
+                ))}
+              </select>
+            ) : field.type === 'multiline' || field.type === 'json' ? (
+              <textarea
+                data-testid={`design-field-${field.key}`}
+                value={
+                  field.type === 'json' && typeof detail[field.key] !== 'string'
+                    ? JSON.stringify(detail[field.key] ?? {}, null, 2)
+                    : String(detail[field.key] ?? '')
+                }
+                onChange={(e) => {
+                  let value: unknown = e.target.value
+                  if (field.type === 'json') {
+                    try {
+                      value = JSON.parse(e.target.value)
+                    } catch {
+                      value = e.target.value
+                    }
+                  }
+                  setDetail((v) => ({ ...v, [field.key]: value }))
+                }}
+                style={{
+                  minHeight: field.type === 'json' ? 100 : 70,
+                  fontFamily: field.type === 'json' ? 'monospace' : undefined
+                }}
+              />
+            ) : (
+              <input
+                data-testid={`design-field-${field.key}`}
+                value={String(detail[field.key] ?? '')}
+                onChange={(e) => setDetail((v) => ({ ...v, [field.key]: e.target.value }))}
+              />
+            )}
+          </Field>
+        ))}
+        <button type="button" className="d2d-btn primary" onClick={() => void save()} data-testid="design-model-save">
+          保存
+        </button>
+      </section>
       <h2 style={{ fontSize: 13, marginTop: 16 }}>関係（{relations.length}）</h2>
       {relations.length === 0 ? (
         <div className="d2d-empty">関係はまだありません</div>
       ) : (
         relations.map((link) => {
-          const outgoing = link.from_uid === uid
-          const otherUid = outgoing ? link.to_uid : link.from_uid
-          const otherLabel = outgoing
-            ? `${link.to_code} ${link.to_title ?? ''}`
-            : `${link.from_code} ${link.from_title ?? ''}`
+          const outgoing = link.from_uid === uid,
+            otherUid = outgoing ? link.to_uid : link.from_uid,
+            otherLabel = outgoing
+              ? `${link.to_code} ${link.to_title ?? ''}`
+              : `${link.from_code} ${link.from_title ?? ''}`
           return (
             <div
               key={link.uid}
               className="d2d-list-row"
               onClick={() => openResource(`design://${otherUid}`, otherLabel, { preview: true })}
             >
-              <span style={{ color: 'var(--d2d-fg-muted)', fontSize: 11 }}>{outgoing ? '→' : '←'}</span>
+              <span>{outgoing ? '→' : '←'}</span>
               <span className="d2d-badge review-candidate">{link.relation_type}</span>
               <span style={{ flex: 1 }}>{otherLabel}</span>
-              {link.rationale && <span style={{ color: 'var(--d2d-fg-muted)', fontSize: 11 }}>{link.rationale}</span>}
             </div>
           )
         })
@@ -187,72 +305,30 @@ export function DesignElementViewer({ uid }: { uid: string }): React.JSX.Element
     </div>
   )
 }
-
-/** VERIF 要素の検証条件・手順・期待結果の編集（P10-5、EDIT-042） */
-function VerificationDetailForm({
-  element,
-  onSaved
+function Field({
+  label,
+  description,
+  children
 }: {
-  element: DesignElementRow
-  onSaved: () => Promise<void>
+  label: string
+  description?: string
+  children: React.ReactNode
 }): React.JSX.Element {
-  const initial = element.verification_json
-    ? (JSON.parse(element.verification_json) as { condition?: string; procedure?: string; expected?: string })
-    : {}
-  const [condition, setCondition] = useState(initial.condition ?? '')
-  const [procedure, setProcedure] = useState(initial.procedure ?? '')
-  const [expected, setExpected] = useState(initial.expected ?? '')
-  const notify = useJobsStore((s) => s.notify)
-
-  const save = async (): Promise<void> => {
-    const res = await invoke('design.setVerificationDetail', { uid: element.uid, condition, procedure, expected })
-    if (res.ok) {
-      notify('info', '検証詳細を保存しました')
-      await onSaved()
-    } else {
-      notify('error', '保存できませんでした', res.error.message)
-    }
-  }
-
-  const fieldStyle: React.CSSProperties = { display: 'flex', gap: 8, margin: '4px 0', alignItems: 'flex-start' }
-  const labelStyle: React.CSSProperties = { width: 80, color: 'var(--d2d-fg-muted)', fontSize: 12 }
-
   return (
-    <div
-      style={{ border: '1px solid var(--d2d-border)', borderRadius: 'var(--d2d-radius)', padding: 10, margin: '8px 0' }}
-      data-testid="verification-form"
+    <label
+      style={{
+        display: 'grid',
+        gridTemplateColumns: '150px minmax(220px,1fr)',
+        gap: 8,
+        margin: '7px 0',
+        alignItems: 'start'
+      }}
     >
-      <div style={{ fontWeight: 700, fontSize: 12, marginBottom: 4 }}>検証詳細（EDIT-042）</div>
-      <div style={fieldStyle}>
-        <label style={labelStyle}>検証条件</label>
-        <input
-          style={{ flex: 1 }}
-          value={condition}
-          onChange={(e) => setCondition(e.target.value)}
-          data-testid="verif-condition"
-        />
-      </div>
-      <div style={fieldStyle}>
-        <label style={labelStyle}>手順</label>
-        <textarea
-          style={{ flex: 1, minHeight: 40 }}
-          value={procedure}
-          onChange={(e) => setProcedure(e.target.value)}
-          data-testid="verif-procedure"
-        />
-      </div>
-      <div style={fieldStyle}>
-        <label style={labelStyle}>期待結果</label>
-        <input
-          style={{ flex: 1 }}
-          value={expected}
-          onChange={(e) => setExpected(e.target.value)}
-          data-testid="verif-expected"
-        />
-      </div>
-      <button type="button" className="d2d-btn primary small" onClick={() => void save()} data-testid="verif-save">
-        保存
-      </button>
-    </div>
+      <span style={{ fontSize: 12 }}>
+        {label}
+        {description && <small style={{ display: 'block', color: 'var(--d2d-fg-muted)' }}>{description}</small>}
+      </span>
+      {children}
+    </label>
   )
 }

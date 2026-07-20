@@ -108,7 +108,7 @@ flowchart TD
 | ①原本データ | `source_document`、`source_location`、`blob_resource` | `blobs/originals/` | — |
 | ②抽出データ | `extracted_document`、`extracted_item` | `blobs/extracted/`、`blobs/figures/`、`blobs/tables/` | `exports/db_to_text/extracted_document.jsonl` 等 |
 | ③中間データ | `intermediate_document`、`intermediate_item`、`chunk`、`chunk_item` | `blobs/figures/`、`blobs/tables/` | `exports/db_to_text/intermediate_document.jsonl` 等 |
-| ④設計モデル | `entity_registry`、`resource_*`（16種）、`trace_link`、`llm_run_ref` | `blobs/llm/` | `exports/db_to_text/resource_*.jsonl`、`trace_link.jsonl` 等 |
+| ④設計モデル | `entity_registry`、13種の`model_*`、`trace_link`、オントロジー設定テーブル、`llm_run_ref` | `blobs/llm/` | `exports/db_to_text/model_*.jsonl`、`trace_link.jsonl` 等 |
 | 派生成果物 | — | `blobs/exports/` | `exports/sqlite_dump/`、`exports/manifest/` |
 
 ---
@@ -121,7 +121,7 @@ flowchart TD
 {
   "d2d_version": "1",
   "project_uid": "018fe6c2-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
-  "schema_version": "1.0.0",
+  "schema_version": "2.0.0",
   "created_at": "2025-01-01T00:00:00Z"
 }
 ```
@@ -141,7 +141,9 @@ flowchart TD
 | 原本・blob参照 | `source_document`、`source_location`、`blob_resource` |
 | 抽出データ | `extracted_document`、`extracted_item` |
 | 中間データ | `intermediate_document`、`intermediate_item`、`chunk`、`chunk_item` |
-| 設計リソース（16種） | `resource_label`、`resource_text`、`resource_list`、`resource_figure`、`resource_table`、`resource_formula`、`resource_code`、`resource_model`、`resource_scenario`、`resource_interface`、`resource_state_transition`、`resource_data_structure`、`resource_reference`、`resource_metadata`、`resource_glossary`、`resource_glossary_synonym` |
+| ②③Resource | `resource_label`、`resource_text`、`resource_list`、`resource_figure`、`resource_table`、`resource_formula`、`resource_code`、`resource_model`、`resource_reference`、`resource_glossary`、`resource_glossary_synonym` |
+| ④設計モデル | `model_src`、`model_std`、`model_req`、`model_cst`、`model_func`、`model_struct`、`model_action`、`model_state`、`model_data`、`model_if`、`model_verif`、`model_impl`、`model_mgmt` |
+| オントロジー | `ontology_version`、`ontology_model_definition`、`ontology_relation_definition`、`ontology_relation_allowance` |
 | トレース・LLM | `trace_link`、`llm_run_ref`、`prompt_template` |
 
 ---

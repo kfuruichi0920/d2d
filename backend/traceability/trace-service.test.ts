@@ -25,12 +25,12 @@ describe('トレーサビリティ（P9）', () => {
     db = createDatabase(join(dir, 'project.db'), { projectName: 'p' })
     projectUid = getProjectRow(db).uid
 
-    // グラフ: REQ1 <-satisfies- FUNC1 -allocated_to-> STRUCT1、REQ1 -decomposes-> REQ2、VERIF1 -verifies-> REQ1
-    req1 = createDesignElement(db, projectUid, { category: 'REQ', title: '要求1' })
-    req2 = createDesignElement(db, projectUid, { category: 'REQ', title: '要求2' })
-    func1 = createDesignElement(db, projectUid, { category: 'FUNC', title: '機能1' })
-    struct1 = createDesignElement(db, projectUid, { category: 'STRUCT', title: '構造1' })
-    verif1 = createDesignElement(db, projectUid, { category: 'VERIF', title: '試験1' })
+    // グラフ: REQ1 <-satisfies- FUNC1 -allocated_to-> STRUCT1、REQ1 -contains-> REQ2、VERIF1 -verifies-> REQ1
+    req1 = createDesignElement(db, projectUid, { modelType: 'model_req', title: '要求1' })
+    req2 = createDesignElement(db, projectUid, { modelType: 'model_req', title: '要求2' })
+    func1 = createDesignElement(db, projectUid, { modelType: 'model_func', title: '機能1' })
+    struct1 = createDesignElement(db, projectUid, { modelType: 'model_struct', title: '構造1' })
+    verif1 = createDesignElement(db, projectUid, { modelType: 'model_verif', title: '試験1' })
 
     createTraceLink(db, projectUid, {
       fromUid: func1.uid,
@@ -41,8 +41,7 @@ describe('トレーサビリティ（P9）', () => {
     createTraceLink(db, projectUid, {
       fromUid: req1.uid,
       toUid: req2.uid,
-      relationType: 'decomposes',
-      attributes: { decompositionKind: 'refinement' },
+      relationType: 'contains',
       createdBy: 'human'
     })
     createTraceLink(db, projectUid, {
@@ -77,7 +76,7 @@ describe('トレーサビリティ（P9）', () => {
 
   it('方向指定: forward は下流のみ、backward は上流のみ（TRACE-022）', () => {
     const forward = getTraceSubgraph(db, { rootUid: req1.uid, depth: 3, direction: 'forward' })
-    expect(forward.nodes.map((n) => n.code).sort()).toEqual([req1.code, req2.code].sort()) // REQ1 -decomposes-> REQ2
+    expect(forward.nodes.map((n) => n.code).sort()).toEqual([req1.code, req2.code].sort()) // REQ1 -contains-> REQ2
 
     const backward = getTraceSubgraph(db, { rootUid: req1.uid, depth: 1, direction: 'backward' })
     expect(backward.nodes.map((n) => n.code).sort()).toEqual([func1.code, req1.code, verif1.code].sort())
@@ -95,7 +94,7 @@ describe('トレーサビリティ（P9）', () => {
   })
 
   it('トレースマトリクス: FUNC×REQ に satisfies が入る（UI-014）', () => {
-    const matrix = getTraceMatrix(db, projectUid, 'FUNC', 'REQ')
+    const matrix = getTraceMatrix(db, projectUid, 'model_func', 'model_req')
     expect(matrix.rows.map((r) => r.code)).toEqual([func1.code])
     expect(matrix.cols).toHaveLength(2)
     expect(matrix.cells[func1.uid]?.[req1.uid]).toEqual(['satisfies'])
@@ -122,8 +121,8 @@ describe('トレーサビリティ（P9）', () => {
         expect.objectContaining({ id: 'all:intermediate', kind: 'intermediate', count: 0 }),
         expect.objectContaining({ id: 'all:chunk', kind: 'chunk', count: 1 }),
         expect.objectContaining({ id: 'chunk:' + intermediate.uid, kind: 'chunk', count: 1 }),
-        expect.objectContaining({ id: 'design:FUNC', count: 1 }),
-        expect.objectContaining({ id: 'design:REQ', count: 2 })
+        expect.objectContaining({ id: 'design:model_func', count: 1 }),
+        expect.objectContaining({ id: 'design:model_req', count: 2 })
       ])
     )
 
@@ -131,17 +130,17 @@ describe('トレーサビリティ（P9）', () => {
       expect.objectContaining({ uid: chunk.uid, entityType: 'chunk' })
     ])
 
-    const allDesign = getEditableTraceMatrix(db, projectUid, ['all:design'], ['design:REQ'], ['satisfies'])
+    const allDesign = getEditableTraceMatrix(db, projectUid, ['all:design'], ['design:model_req'], ['satisfies'])
     expect(allDesign.rows).toHaveLength(5)
 
-    const forward = getEditableTraceMatrix(db, projectUid, ['design:FUNC'], ['design:REQ'], ['satisfies'])
+    const forward = getEditableTraceMatrix(db, projectUid, ['design:model_func'], ['design:model_req'], ['satisfies'])
     expect(forward.rows.map((row) => row.code)).toEqual([func1.code])
     expect(forward.cells[func1.uid]?.[req1.uid]?.[0]).toMatchObject({
       relationType: 'satisfies',
       direction: 'row_to_col'
     })
 
-    const reverse = getEditableTraceMatrix(db, projectUid, ['design:REQ'], ['design:FUNC'], ['satisfies'])
+    const reverse = getEditableTraceMatrix(db, projectUid, ['design:model_req'], ['design:model_func'], ['satisfies'])
     expect(reverse.cells[req1.uid]?.[func1.uid]?.[0]).toMatchObject({
       relationType: 'satisfies',
       direction: 'col_to_row'
@@ -157,7 +156,13 @@ describe('トレーサビリティ（P9）', () => {
     })
     expect(added).toMatchObject({ added: 2, deleted: 0 })
 
-    const matrix = getEditableTraceMatrix(db, projectUid, ['design:FUNC'], ['design:REQ'], ['satisfies', 'relates_to'])
+    const matrix = getEditableTraceMatrix(
+      db,
+      projectUid,
+      ['design:model_func'],
+      ['design:model_req'],
+      ['satisfies', 'relates_to']
+    )
     expect(matrix.cells[func1.uid]?.[req2.uid]?.map((link) => link.relationType).sort()).toEqual([
       'relates_to',
       'satisfies'
@@ -171,7 +176,7 @@ describe('トレーサビリティ（P9）', () => {
     })
     expect(removed.deleted).toBe(2)
     expect(
-      getEditableTraceMatrix(db, projectUid, ['design:FUNC'], ['design:REQ']).cells[func1.uid]?.[req2.uid]
+      getEditableTraceMatrix(db, projectUid, ['design:model_func'], ['design:model_req']).cells[func1.uid]?.[req2.uid]
     ).toBeUndefined()
   })
 
@@ -199,7 +204,7 @@ describe('トレーサビリティ（P9）', () => {
       })
     ).toThrow(/許容されない関係/)
     expect(
-      getEditableTraceMatrix(db, projectUid, ['design:FUNC'], ['design:REQ']).cells[func1.uid]?.[req2.uid]
+      getEditableTraceMatrix(db, projectUid, ['design:model_func'], ['design:model_req']).cells[func1.uid]?.[req2.uid]
     ).toBeUndefined()
   })
 
@@ -214,9 +219,9 @@ describe('トレーサビリティ（P9）', () => {
       db,
       projectUid,
       [
-        { id: 'functions', scopeIds: ['design:FUNC'] },
-        { id: 'requirements', scopeIds: ['design:REQ'] },
-        { id: 'verifications', scopeIds: ['design:VERIF'] }
+        { id: 'functions', scopeIds: ['design:model_func'] },
+        { id: 'requirements', scopeIds: ['design:model_req'] },
+        { id: 'verifications', scopeIds: ['design:model_verif'] }
       ],
       ['satisfies', 'verifies', 'relates_to']
     )
@@ -296,7 +301,7 @@ describe('トレーサビリティ（P9）', () => {
       projectUid,
       [
         { id: 'intermediate', scopeIds: [`intermediate:${doc.uid}`] },
-        { id: 'requirements', scopeIds: ['design:REQ'] }
+        { id: 'requirements', scopeIds: ['design:model_req'] }
       ],
       []
     )
@@ -307,7 +312,7 @@ describe('トレーサビリティ（P9）', () => {
   })
   it('整合性検査: 未接続・根拠不足・検証未対応・暫定リンク・循環を検出する（srs §2.3）', () => {
     // 未接続要素を追加
-    const isolated = createDesignElement(db, projectUid, { category: 'MGMT', title: '未接続の判断' })
+    const isolated = createDesignElement(db, projectUid, { modelType: 'model_mgmt', title: '未接続の判断' })
     // 暫定リンク
     createTraceLink(db, projectUid, {
       fromUid: req2.uid,
@@ -315,14 +320,15 @@ describe('トレーサビリティ（P9）', () => {
       relationType: 'relates_to',
       createdBy: 'human'
     })
-    // 循環: REQ2 -decomposes-> REQ1（REQ1 -decomposes-> REQ2 と合わせて閉路）
-    createTraceLink(db, projectUid, {
-      fromUid: req2.uid,
-      toUid: req1.uid,
-      relationType: 'decomposes',
-      attributes: { decompositionKind: 'refinement' },
-      createdBy: 'human'
-    })
+    // contains の循環は保存時に拒否される
+    expect(() =>
+      createTraceLink(db, projectUid, {
+        fromUid: req2.uid,
+        toUid: req1.uid,
+        relationType: 'contains',
+        createdBy: 'human'
+      })
+    ).toThrowError(/循環/)
 
     const problems = checkConsistency(db, projectUid)
     const kinds = (kind: string): string[] => problems.filter((p) => p.kind === kind).map((p) => p.code)
@@ -335,8 +341,7 @@ describe('トレーサビリティ（P9）', () => {
     expect(kinds('unverified_requirement')).not.toContain(req1.code)
     // 暫定リンク
     expect(kinds('provisional_link')).toHaveLength(1)
-    // 循環: REQ1/REQ2 が閉路上
-    expect(kinds('cycle').sort()).toEqual([req1.code, req2.code].sort())
+    expect(kinds('cycle')).toHaveLength(0)
   })
 
   it('クエリ結果の JSON/CSV/Markdown 出力（TRACE-024）', () => {

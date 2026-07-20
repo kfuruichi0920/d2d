@@ -27,6 +27,18 @@ export interface Migration {
  */
 export const MIGRATIONS: Migration[] = [
   {
+    version: '2.0.0',
+    description: '設計モデルをresource_*からmodel_*へ分離（破壊的変更）',
+    apply() {
+      throw new BackendError(
+        'db',
+        'schema 1.x のプロジェクトは開けません。schema 2.0.0 でプロジェクトを再作成してください',
+        '本改修は後方互換マイグレーションを提供しません',
+        false
+      )
+    }
+  },
+  {
     // TBD-04 決定: resource_table_cell を別テーブルへ分割（互換的な機能追加 → 第2桁更新）
     // セル ID（uid）は行内で安定に保持し、セル単位の設計根拠（EDIT-024/025）は
     // trace_link.evidence_span からこの uid を参照して利用する。
@@ -282,7 +294,9 @@ export const MIGRATIONS: Migration[] = [
   }
 ]
 /** 最新の schema_version（新規 DB 作成時にもマイグレーションを適用して到達させる） */
-export const LATEST_SCHEMA_VERSION = MIGRATIONS.at(-1)?.version ?? INITIAL_SCHEMA_VERSION
+export const LATEST_SCHEMA_VERSION =
+  [INITIAL_SCHEMA_VERSION, ...MIGRATIONS.map((item) => item.version)].sort(compareVersion).at(-1) ??
+  INITIAL_SCHEMA_VERSION
 
 export function compareVersion(a: string, b: string): number {
   const pa = a.split('.').map(Number)
@@ -329,6 +343,14 @@ export function checkIntegrity(db: Database): void {
  */
 export function runMigrations(db: Database, dbFilePath: string): string {
   const current = getSchemaVersion(db)
+  if (compareVersion(current, '2.0.0') < 0) {
+    throw new BackendError(
+      'db',
+      'schema 1.x のプロジェクトは開けません。schema 2.0.0 でプロジェクトを再作成してください',
+      '本改修は後方互換マイグレーションを提供しません',
+      false
+    )
+  }
   const pending = pendingMigrations(current)
   if (pending.length === 0) {
     return current

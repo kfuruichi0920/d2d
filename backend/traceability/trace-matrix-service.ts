@@ -21,7 +21,7 @@ export interface TraceMatrixResource {
   code: string
   title: string | null
   entityType: string
-  designCategory: string | null
+  modelType: string | null
   status: string
   itemType: string | null
   scopes: string[]
@@ -44,19 +44,19 @@ export interface EditableTraceMatrix {
 }
 
 const MATRIX_CATEGORIES = [
-  'SRC',
-  'STD',
-  'REQ',
-  'CST',
-  'FUNC',
-  'STRUCT',
-  'BEH',
-  'STATE',
-  'IF',
-  'DATA',
-  'VERIF',
-  'MGMT',
-  'IMPL'
+  'model_src',
+  'model_std',
+  'model_req',
+  'model_cst',
+  'model_func',
+  'model_struct',
+  'model_action',
+  'model_state',
+  'model_if',
+  'model_data',
+  'model_verif',
+  'model_mgmt',
+  'model_impl'
 ]
 
 /** 行・列へ配置可能なResource集合を列挙する。③文書とチャンクは成果物単位の表示グループも返す。 */
@@ -68,7 +68,7 @@ export function listTraceMatrixScopes(db: Database, projectUid: string): TraceMa
         (SELECT COUNT(*) FROM extracted_item i JOIN entity_registry e ON e.uid=i.uid WHERE e.project_uid=? AND e.status <> 'deleted') AS extracted,
         (SELECT COUNT(*) FROM intermediate_item i JOIN entity_registry e ON e.uid=i.uid WHERE e.project_uid=? AND e.status <> 'deleted') AS intermediate,
         (SELECT COUNT(*) FROM chunk c JOIN entity_registry e ON e.uid=c.uid WHERE e.project_uid=? AND e.status <> 'deleted') AS chunk,
-        (SELECT COUNT(*) FROM entity_registry e WHERE e.project_uid=? AND e.design_category IS NOT NULL AND e.status <> 'deleted') AS design`
+        (SELECT COUNT(*) FROM entity_registry e WHERE e.project_uid=? AND e.entity_type LIKE 'model_%' AND e.status <> 'deleted') AS design`
     )
     .get(projectUid, projectUid, projectUid, projectUid) as {
     extracted: number
@@ -108,9 +108,9 @@ export function listTraceMatrixScopes(db: Database, projectUid: string): TraceMa
   )
   const categoryCounts = db
     .prepare(
-      `SELECT design_category AS id, COUNT(*) AS count FROM entity_registry
-        WHERE project_uid=? AND design_category IS NOT NULL AND status <> 'deleted'
-        GROUP BY design_category`
+      `SELECT entity_type AS id, COUNT(*) AS count FROM entity_registry
+        WHERE project_uid=? AND entity_type LIKE 'model_%' AND status <> 'deleted'
+        GROUP BY entity_type`
     )
     .all(projectUid) as { id: string; count: number }[]
   const countByCategory = new Map(categoryCounts.map((row) => [row.id, row.count]))
@@ -249,30 +249,30 @@ export function resolveMatrixResources(
       const sql =
         value === 'extracted'
           ? `SELECT i.uid, e.code, COALESCE(e.title, r.title) AS title, e.entity_type AS entityType,
-                    e.design_category AS designCategory, e.status, i.item_type AS itemType
+                    CASE WHEN e.entity_type LIKE 'model_%' THEN e.entity_type END AS modelType, e.status, i.item_type AS itemType
                FROM extracted_item i JOIN entity_registry e ON e.uid=i.uid AND e.project_uid=? AND e.status <> 'deleted'
                LEFT JOIN entity_registry r ON r.uid=i.resource_uid ORDER BY e.code`
           : value === 'intermediate'
             ? `SELECT i.uid, e.code, COALESCE(e.title, r.title) AS title, e.entity_type AS entityType,
-                      e.design_category AS designCategory, e.status, i.item_type AS itemType
+                      CASE WHEN e.entity_type LIKE 'model_%' THEN e.entity_type END AS modelType, e.status, i.item_type AS itemType
                  FROM intermediate_item i JOIN entity_registry e ON e.uid=i.uid AND e.project_uid=? AND e.status <> 'deleted'
                  LEFT JOIN entity_registry r ON r.uid=i.resource_uid ORDER BY e.code`
             : value === 'chunk'
               ? `SELECT c.uid, e.code, e.title, e.entity_type AS entityType,
-                        e.design_category AS designCategory, e.status, NULL AS itemType
+                        CASE WHEN e.entity_type LIKE 'model_%' THEN e.entity_type END AS modelType, e.status, NULL AS itemType
                    FROM chunk c JOIN entity_registry e ON e.uid=c.uid AND e.project_uid=? AND e.status <> 'deleted'
                   ORDER BY c.sort_order, e.code`
-              : `SELECT uid, code, title, entity_type AS entityType, design_category AS designCategory,
+              : `SELECT uid, code, title, entity_type AS entityType, CASE WHEN entity_type LIKE 'model_%' THEN entity_type END AS modelType,
                       status, NULL AS itemType FROM entity_registry
-                 WHERE project_uid=? AND design_category IS NOT NULL AND status <> 'deleted' ORDER BY code`
+                 WHERE project_uid=? AND entity_type LIKE 'model_%' AND status <> 'deleted' ORDER BY code`
       add(db.prepare(sql).all(projectUid) as Omit<TraceMatrixResource, 'scopes'>[], scopeId)
     } else if (kind === 'design' && MATRIX_CATEGORIES.includes(value)) {
       add(
         db
           .prepare(
-            `SELECT uid, code, title, entity_type AS entityType, design_category AS designCategory,
+            `SELECT uid, code, title, entity_type AS entityType, CASE WHEN entity_type LIKE 'model_%' THEN entity_type END AS modelType,
                     status, NULL AS itemType
-               FROM entity_registry WHERE project_uid=? AND design_category=? AND status <> 'deleted'
+               FROM entity_registry WHERE project_uid=? AND entity_type=? AND status <> 'deleted'
               ORDER BY code`
           )
           .all(projectUid, value) as Omit<TraceMatrixResource, 'scopes'>[],
@@ -282,7 +282,7 @@ export function resolveMatrixResources(
       add(
         db
           .prepare(
-            `SELECT uid, code, title, entity_type AS entityType, design_category AS designCategory,
+            `SELECT uid, code, title, entity_type AS entityType, CASE WHEN entity_type LIKE 'model_%' THEN entity_type END AS modelType,
                     status, NULL AS itemType
                FROM entity_registry WHERE project_uid=? AND entity_type=? AND status <> 'deleted'
               ORDER BY code`
@@ -295,7 +295,7 @@ export function resolveMatrixResources(
         db
           .prepare(
             `SELECT i.uid, e.code, COALESCE(e.title, r.title) AS title, e.entity_type AS entityType,
-                    e.design_category AS designCategory, e.status, i.item_type AS itemType
+                    CASE WHEN e.entity_type LIKE 'model_%' THEN e.entity_type END AS modelType, e.status, i.item_type AS itemType
                FROM extracted_item i
                JOIN entity_registry e ON e.uid=i.uid AND e.project_uid=? AND e.status <> 'deleted'
                LEFT JOIN entity_registry r ON r.uid=i.resource_uid
@@ -309,7 +309,7 @@ export function resolveMatrixResources(
         db
           .prepare(
             `SELECT i.uid, e.code, COALESCE(e.title, r.title) AS title, e.entity_type AS entityType,
-                    e.design_category AS designCategory, e.status, i.item_type AS itemType
+                    CASE WHEN e.entity_type LIKE 'model_%' THEN e.entity_type END AS modelType, e.status, i.item_type AS itemType
                FROM intermediate_item i
                JOIN entity_registry e ON e.uid=i.uid AND e.project_uid=? AND e.status <> 'deleted'
                LEFT JOIN entity_registry r ON r.uid=i.resource_uid
@@ -323,7 +323,7 @@ export function resolveMatrixResources(
         db
           .prepare(
             `SELECT c.uid, e.code, e.title, e.entity_type AS entityType,
-                    e.design_category AS designCategory, e.status, NULL AS itemType
+                    CASE WHEN e.entity_type LIKE 'model_%' THEN e.entity_type END AS modelType, e.status, NULL AS itemType
                FROM chunk c
                JOIN entity_registry e ON e.uid=c.uid AND e.project_uid=? AND e.status <> 'deleted'
               WHERE c.intermediate_document_uid=? ORDER BY c.sort_order, e.code`
@@ -407,15 +407,14 @@ function defaultRelationAttributes(relationType: RelationType, targetCategory: s
   if (relationType === 'based_on') return { basisKind: 'human_approved' }
   if (relationType === 'allocated_to') {
     const kinds = {
-      STRUCT: 'structure',
-      BEH: 'behavior',
-      STATE: 'state',
-      IF: 'interface',
-      DATA: 'data'
+      model_struct: 'structure',
+      model_action: 'behavior',
+      model_state: 'state',
+      model_if: 'interface',
+      model_data: 'data'
     } as const
     return { allocationKind: kinds[targetCategory as keyof typeof kinds] ?? 'structure' }
   }
-  if (relationType === 'decomposes') return { decompositionKind: 'refinement' }
   if (relationType === 'uses') return { usageKind: 'read' }
   if (relationType === 'conflicts_with') return { conflictStatus: 'suspected' }
   return {}
@@ -447,8 +446,10 @@ export function updateTraceMatrixLinks(
       const fromUid = input.direction === 'row_to_col' ? pair.rowUid : pair.colUid
       const toUid = input.direction === 'row_to_col' ? pair.colUid : pair.rowUid
       const target = db
-        .prepare(`SELECT design_category FROM entity_registry WHERE uid=? AND project_uid=? AND status <> 'deleted'`)
-        .get(toUid, projectUid) as { design_category: string | null } | undefined
+        .prepare(
+          `SELECT entity_type AS model_type FROM entity_registry WHERE uid=? AND project_uid=? AND status <> 'deleted'`
+        )
+        .get(toUid, projectUid) as { model_type: string | null } | undefined
       const source = db
         .prepare(`SELECT uid FROM entity_registry WHERE uid=? AND project_uid=? AND status <> 'deleted'`)
         .get(fromUid, projectUid)
@@ -475,7 +476,7 @@ export function updateTraceMatrixLinks(
             fromUid,
             toUid,
             relationType,
-            attributes: defaultRelationAttributes(relationType, target.design_category),
+            attributes: defaultRelationAttributes(relationType, target.model_type),
             createdBy: 'human',
             reviewStatus: relationType === 'relates_to' ? 'provisional' : 'approved'
           })

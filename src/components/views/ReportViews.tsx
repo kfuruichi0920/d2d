@@ -11,7 +11,21 @@ import { useJobsStore } from '../../stores/jobs-store'
 import { useProjectStore } from '../../stores/project-store'
 import { MarkdownPreview } from '../common/MarkdownPreview'
 
-const CATEGORIES = ['STD', 'REQ', 'CST', 'FUNC', 'STRUCT', 'BEH', 'STATE', 'IF', 'DATA', 'VERIF', 'MGMT', 'IMPL']
+const CATEGORIES = [
+  'model_src',
+  'model_std',
+  'model_req',
+  'model_cst',
+  'model_func',
+  'model_struct',
+  'model_action',
+  'model_state',
+  'model_data',
+  'model_if',
+  'model_verif',
+  'model_impl',
+  'model_mgmt'
+]
 const INFO_TYPES = [
   { id: 'heading', label: '見出し' },
   { id: 'paragraph', label: '段落' },

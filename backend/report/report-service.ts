@@ -196,9 +196,9 @@ export function buildReportMarkdown(db: Database, projectUid: string, options: R
 
   // ---- ④ 設計モデル（EXP-002: 設計要素・関係。EXP-003: 設計観点/状態/要素コード） ----
   const elementParams: unknown[] = [projectUid]
-  let elementWhere = `e.project_uid = ? AND e.design_category IS NOT NULL AND e.status <> 'deleted'`
+  let elementWhere = `e.project_uid = ? AND e.entity_type LIKE 'model_%' AND e.status <> 'deleted'`
   if (filters.categories && filters.categories.length > 0) {
-    elementWhere += ` AND e.design_category IN (${filters.categories.map(() => '?').join(',')})`
+    elementWhere += ` AND e.entity_type IN (${filters.categories.map(() => '?').join(',')})`
     elementParams.push(...filters.categories)
   }
   if (filters.status) {
@@ -209,20 +209,17 @@ export function buildReportMarkdown(db: Database, projectUid: string, options: R
     elementWhere += ` AND e.code IN (${filters.elementCodes.map(() => '?').join(',')})`
     elementParams.push(...filters.elementCodes)
   }
-  const elements = db
+  const elementRows = db
     .prepare(
-      `SELECT e.uid, e.code, e.design_category, e.title, e.status, t.text_body AS description
-         FROM entity_registry e LEFT JOIN resource_text t ON t.uid = e.uid
-        WHERE ${elementWhere} ORDER BY e.design_category, e.code`
+      `SELECT e.uid, e.code, e.entity_type AS model_type, e.title, e.status
+       FROM entity_registry e WHERE ${elementWhere} ORDER BY e.entity_type, e.code`
     )
-    .all(...elementParams) as {
-    uid: string
-    code: string
-    design_category: string
-    title: string | null
-    status: string
-    description: string | null
-  }[]
+    .all(...elementParams) as { uid: string; code: string; model_type: string; title: string | null; status: string }[]
+  const elements = elementRows.map((row) => {
+    const detail = db.prepare(`SELECT summary FROM "${row.model_type}" WHERE uid=?`).get(row.uid) as
+      { summary: string } | undefined
+    return { ...row, description: detail?.summary ?? null }
+  })
 
   if (sections.design) {
     lines.push('## ④ 設計モデル（設計要素）', '')
@@ -231,8 +228,8 @@ export function buildReportMarkdown(db: Database, projectUid: string, options: R
     } else {
       let currentCategory = ''
       for (const el of elements) {
-        if (el.design_category !== currentCategory) {
-          currentCategory = el.design_category
+        if (el.model_type !== currentCategory) {
+          currentCategory = el.model_type
           lines.push(`### ${currentCategory}`, '')
         }
         lines.push(`#### ${el.code} ${md(el.title ?? '')}`, '', `- レビュー状態: ${el.status}`, '')

@@ -21,7 +21,7 @@ interface ImpactItem {
   code: string
   title: string | null
   entityType: string
-  designCategory: string | null
+  modelType: string | null
   status: string
   itemType: string | null
   scopes: string[]
@@ -95,7 +95,6 @@ const RELATION_COLORS: Record<string, string> = {
   allocated_to: '#b08adf',
   verifies: '#df789e',
   contains: '#d99b42',
-  decomposes: '#c77c55',
   implements: '#7e9ddd',
   uses: '#50aaa0',
   calls: '#8d8dd8',
@@ -108,7 +107,6 @@ const RELATION_LABELS: Record<string, string> = {
   allocated_to: 'A',
   verifies: 'V',
   contains: 'C',
-  decomposes: 'D',
   implements: 'I',
   uses: 'U',
   calls: 'Call',
@@ -130,7 +128,7 @@ function itemTooltip(item: ImpactItem, scopes: ImpactScope[]): string {
     `ID: ${item.code}`,
     `名称: ${item.title ?? '-'}`,
     `entity_type: ${item.entityType}`,
-    `design_category: ${item.designCategory ?? '-'}`,
+    `model_type: ${item.modelType ?? '-'}`,
     `item_type: ${item.itemType ?? '-'}`,
     `状態: ${item.status}`,
     `階層: ${item.depth}`,
@@ -466,7 +464,7 @@ export function TraceImpactEditor({ contextUri }: { contextUri: string }): React
         code: item.code,
         title: item.title,
         entityType: item.entityType,
-        designCategory: item.designCategory,
+        modelType: item.modelType,
         itemType: item.itemType,
         status: item.status,
         depth: item.depth

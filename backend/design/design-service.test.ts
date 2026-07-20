@@ -8,6 +8,8 @@ import { createProjectLayout } from '../project/layout'
 import { importSourceDocument } from '../import/import-service'
 import { storeExtractionResult } from '../extract/store-extraction'
 import { createChunk, createIntermediateDocument } from '../intermediate/intermediate-service'
+import { buildDesignCandidateMessages } from '../llm/request-messages'
+import { saveModelDefinition, saveRelationDefinition } from '../ontology/ontology-service'
 import {
   adoptCandidates,
   checkRelationAllowed,
@@ -15,7 +17,8 @@ import {
   createTraceLink,
   listDesignElements,
   listAllowedRelationRules,
-  listTraceLinks
+  listTraceLinks,
+  updateDesignElement
 } from './design-service'
 
 describe('④設計モデル（P8）', () => {
@@ -61,42 +64,139 @@ describe('④設計モデル（P8）', () => {
   })
 
   it('設計要素を13分類 prefix で採番して登録・一覧できる（P8-1 / MODEL-001/002）', () => {
-    const req = createDesignElement(db, projectUid, { category: 'REQ', title: '応答時間要求' })
+    const req = createDesignElement(db, projectUid, { modelType: 'model_req', title: '応答時間要求' })
     const func = createDesignElement(db, projectUid, {
-      category: 'FUNC',
+      modelType: 'model_func',
       title: '応答処理機能',
-      description: '要求を処理する'
+      summary: '要求を処理する'
     })
     expect(req.code).toBe('REQ-000001')
     expect(func.code).toBe('FUNC-000001')
 
     const list = listDesignElements(db, projectUid)
     expect(list).toHaveLength(2)
-    expect(list.find((e) => e.code === 'FUNC-000001')?.description).toBe('要求を処理する')
+    expect(list.find((e) => e.code === 'FUNC-000001')?.summary).toBe('要求を処理する')
 
-    const onlyReq = listDesignElements(db, projectUid, { category: 'REQ' })
+    const onlyReq = listDesignElements(db, projectUid, { modelType: 'model_req' })
     expect(onlyReq).toHaveLength(1)
   })
 
-  it('checkRelationAllowed が relation_rule_master を評価する（P8-2 / srs §9.4）', () => {
-    expect(checkRelationAllowed(db, 'satisfies', 'FUNC', 'REQ').allowed).toBe(true)
-    expect(checkRelationAllowed(db, 'satisfies', 'REQ', 'FUNC').allowed).toBe(false) // 逆方向は不許容
-    expect(checkRelationAllowed(db, 'uses', 'STRUCT', 'IF')).toEqual({ allowed: true, requiredAttr: 'usage_kind' })
-    expect(checkRelationAllowed(db, 'relates_to', 'REQ', 'MGMT').allowed).toBe(true) // ANY
-    expect(checkRelationAllowed(db, 'depends_on', 'REQ', 'FUNC').allowed).toBe(false) // 非採用 relation_type
+  it('定義駆動の独自項目型を登録・更新時に検証し、不正入力を正本へ残さない', () => {
+    const before = (
+      db.prepare(`SELECT COUNT(*) AS n FROM entity_registry WHERE entity_type='model_func'`).get() as {
+        n: number
+      }
+    ).n
+    expect(() =>
+      createDesignElement(db, projectUid, {
+        modelType: 'model_func',
+        title: '不正な機能',
+        detail: { inputs: '{invalid json' }
+      })
+    ).toThrowError(/有効なJSON/)
+    expect(
+      (db.prepare(`SELECT COUNT(*) AS n FROM entity_registry WHERE entity_type='model_func'`).get() as { n: number }).n
+    ).toBe(before)
+
+    const created = createDesignElement(db, projectUid, {
+      modelType: 'model_struct',
+      title: '構造要素',
+      detail: { structure_kind: 'component' }
+    })
+    expect(() =>
+      updateDesignElement(db, created.uid, {
+        title: '更新後',
+        summary: '更新後',
+        detail: { structure_kind: 'unsupported-kind' }
+      })
+    ).toThrowError(/選択肢/)
+    expect(listDesignElements(db, projectUid).find((element) => element.uid === created.uid)?.title).toBe('構造要素')
+    expect(() => db.prepare(`UPDATE model_struct SET detail_json='[]' WHERE uid=?`).run(created.uid)).toThrow()
+  })
+  it('LLM導出入力は有効なモデル・関係定義と許容組合せだけを使用する', () => {
+    const req = db
+      .prepare(
+        `SELECT code_prefix,label,layer,field_schema_json FROM ontology_model_definition WHERE model_type='model_req'`
+      )
+      .get() as { code_prefix: string; label: string; layer: string; field_schema_json: string }
+    saveModelDefinition(db, {
+      modelType: 'model_req',
+      codePrefix: req.code_prefix,
+      label: req.label,
+      layer: req.layer,
+      definition: 'プロジェクト固有の要求定義。',
+      fieldSchemaJson: req.field_schema_json,
+      enabled: true
+    })
+    const std = db
+      .prepare(
+        `SELECT code_prefix,label,layer,definition,field_schema_json FROM ontology_model_definition WHERE model_type='model_std'`
+      )
+      .get() as {
+      code_prefix: string
+      label: string
+      layer: string
+      definition: string
+      field_schema_json: string
+    }
+    saveModelDefinition(db, {
+      modelType: 'model_std',
+      codePrefix: std.code_prefix,
+      label: std.label,
+      layer: std.layer,
+      definition: std.definition,
+      fieldSchemaJson: std.field_schema_json,
+      enabled: false
+    })
+    saveRelationDefinition(db, {
+      relationType: 'satisfies',
+      label: '充足',
+      definition: 'プロジェクト固有の充足関係定義。',
+      enabled: true
+    })
+    const chunk = createChunk(db, projectUid, intermediateUid, ['i1'], undefined, '要求だけを重点抽出する')
+    const messages = buildDesignCandidateMessages(db, chunk.chunkUid)
+    expect(messages[0]!.content).toContain('プロジェクト固有の要求定義。')
+    expect(messages[0]!.content).toContain('プロジェクト固有の充足関係定義。')
+    expect(messages[0]!.content).not.toContain('"model_type":"model_std"')
+    expect(messages[0]!.content).not.toContain('"source_model_type":"model_std"')
+    expect(messages[0]!.content).not.toContain('"target_model_type":"model_std"')
+    expect(messages[1]!.content).toContain('要求だけを重点抽出する')
+  })
+  it('checkRelationAllowed が ontology_relation_allowance を評価する（P8-2 / srs §9.4）', () => {
+    expect(checkRelationAllowed(db, 'satisfies', 'model_func', 'model_req').allowed).toBe(true)
+    expect(checkRelationAllowed(db, 'satisfies', 'model_req', 'model_func').allowed).toBe(false) // 逆方向は不許容
+    expect(checkRelationAllowed(db, 'uses', 'model_struct', 'model_data')).toEqual({
+      allowed: true,
+      requiredAttr: 'usage_kind'
+    })
+    expect(checkRelationAllowed(db, 'relates_to', 'model_req', 'model_mgmt').allowed).toBe(true) // ANY
+    expect(checkRelationAllowed(db, 'depends_on', 'model_req', 'model_func').allowed).toBe(false) // 非採用 relation_type
   })
 
   it('候補編集用に許容関係ルールを返す（MODEL-010）', () => {
     const rules = listAllowedRelationRules(db)
-    expect(rules).toContainEqual({ relationType: 'satisfies', sourceCategory: 'FUNC', targetCategory: 'REQ' })
-    expect(rules).toContainEqual({ relationType: 'relates_to', sourceCategory: 'ANY', targetCategory: 'ANY' })
-    expect(rules).not.toContainEqual({ relationType: 'satisfies', sourceCategory: 'REQ', targetCategory: 'FUNC' })
+    expect(rules).toContainEqual({
+      relationType: 'satisfies',
+      sourceModelType: 'model_func',
+      targetModelType: 'model_req'
+    })
+    expect(rules).toContainEqual({
+      relationType: 'relates_to',
+      sourceModelType: 'model_req',
+      targetModelType: 'model_mgmt'
+    })
+    expect(rules).not.toContainEqual({
+      relationType: 'satisfies',
+      sourceModelType: 'model_req',
+      targetModelType: 'model_func'
+    })
   })
   it('createTraceLink: 許容外・必須属性欠落・重複を拒否する（P8-2）', () => {
-    const req = createDesignElement(db, projectUid, { category: 'REQ', title: 'R1' })
-    const func = createDesignElement(db, projectUid, { category: 'FUNC', title: 'F1' })
-    const struct = createDesignElement(db, projectUid, { category: 'STRUCT', title: 'S1' })
-    const dataEl = createDesignElement(db, projectUid, { category: 'DATA', title: 'D1' })
+    const req = createDesignElement(db, projectUid, { modelType: 'model_req', title: 'R1' })
+    const func = createDesignElement(db, projectUid, { modelType: 'model_func', title: 'F1' })
+    const struct = createDesignElement(db, projectUid, { modelType: 'model_struct', title: 'S1' })
+    const dataEl = createDesignElement(db, projectUid, { modelType: 'model_data', title: 'D1' })
 
     // OK: FUNC -satisfies-> REQ
     createTraceLink(db, projectUid, {
@@ -155,8 +255,8 @@ describe('④設計モデル（P8）', () => {
       llmRunUid: undefined,
       candidateSet: {
         elements: [
-          { temp_id: 't1', category: 'REQ', title: '応答時間要求', evidence: '応答は100ms以内。' },
-          { temp_id: 't2', category: 'FUNC', title: '応答処理機能' }
+          { temp_id: 't1', category: 'model_req', title: '応答時間要求', evidence: '応答は100ms以内。' },
+          { temp_id: 't2', category: 'model_func', title: '応答処理機能' }
         ],
         relations: [
           { from_temp_id: 't2', to_temp_id: 't1', relation_type: 'satisfies', rationale: '機能が要求を満たす' }
@@ -188,7 +288,7 @@ describe('④設計モデル（P8）', () => {
       intermediateDocumentUid: intermediateUid,
       chunkUid: chunk.chunkUid,
       candidateSet: {
-        elements: [{ temp_id: 't1', category: 'REQ', title: 'チャンク由来要求', evidence: '応答は100ms以内。' }],
+        elements: [{ temp_id: 't1', category: 'model_req', title: 'チャンク由来要求', evidence: '応答は100ms以内。' }],
         relations: []
       }
     })
@@ -204,8 +304,8 @@ describe('④設計モデル（P8）', () => {
         intermediateDocumentUid: intermediateUid,
         candidateSet: {
           elements: [
-            { temp_id: 't1', category: 'REQ', title: 'R' },
-            { temp_id: 't2', category: 'FUNC', title: 'F' }
+            { temp_id: 't1', category: 'model_req', title: 'R' },
+            { temp_id: 't2', category: 'model_func', title: 'F' }
           ],
           // REQ -satisfies-> FUNC は許容外
           relations: [{ from_temp_id: 't1', to_temp_id: 't2', relation_type: 'satisfies' }]
@@ -225,7 +325,7 @@ describe('④設計モデル（P8）', () => {
     expect(() =>
       adoptCandidates(db, projectUid, {
         intermediateDocumentUid: '018fe6c2-0000-7000-8000-000000000000',
-        candidateSet: { elements: [{ temp_id: 't1', category: 'REQ', title: 'R' }], relations: [] }
+        candidateSet: { elements: [{ temp_id: 't1', category: 'model_req', title: 'R' }], relations: [] }
       })
     ).toThrowError(/根拠/)
   })

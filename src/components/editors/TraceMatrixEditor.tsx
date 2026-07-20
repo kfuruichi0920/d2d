@@ -19,7 +19,7 @@ interface MatrixResource {
   code: string
   title: string | null
   entityType: string
-  designCategory: string | null
+  modelType: string | null
   status: string
   itemType: string | null
   scopes: string[]
@@ -47,7 +47,6 @@ const RELATION_COLORS: Record<string, string> = {
   allocated_to: '#b08adf',
   verifies: '#df789e',
   contains: '#d99b42',
-  decomposes: '#c77c55',
   implements: '#7e9ddd',
   uses: '#50aaa0',
   calls: '#8d8dd8',
@@ -61,7 +60,6 @@ const RELATION_LABELS: Record<string, string> = {
   allocated_to: 'A',
   verifies: 'V',
   contains: 'C',
-  decomposes: 'D',
   implements: 'I',
   uses: 'U',
   calls: 'Call',
@@ -83,7 +81,7 @@ function resourceTooltip(resource: MatrixResource, scopes: MatrixScope[]): strin
     `ID: ${resource.code}`,
     `名称: ${resource.title ?? '-'}`,
     `entity_type: ${resource.entityType}`,
-    `design_category: ${resource.designCategory ?? '-'}`,
+    `model_type: ${resource.modelType ?? '-'}`,
     `item_type: ${resource.itemType ?? '-'}`,
     `状態: ${resource.status}`,
     `所属: ${labels.join(' / ')}`

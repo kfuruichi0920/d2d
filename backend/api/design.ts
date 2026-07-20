@@ -15,13 +15,18 @@ import {
   listDesignElements,
   listAllowedRelationRules,
   listTraceLinks,
-  RELATION_TYPES,
   setVerificationDetail,
-  type RelationType,
-  type TraceLinkAttributes
+  type TraceLinkAttributes,
+  updateDesignElement
 } from '../design/design-service'
 import { validateCandidateOutput } from '../llm/candidate-validation'
-import type { DesignCategory } from '../store/entity-types'
+import {
+  confirmOntology,
+  getOntology,
+  saveModelDefinition,
+  saveRelationDefinition,
+  setAllowance
+} from '../ontology/ontology-service'
 
 function asRecord(params: unknown): Record<string, unknown> {
   if (typeof params !== 'object' || params === null) {
@@ -87,9 +92,10 @@ export function registerDesignApi(router: ApiRouter, jobs: JobManager): void {
     const p = asRecord(params)
     const { db, info } = requireProject()
     return createDesignElement(db, info.projectUid, {
-      category: requireString(p, 'category') as DesignCategory,
+      modelType: requireString(p, 'modelType'),
       title: requireString(p, 'title'),
-      description: p.description === undefined ? undefined : String(p.description),
+      summary: p.summary === undefined ? undefined : String(p.summary),
+      detail: typeof p.detail === 'object' && p.detail !== null ? (p.detail as Record<string, unknown>) : undefined,
       ownerUid: p.ownerUid === undefined ? undefined : String(p.ownerUid)
     })
   })
@@ -98,11 +104,69 @@ export function registerDesignApi(router: ApiRouter, jobs: JobManager): void {
     const p = asRecord(params ?? {})
     const { db, info } = requireProject()
     return listDesignElements(db, info.projectUid, {
-      category: p.category === undefined ? undefined : (String(p.category) as DesignCategory),
+      modelType: p.modelType === undefined ? undefined : String(p.modelType),
       status: p.status === undefined ? undefined : String(p.status)
     })
   })
 
+  router.register('design.updateElement', (params) => {
+    const p = asRecord(params)
+    const { db } = requireProject()
+    updateDesignElement(db, requireString(p, 'uid'), {
+      title: requireString(p, 'title'),
+      summary: String(p.summary ?? ''),
+      detail: typeof p.detail === 'object' && p.detail !== null ? (p.detail as Record<string, unknown>) : {},
+      status: p.status === undefined ? undefined : String(p.status)
+    })
+    return { saved: true }
+  })
+
+  // ---- オントロジー設定（MODEL-019〜028） ----
+  router.register('ontology.get', () => {
+    const { db } = requireProject()
+    return getOntology(db)
+  })
+  router.register('ontology.saveModel', (params) => {
+    const p = asRecord(params)
+    const { db } = requireProject()
+    saveModelDefinition(db, {
+      modelType: requireString(p, 'modelType'),
+      codePrefix: p.codePrefix === undefined ? undefined : String(p.codePrefix),
+      label: requireString(p, 'label'),
+      layer: requireString(p, 'layer'),
+      definition: requireString(p, 'definition'),
+      fieldSchemaJson: String(p.fieldSchemaJson ?? '[]'),
+      enabled: p.enabled !== false
+    })
+    return getOntology(db)
+  })
+  router.register('ontology.saveRelation', (params) => {
+    const p = asRecord(params)
+    const { db } = requireProject()
+    saveRelationDefinition(db, {
+      relationType: requireString(p, 'relationType'),
+      label: requireString(p, 'label'),
+      definition: requireString(p, 'definition'),
+      requiredAttr: p.requiredAttr === undefined ? undefined : String(p.requiredAttr),
+      enabled: p.enabled !== false
+    })
+    return getOntology(db)
+  })
+  router.register('ontology.setAllowance', (params) => {
+    const p = asRecord(params)
+    const { db } = requireProject()
+    setAllowance(db, {
+      relationType: requireString(p, 'relationType'),
+      sourceModelType: requireString(p, 'sourceModelType'),
+      targetModelType: requireString(p, 'targetModelType'),
+      allowed: p.allowed === true
+    })
+    return { saved: true }
+  })
+  router.register('ontology.confirm', () => {
+    const { db } = requireProject()
+    return { version: confirmOntology(db) }
+  })
   /** 検証項目の作成 + verifies 紐づけ（P10-5、EDIT-040/041） */
   router.register('design.createVerification', (params) => {
     const p = asRecord(params)
@@ -138,13 +202,11 @@ export function registerDesignApi(router: ApiRouter, jobs: JobManager): void {
     const p = asRecord(params)
     const { db, info } = requireProject()
     const relationType = requireString(p, 'relationType')
-    if (!RELATION_TYPES.includes(relationType as RelationType)) {
-      throw new BackendError('validation', `relation_type は11種類に限定されています: ${relationType}`, '')
-    }
+
     return createTraceLink(db, info.projectUid, {
       fromUid: requireString(p, 'fromUid'),
       toUid: requireString(p, 'toUid'),
-      relationType: relationType as RelationType,
+      relationType,
       attributes: (p.attributes as TraceLinkAttributes | undefined) ?? {},
       createdBy: 'human',
       reviewStatus: 'approved'

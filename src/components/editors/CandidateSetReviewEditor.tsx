@@ -5,12 +5,11 @@
  * 採用時のみ同一トランザクションで④正本へ反映される（MODEL-006/009）。
  */
 import { useCallback, useEffect, useState } from 'react'
-import { invoke } from '../../services/backend'
+import { invoke, onBackendEvent } from '../../services/backend'
 import { useEditorStore } from '../../stores/editor-store'
 import { useJobsStore } from '../../stores/jobs-store'
 import { useProjectStore } from '../../stores/project-store'
 
-const CATEGORIES = ['STD', 'REQ', 'CST', 'FUNC', 'STRUCT', 'BEH', 'STATE', 'IF', 'DATA', 'VERIF', 'MGMT', 'IMPL']
 interface CandidateElement {
   temp_id: string
   category: string
@@ -28,8 +27,8 @@ interface CandidateRelation {
 
 interface AllowedRelationRule {
   relationType: string
-  sourceCategory: string
-  targetCategory: string
+  sourceModelType: string
+  targetModelType: string
 }
 
 interface CandidateSetResponse {
@@ -48,6 +47,7 @@ export function CandidateSetReviewEditor({ llmRunUid }: { llmRunUid: string }): 
   const [serverErrors, setServerErrors] = useState<string[]>([])
   const [adopting, setAdopting] = useState(false)
   const [allowedRules, setAllowedRules] = useState<AllowedRelationRule[]>([])
+  const [modelTypes, setModelTypes] = useState<string[]>([])
   const notify = useJobsStore((s) => s.notify)
   const closeTab = useEditorStore((s) => s.closeTab)
 
@@ -65,8 +65,21 @@ export function CandidateSetReviewEditor({ llmRunUid }: { llmRunUid: string }): 
     void load()
   }, [load])
   useEffect(() => {
-    void invoke<AllowedRelationRule[]>('design.listAllowedRelationRules').then((res) => {
-      if (res.ok) setAllowedRules(res.result)
+    const loadOntology = (): void => {
+      void Promise.all([
+        invoke<AllowedRelationRule[]>('design.listAllowedRelationRules'),
+        invoke<{ models: Array<{ model_type: string; is_enabled: number }> }>('ontology.get')
+      ]).then(([rules, ontology]) => {
+        if (rules.ok) setAllowedRules(rules.result)
+        if (ontology.ok)
+          setModelTypes(
+            ontology.result.models.filter((model) => model.is_enabled === 1).map((model) => model.model_type)
+          )
+      })
+    }
+    loadOntology()
+    return onBackendEvent((event) => {
+      if (event === 'ontology.updated') loadOntology()
     })
   }, [])
 
@@ -90,8 +103,8 @@ export function CandidateSetReviewEditor({ llmRunUid }: { llmRunUid: string }): 
         allowedRules
           .filter(
             (rule) =>
-              (rule.sourceCategory === source || rule.sourceCategory === 'ANY') &&
-              (rule.targetCategory === target || rule.targetCategory === 'ANY')
+              (rule.sourceModelType === source || rule.sourceModelType === 'ANY') &&
+              (rule.targetModelType === target || rule.targetModelType === 'ANY')
           )
           .map((rule) => rule.relationType)
       )
@@ -119,7 +132,14 @@ export function CandidateSetReviewEditor({ llmRunUid }: { llmRunUid: string }): 
   const addElement = (): void => {
     let n = elements.length + 1
     while (tempIds.has(`t${n}`)) n++
-    setElements((prev) => [...prev, { temp_id: `t${n}`, category: 'REQ', title: '' }])
+    setElements((prev) => [
+      ...prev,
+      {
+        temp_id: `t${n}`,
+        category: modelTypes.includes('model_req') ? 'model_req' : (modelTypes[0] ?? 'model_req'),
+        title: ''
+      }
+    ])
   }
 
   const updateRelation = (index: number, patch: Partial<CandidateRelation>): void => {
@@ -215,7 +235,7 @@ export function CandidateSetReviewEditor({ llmRunUid }: { llmRunUid: string }): 
               </td>
               <td style={tdStyle}>
                 <select value={element.category} onChange={(e) => updateElement(i, { category: e.target.value })}>
-                  {CATEGORIES.map((c) => (
+                  {modelTypes.map((c) => (
                     <option key={c} value={c}>
                       {c}
                     </option>

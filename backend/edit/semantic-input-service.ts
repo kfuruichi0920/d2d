@@ -97,16 +97,10 @@ function ensureOwner(db: Database, projectUid: string, ownerUid: string): void {
   )
     throw new BackendError('not_found', `参照元Resourceが見つかりません: ${ownerUid}`, '')
 }
-function targetRow(
-  db: Database,
-  projectUid: string,
-  uid: string
-): { entity_type: string; design_category: string | null } {
+function targetRow(db: Database, projectUid: string, uid: string): { entity_type: string } {
   const row = db
-    .prepare(
-      `SELECT entity_type,design_category FROM entity_registry WHERE uid=? AND project_uid=? AND status<>'deleted'`
-    )
-    .get(uid, projectUid) as { entity_type: string; design_category: string | null } | undefined
+    .prepare(`SELECT entity_type FROM entity_registry WHERE uid=? AND project_uid=? AND status<>'deleted'`)
+    .get(uid, projectUid) as { entity_type: string } | undefined
   if (!row) throw new BackendError('validation', `参照先UIDが存在しません: ${uid}`, '')
   return row
 }
@@ -138,11 +132,11 @@ export function validateSemanticDocument(
     const target = targetRow(db, projectUid, ref.targetUid)
     if (ref.targetKind === 'glossary' && target.entity_type !== 'resource_glossary')
       throw new BackendError('validation', '辞書参照のUIDが用語ではありません', ref.targetUid)
-    if (ref.targetKind === 'model' && !target.design_category)
-      throw new BackendError('validation', 'モデル参照のUIDに設計分類がありません', ref.targetUid)
+    if (ref.targetKind === 'model' && !target.entity_type.startsWith('model_'))
+      throw new BackendError('validation', 'モデル参照のUIDが model_* ではありません', ref.targetUid)
     if (ref.status === 'approved' && !['based_on', 'relates_to', 'conflicts_with'].includes(ref.relationType)) {
       const source = targetRow(db, projectUid, document.ownerUid)
-      const check = checkRelationAllowed(db, ref.relationType, source.design_category, target.design_category)
+      const check = checkRelationAllowed(db, ref.relationType, source.entity_type, target.entity_type)
       if (!check.allowed) throw new BackendError('validation', check.reason ?? '許容されない関係です', '')
       if (check.requiredAttr)
         throw new BackendError(
@@ -274,19 +268,27 @@ export function saveSemanticText(
         now
       )
       if (ref.status !== 'approved') continue
+      if (ref.targetKind !== 'model') continue
+      const owner = targetRow(db, projectUid, input.ownerUid)
+      const ownerIsModel = owner.entity_type.startsWith('model_')
+      // ②③Resourceから④モデルへの参照は、設計モデル→根拠Resourceのbased_onへ正規化する。
+      const fromUid = ownerIsModel ? input.ownerUid : ref.targetUid
+      const toUid = ownerIsModel ? ref.targetUid : input.ownerUid
+      const relationType = ownerIsModel ? ref.relationType : 'based_on'
       const duplicate = db
         .prepare(
           `SELECT t.uid FROM trace_link t JOIN entity_registry e ON e.uid=t.uid WHERE t.from_uid=? AND t.to_uid=? AND t.relation_type=? AND e.status<>'deleted' LIMIT 1`
         )
-        .get(input.ownerUid, ref.targetUid, ref.relationType) as { uid: string } | undefined
+        .get(fromUid, toUid, relationType) as { uid: string } | undefined
       if (!duplicate) {
         const link = createTraceLink(db, projectUid, {
-          fromUid: input.ownerUid,
-          toUid: ref.targetUid,
-          relationType: ref.relationType,
+          fromUid,
+          toUid,
+          relationType,
           createdBy: ref.source === 'llm' ? 'llm' : ref.source === 'user' ? 'human' : 'rule',
           reviewStatus: 'approved',
           attributes: {
+            basisKind: relationType === 'based_on' ? 'human_approved' : undefined,
             rationale: `${input.fieldName} のセマンティック参照`,
             evidenceSpan: JSON.stringify({
               semanticTextUid: uid,
@@ -344,14 +346,14 @@ export function searchSemanticCandidates(
   const model = resolved.candidateKinds.includes('model')
     ? (db
         .prepare(
-          `SELECT e.uid,e.code,coalesce(e.title,e.code) AS title,'model' AS kind,e.status,NULL AS definition,e.design_category AS category,coalesce(e.title,e.code) AS matchedText,'project' AS scope,0 AS deprecated,NULL AS versionTag,'write' AS accessLevel FROM entity_registry e WHERE e.project_uid=? AND e.status='approved' AND e.design_category IS NOT NULL AND (e.title LIKE ? ESCAPE '\\' OR e.code LIKE ? ESCAPE '\\') ORDER BY e.title,e.code LIMIT ?`
+          `SELECT e.uid,e.code,coalesce(e.title,e.code) AS title,'model' AS kind,e.status,NULL AS definition,e.entity_type AS category,coalesce(e.title,e.code) AS matchedText,'project' AS scope,0 AS deprecated,NULL AS versionTag,'write' AS accessLevel FROM entity_registry e WHERE e.project_uid=? AND e.status='approved' AND e.entity_type LIKE 'model_%' AND (e.title LIKE ? ESCAPE '\\' OR e.code LIKE ? ESCAPE '\\') ORDER BY e.title,e.code LIMIT ?`
         )
         .all(projectUid, like, like, limit) as SemanticCandidate[])
     : []
   const recent = resolved.candidateKinds.includes('recent')
     ? (db
         .prepare(
-          `SELECT e.uid,e.code,coalesce(g.term_text,e.title,e.code) AS title,CASE WHEN e.entity_type='resource_glossary' THEN 'glossary' ELSE 'model' END AS kind,e.status,g.definition,coalesce(g.category,e.design_category) AS category,coalesce(g.term_text,e.title,e.code) AS matchedText,coalesce(g.dictionary_scope,'project') AS scope,coalesce(g.is_deprecated,0) AS deprecated,g.version_tag AS versionTag,coalesce(g.access_level,'write') AS accessLevel FROM semantic_reference r JOIN semantic_text st ON st.uid=r.semantic_text_uid JOIN entity_registry e ON e.uid=r.target_uid LEFT JOIN resource_glossary g ON g.uid=e.uid WHERE st.project_uid=? AND r.status='approved' AND e.status='approved' AND coalesce(g.is_deprecated,0)=0 AND coalesce(g.access_level,'write')<>'none' AND (coalesce(g.term_text,e.title,e.code) LIKE ? ESCAPE '\\' OR e.code LIKE ? ESCAPE '\\') GROUP BY e.uid ORDER BY max(r.updated_at) DESC LIMIT 8`
+          `SELECT e.uid,e.code,coalesce(g.term_text,e.title,e.code) AS title,CASE WHEN e.entity_type='resource_glossary' THEN 'glossary' ELSE 'model' END AS kind,e.status,g.definition,coalesce(g.category,e.entity_type) AS category,coalesce(g.term_text,e.title,e.code) AS matchedText,coalesce(g.dictionary_scope,'project') AS scope,coalesce(g.is_deprecated,0) AS deprecated,g.version_tag AS versionTag,coalesce(g.access_level,'write') AS accessLevel FROM semantic_reference r JOIN semantic_text st ON st.uid=r.semantic_text_uid JOIN entity_registry e ON e.uid=r.target_uid LEFT JOIN resource_glossary g ON g.uid=e.uid WHERE st.project_uid=? AND r.status='approved' AND e.status='approved' AND coalesce(g.is_deprecated,0)=0 AND coalesce(g.access_level,'write')<>'none' AND (coalesce(g.term_text,e.title,e.code) LIKE ? ESCAPE '\\' OR e.code LIKE ? ESCAPE '\\') GROUP BY e.uid ORDER BY max(r.updated_at) DESC LIMIT 8`
         )
         .all(projectUid, like, like) as SemanticCandidate[])
     : []
@@ -384,7 +386,7 @@ export function analyzeSemanticText(
   )
   const models = db
     .prepare(
-      `SELECT uid,title FROM entity_registry WHERE project_uid=? AND status='approved' AND design_category IS NOT NULL AND title IS NOT NULL`
+      `SELECT uid,title FROM entity_registry WHERE project_uid=? AND status='approved' AND entity_type LIKE 'model_%' AND title IS NOT NULL`
     )
     .all(projectUid) as { uid: string; title: string }[]
   variants.push(...models.map((m) => ({ text: m.title, canonical: m.title, uid: m.uid, kind: 'model' as const })))

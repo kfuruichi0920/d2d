@@ -265,10 +265,13 @@ export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
     set({ theme })
     applyTheme(theme)
     persist(get())
-    void invoke('settings.set', { key: 'theme.displayMode', value: theme.displayMode })
-    void invoke('settings.set', { key: 'theme.colorTheme', value: theme.colorTheme })
-    void invoke('settings.set', { key: 'theme.fontSize', value: theme.fontSize })
-    void invoke('settings.set', { key: 'theme.customColors', value: theme.customColors })
+    if (partial.displayMode !== undefined)
+      void invoke('settings.set', { key: 'theme.displayMode', value: theme.displayMode })
+    if (partial.colorTheme !== undefined)
+      void invoke('settings.set', { key: 'theme.colorTheme', value: theme.colorTheme })
+    if (partial.fontSize !== undefined) void invoke('settings.set', { key: 'theme.fontSize', value: theme.fontSize })
+    if (partial.customColors !== undefined)
+      void invoke('settings.set', { key: 'theme.customColors', value: theme.customColors })
   },
 
   setZoom: (zoom) => {

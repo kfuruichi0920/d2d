@@ -62,9 +62,17 @@ describe('共通Resource Editor（P7-2/P7-3、MID-002/004/005）', () => {
     rmSync(dir, { recursive: true, force: true })
   })
 
-  it('4章で定義した14種類を編集定義として提供する', () => {
-    expect(RESOURCE_TYPE_DEFINITIONS).toHaveLength(14)
-    expect(RESOURCE_TYPE_DEFINITIONS.map((definition) => definition.type)).toContain('resource_state_transition')
+  it('②③で使用する9種類を編集定義として提供する', () => {
+    expect(RESOURCE_TYPE_DEFINITIONS).toHaveLength(9)
+    expect(RESOURCE_TYPE_DEFINITIONS.map((definition) => definition.type)).not.toEqual(
+      expect.arrayContaining([
+        'resource_scenario',
+        'resource_state_transition',
+        'resource_interface',
+        'resource_data_structure',
+        'resource_metadata'
+      ])
+    )
     expect(getResource(db, resourceUid).values.text_body).toBe('変更前本文')
   })
 

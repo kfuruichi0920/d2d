@@ -166,10 +166,10 @@ export function registerTraceApi(router: ApiRouter): void {
     // 設計要素ごとに based_on を最大3段辿る（④→③→②→①）
     const elements = db
       .prepare(
-        `SELECT uid, code, title, design_category FROM entity_registry
-          WHERE project_uid = ? AND design_category IS NOT NULL AND status <> 'deleted' ORDER BY code`
+        `SELECT uid, code, title, entity_type AS model_type FROM entity_registry
+          WHERE project_uid = ? AND entity_type LIKE 'model_%' AND status <> 'deleted' ORDER BY code`
       )
-      .all(info.projectUid) as { uid: string; code: string; title: string | null; design_category: string }[]
+      .all(info.projectUid) as { uid: string; code: string; title: string | null; model_type: string }[]
     const basisOf = db.prepare(
       `SELECT t.to_uid, e.code, e.title, e.entity_type FROM trace_link t
          JOIN entity_registry le ON le.uid = t.uid AND le.status <> 'deleted'

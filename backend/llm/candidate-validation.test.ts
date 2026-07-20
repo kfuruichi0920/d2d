@@ -4,8 +4,8 @@ import { validateCandidateOutput } from './candidate-validation'
 const VALID = {
   normalized_text: '正規化済み本文',
   elements: [
-    { temp_id: 't1', category: 'REQ', title: 'ログインできること' },
-    { temp_id: 't2', category: 'FUNC', title: '認証機能' }
+    { temp_id: 't1', category: 'model_req', title: 'ログインできること' },
+    { temp_id: 't2', category: 'model_func', title: '認証機能' }
   ],
   relations: [{ from_temp_id: 't2', to_temp_id: 't1', relation_type: 'satisfies' }],
   warnings: []
@@ -26,13 +26,13 @@ describe('LLM 構造化出力検証（P6-5、LLM-045/046）', () => {
     expect(result.errors[0]).toContain('JSON パース')
   })
 
-  it('スキーマ不一致（不正カテゴリ・11種以外の relation_type）を検出する', () => {
+  it('スキーマ不一致（model_* でないカテゴリ・命名規則外の relation_type）を検出する', () => {
     const badCategory = { ...VALID, elements: [{ temp_id: 't1', category: 'INVALID', title: 'x' }] }
     expect(validateCandidateOutput(JSON.stringify(badCategory)).ok).toBe(false)
 
     const badRelation = {
       ...VALID,
-      relations: [{ from_temp_id: 't1', to_temp_id: 't2', relation_type: 'depends_on' }]
+      relations: [{ from_temp_id: 't1', to_temp_id: 't2', relation_type: 'INVALID-RELATION' }]
     }
     const result = validateCandidateOutput(JSON.stringify(badRelation))
     expect(result.ok).toBe(false)
@@ -57,8 +57,8 @@ describe('LLM 構造化出力検証（P6-5、LLM-045/046）', () => {
     const dup = {
       ...VALID,
       elements: [
-        { temp_id: 't1', category: 'REQ', title: 'a' },
-        { temp_id: 't1', category: 'FUNC', title: 'b' }
+        { temp_id: 't1', category: 'model_req', title: 'a' },
+        { temp_id: 't1', category: 'model_func', title: 'b' }
       ],
       relations: []
     }

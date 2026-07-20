@@ -29,7 +29,7 @@ describe('プロジェクト作成・オープン（P1-3 / P1-5）', () => {
     )
 
     expect(info.name).toBe('サンプル')
-    expect(info.schemaVersion).toBe('1.10.0')
+    expect(info.schemaVersion).toBe('2.0.0')
     expect(info.code).toBe('PRJ-000001')
 
     // sdd_directory §2 のディレクトリ構成

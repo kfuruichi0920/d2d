@@ -25,7 +25,6 @@ describe('セマンティック入力支援（P10-7、EDIT-057〜071）', () => 
       projectUid,
       entityType: 'resource_text',
       title: '要求本文',
-      designCategory: 'REQ',
       status: 'approved',
       createdBy: 'user'
     })
@@ -41,16 +40,13 @@ describe('セマンティック入力支援（P10-7、EDIT-057〜071）', () => 
     ).run(term.uid)
     const model = registerEntity(db, {
       projectUid,
-      entityType: 'resource_model',
+      entityType: 'model_struct',
       title: '通信制御部',
-      designCategory: 'STRUCT',
       status: 'approved',
       createdBy: 'user'
     })
     modelUid = model.uid
-    db.prepare(
-      `INSERT INTO resource_model (uid,model_name,model_kind,model_format,parse_status) VALUES (?,'通信制御部','uml','text','not_parsed')`
-    ).run(model.uid)
+    db.prepare(`INSERT INTO model_struct (uid,summary,detail_json) VALUES (?,'通信制御部','{}')`).run(model.uid)
   })
   afterEach(() => {
     closeDatabase(db)
@@ -147,7 +143,7 @@ describe('セマンティック入力支援（P10-7、EDIT-057〜071）', () => 
     )
   })
 
-  it('禁止された強い関係は承認保存時にrelation_rule_masterで拒否する', () => {
+  it('②③Resourceからの強い設計関係は拒否する', () => {
     expect(() =>
       saveSemanticText(db, projectUid, {
         ownerUid,
@@ -160,7 +156,7 @@ describe('セマンティック入力支援（P10-7、EDIT-057〜071）', () => 
             startOffset: 0,
             endOffset: 4,
             surfaceText: '要求本文',
-            targetUid: ownerUid,
+            targetUid: modelUid,
             targetKind: 'model',
             displayMode: 'link',
             relationType: 'allocated_to',
@@ -169,6 +165,6 @@ describe('セマンティック入力支援（P10-7、EDIT-057〜071）', () => 
           }
         ]
       })
-    ).toThrow(/許容されない関係/)
+    ).toThrow(/両端は model_\*/)
   })
 })

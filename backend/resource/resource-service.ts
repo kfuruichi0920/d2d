@@ -200,72 +200,6 @@ export const RESOURCE_TYPE_DEFINITIONS: ResourceTypeDefinition[] = [
     ]
   },
   {
-    type: 'resource_scenario',
-    label: 'シナリオ',
-    fields: [
-      f('scenario_name', 'シナリオ名', 'text'),
-      jsonField('actors_json', 'アクターJSON'),
-      f('trigger_text', 'トリガー', 'multiline'),
-      jsonField('preconditions_json', '事前条件JSON'),
-      jsonField('steps_json', 'ステップJSON'),
-      jsonField('postconditions_json', '事後条件JSON'),
-      jsonField('source_resource_uids_json', '元Resource UID JSON')
-    ]
-  },
-  {
-    type: 'resource_interface',
-    label: 'インターフェース',
-    fields: [
-      f('interface_name', 'インターフェース名', 'text'),
-      enumField(
-        'interface_kind',
-        '種別',
-        ['api', 'communication', 'file', 'db', 'screen', 'device', 'library', 'other'],
-        'other'
-      ),
-      f('provider', '提供側', 'text'),
-      f('consumer', '利用側', 'text'),
-      f('protocol', 'プロトコル', 'text'),
-      jsonField('operations_json', '操作JSON'),
-      jsonField('inputs_json', '入力JSON'),
-      jsonField('outputs_json', '出力JSON'),
-      jsonField('errors_json', 'エラーJSON'),
-      f('timing', 'タイミング', 'text'),
-      jsonField('constraints_json', '制約JSON')
-    ]
-  },
-  {
-    type: 'resource_state_transition',
-    label: '状態遷移',
-    fields: [
-      f('state_machine_name', '状態機械名', 'text'),
-      jsonField('states_json', '状態JSON'),
-      jsonField('events_json', 'イベントJSON'),
-      jsonField('transitions_json', '遷移JSON'),
-      f('initial_state', '初期状態', 'text'),
-      jsonField('final_states_json', '終了状態JSON'),
-      jsonField('source_resource_uids_json', '元Resource UID JSON')
-    ]
-  },
-  {
-    type: 'resource_data_structure',
-    label: 'データ構造',
-    fields: [
-      f('data_structure_name', 'データ構造名', 'text'),
-      enumField(
-        'data_structure_kind',
-        '種別',
-        ['db_table', 'message', 'file', 'struct', 'record', 'screen_item', 'other'],
-        'other'
-      ),
-      jsonField('fields_json', 'フィールドJSON'),
-      jsonField('keys_json', 'キーJSON'),
-      jsonField('relations_json', '関係JSON'),
-      jsonField('constraints_json', '制約JSON'),
-      jsonField('source_resource_uids_json', '元Resource UID JSON')
-    ]
-  },
-  {
     type: 'resource_reference',
     label: '参照',
     fields: [
@@ -283,24 +217,6 @@ export const RESOURCE_TYPE_DEFINITIONS: ResourceTypeDefinition[] = [
       enumField('resolution_status', '解決状態', ['unresolved', 'candidate', 'resolved', 'ambiguous'], 'unresolved'),
       jsonField('candidate_targets_json', '候補参照先JSON'),
       f('relation_candidate', '関係候補', 'text')
-    ]
-  },
-  {
-    type: 'resource_metadata',
-    label: 'メタデータ',
-    fields: [
-      enumField(
-        'metadata_kind',
-        'メタデータ種別',
-        ['document', 'extraction', 'quality', 'review', 'version', 'diff', 'other'],
-        'other'
-      ),
-      f('target_resource_uid', '対象Resource UID', 'text'),
-      f('metadata_key', 'キー', 'text', { required: true }),
-      f('metadata_value', '値', 'multiline'),
-      enumField('value_type', '値種別', ['string', 'number', 'boolean', 'date', 'json'], 'string'),
-      f('unit', '単位', 'text'),
-      enumField('metadata_source', '情報源', ['file', 'parser', 'user', 'system', 'other'], 'user')
     ]
   }
 ]
@@ -355,10 +271,8 @@ export function inspectResourceOwnership(
          UNION ALL SELECT uid FROM resource_label WHERE target_resource_uid=?
          UNION ALL SELECT uid FROM resource_figure WHERE caption_uid=?
          UNION ALL SELECT uid FROM resource_reference WHERE source_resource_uid=? OR target_resource_uid=?
-         UNION ALL SELECT uid FROM resource_metadata WHERE target_resource_uid=?
          UNION ALL SELECT uid FROM llm_run_ref WHERE input_ref_uid=?
        )`,
-      resourceUid,
       resourceUid,
       resourceUid,
       resourceUid,
@@ -543,12 +457,7 @@ function plainText(type: string, values: Record<string, unknown>): string {
     resource_formula: ['formula_text'],
     resource_code: ['code_text'],
     resource_model: ['model_source', 'model_name'],
-    resource_scenario: ['steps_json', 'scenario_name'],
-    resource_interface: ['interface_name', 'operations_json'],
-    resource_state_transition: ['transitions_json', 'state_machine_name'],
-    resource_data_structure: ['fields_json', 'data_structure_name'],
     resource_reference: ['reference_text', 'uri'],
-    resource_metadata: ['metadata_value', 'metadata_key'],
     resource_table: ['cells_json', 'table_title'],
     resource_figure: ['description', 'image_uri']
   }
@@ -788,18 +697,8 @@ export function summaryFor(
       return { type: 'paragraph', text: String(values.code_text ?? '') }
     case 'resource_model':
       return { type: 'paragraph', text: String(values.model_name ?? values.model_source ?? '') }
-    case 'resource_scenario':
-      return { type: 'paragraph', text: String(values.scenario_name ?? values.trigger_text ?? '') }
-    case 'resource_interface':
-      return { type: 'paragraph', text: String(values.interface_name ?? '') }
-    case 'resource_state_transition':
-      return { type: 'paragraph', text: String(values.state_machine_name ?? '') }
-    case 'resource_data_structure':
-      return { type: 'paragraph', text: String(values.data_structure_name ?? '') }
     case 'resource_reference':
       return { type: 'paragraph', text: String(values.reference_text ?? '') }
-    case 'resource_metadata':
-      return { type: 'paragraph', text: `${values.metadata_key ?? ''}: ${values.metadata_value ?? ''}` }
     default:
       return { type: 'paragraph', text: String(values.text_body ?? '') }
   }
@@ -848,7 +747,7 @@ export function linkDerivedResource(
   projectUid: string,
   input: {
     sourceUid: string
-    relationType: 'contains' | 'decomposes' | 'uses' | 'relates_to'
+    relationType: 'contains' | 'uses' | 'relates_to'
     targetUid?: string
     newText?: string
   }

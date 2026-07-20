@@ -1,135 +1,168 @@
-/**
- * ④設計モデル管理（P8、MODEL-001〜009、srs §9）。
- *
- * - 設計要素: entity_registry（design_category 設定・分類 prefix 採番）+ resource_text
- *   （初期実装は全分類の本文を resource_text に格納する。STATE/IF/DATA 等の
- *   専用詳細テーブルへの展開は P10 の各編集機能で行う）
- * - 関係: trace_link（11 relation_type 限定）。relation_rule_master による許容関係・
- *   required_attr・重複を保存前に検査する
- * - 候補採用: 要素候補と関係候補を同一トランザクションで検査・反映する（MODEL-009）
- */
+/** ④設計モデル管理（P8 / MODEL-001〜028 / schema 2.0.0）。 */
 import type { Database } from 'better-sqlite3'
 import { BackendError } from '../api/errors'
 import { eventBus } from '../events/event-bus'
 import { registerEntity } from '../store/entity-registry'
-import { DESIGN_CATEGORIES, type DesignCategory } from '../store/entity-types'
 import type { CandidateSet } from '../llm/candidate-validation'
+import { validateModelDetail } from '../ontology/ontology-service'
 
-function nowIso(): string {
-  return new Date().toISOString()
-}
-
-// ---- P8-1: 設計要素 ----
+const nowIso = (): string => new Date().toISOString()
+export const RELATION_TYPES: readonly string[] = [
+  'based_on',
+  'satisfies',
+  'allocated_to',
+  'verifies',
+  'contains',
+  'implements',
+  'uses',
+  'calls',
+  'conflicts_with',
+  'relates_to'
+] as const
+export type RelationType = string
 
 export interface DesignElementInput {
-  category: DesignCategory
+  modelType: string
   title: string
-  description?: string
+  summary?: string
+  detail?: Record<string, unknown>
   ownerUid?: string
   createdBy?: string
 }
-
+export interface DesignElementRow {
+  uid: string
+  code: string
+  model_type: string
+  model_label: string
+  layer: string
+  title: string | null
+  status: string
+  owner_uid: string | null
+  summary: string
+  detail_json: string
+  updated_at: string
+  entity_type: string
+}
+function modelDefinition(
+  db: Database,
+  modelType: string
+): { model_type: string; code_prefix: string; label: string; layer: string; is_enabled: number } | undefined {
+  return db
+    .prepare(`SELECT model_type,code_prefix,label,layer,is_enabled FROM ontology_model_definition WHERE model_type=?`)
+    .get(modelType) as
+    { model_type: string; code_prefix: string; label: string; layer: string; is_enabled: number } | undefined
+}
+function safeModelType(value: string): void {
+  if (!/^model_[a-z][a-z0-9_]{0,47}$/.test(value)) throw new BackendError('validation', '不正なmodel_typeです', value)
+}
 export function createDesignElement(
   db: Database,
   projectUid: string,
   input: DesignElementInput
 ): { uid: string; code: string } {
-  if (!DESIGN_CATEGORIES.includes(input.category)) {
-    throw new BackendError('validation', `不正な設計分類です: ${input.category}`, '')
-  }
-  if (!input.title.trim()) {
-    throw new BackendError('validation', 'タイトルは必須です', '')
-  }
-  const element = registerEntity(db, {
-    projectUid,
-    entityType: 'resource_text',
-    designCategory: input.category,
-    title: input.title,
-    ownerUid: input.ownerUid,
-    createdBy: input.createdBy ?? 'user'
+  safeModelType(input.modelType)
+  const def = modelDefinition(db, input.modelType)
+  if (!def) throw new BackendError('validation', `未定義の設計モデルです: ${input.modelType}`, '')
+  if (def.is_enabled !== 1)
+    throw new BackendError('validation', `無効な設計モデルには追加できません: ${input.modelType}`, '')
+  if (!input.title.trim()) throw new BackendError('validation', 'タイトルは必須です', '')
+  const detail = input.detail ?? {}
+  validateModelDetail(db, input.modelType, detail)
+  return db.transaction(() => {
+    const element = registerEntity(db, {
+      projectUid,
+      entityType: input.modelType as never,
+      codePrefix: def.code_prefix,
+      title: input.title,
+      ownerUid: input.ownerUid,
+      createdBy: input.createdBy ?? 'user'
+    })
+    db.prepare(`INSERT INTO "${input.modelType}"(uid,summary,detail_json) VALUES(?,?,?)`).run(
+      element.uid,
+      input.summary ?? input.title,
+      JSON.stringify(detail)
+    )
+    return element
+  })()
+}
+export function updateDesignElement(
+  db: Database,
+  uid: string,
+  input: { title: string; summary: string; detail: Record<string, unknown>; status?: string }
+): void {
+  const row = db.prepare(`SELECT entity_type FROM entity_registry WHERE uid=? AND status<>'deleted'`).get(uid) as
+    { entity_type: string } | undefined
+  if (!row || !row.entity_type.startsWith('model_'))
+    throw new BackendError('not_found', `設計モデルが見つかりません: ${uid}`, '')
+  safeModelType(row.entity_type)
+  validateModelDetail(db, row.entity_type, input.detail)
+  const txn = db.transaction(() => {
+    db.prepare(
+      `UPDATE entity_registry SET title=?,status=COALESCE(?,status),updated_by='user',updated_at=? WHERE uid=?`
+    ).run(input.title, input.status ?? null, nowIso(), uid)
+    db.prepare(`UPDATE "${row.entity_type}" SET summary=?,detail_json=?,model_version=model_version+1 WHERE uid=?`).run(
+      input.summary,
+      JSON.stringify(input.detail),
+      uid
+    )
   })
-  db.prepare(`INSERT INTO resource_text (uid, text_body, text_role, language) VALUES (?, ?, 'description', 'ja')`).run(
-    element.uid,
-    input.description ?? input.title
-  )
-  return element
+  txn()
+  eventBus.emit('design_model.updated', { kind: 'updated', uid })
 }
-
-export interface DesignElementRow {
-  uid: string
-  code: string
-  design_category: DesignCategory
-  title: string | null
-  status: string
-  owner_uid: string | null
-  description: string | null
-  updated_at: string
-  entity_type: string
-  /** VERIF の検証条件・手順・期待結果（EDIT-042。resource_text.context_json） */
-  verification_json: string | null
-}
-
 export function listDesignElements(
   db: Database,
   projectUid: string,
-  filters?: { category?: DesignCategory; status?: string }
+  filters?: { modelType?: string; status?: string }
 ): DesignElementRow[] {
-  const conditions = [`e.project_uid = ?`, `e.design_category IS NOT NULL`, `e.status <> 'deleted'`]
+  const where = [`e.project_uid=?`, `e.entity_type LIKE 'model_%'`, `e.status<>'deleted'`]
   const params: unknown[] = [projectUid]
-  if (filters?.category) {
-    conditions.push(`e.design_category = ?`)
-    params.push(filters.category)
+  if (filters?.modelType) {
+    where.push(`e.entity_type=?`)
+    params.push(filters.modelType)
   }
   if (filters?.status) {
-    conditions.push(`e.status = ?`)
+    where.push(`e.status=?`)
     params.push(filters.status)
   }
-  return db
+  const base = db
     .prepare(
-      `SELECT e.uid, e.code, e.design_category, e.title, e.status, e.owner_uid, e.updated_at, e.entity_type,
-              t.text_body AS description, t.context_json AS verification_json
-         FROM entity_registry e
-         LEFT JOIN resource_text t ON t.uid = e.uid
-        WHERE ${conditions.join(' AND ')}
-        ORDER BY e.design_category, e.code`
+      `SELECT e.uid,e.code,e.entity_type AS model_type,e.entity_type,e.title,e.status,e.owner_uid,e.updated_at,d.label AS model_label,d.layer FROM entity_registry e JOIN ontology_model_definition d ON d.model_type=e.entity_type WHERE ${where.join(' AND ')} ORDER BY d.sort_order,e.code`
     )
-    .all(...params) as DesignElementRow[]
+    .all(...params) as Array<Omit<DesignElementRow, 'summary' | 'detail_json'>>
+  return base.map((row) => {
+    safeModelType(row.model_type)
+    const detail = db.prepare(`SELECT summary,detail_json FROM "${row.model_type}" WHERE uid=?`).get(row.uid) as {
+      summary: string
+      detail_json: string
+    }
+    return { ...row, ...detail }
+  })
 }
-
-// ---- P10-5: 検証編集（EDIT-040〜042） ----
-
 export interface VerificationDetail {
   condition: string
   procedure: string
   expected: string
 }
-
-/** VERIF 要素の検証条件・手順・期待結果を保存する（resource_text.context_json） */
 export function setVerificationDetail(db: Database, uid: string, detail: VerificationDetail): void {
-  const element = db
-    .prepare(`SELECT design_category FROM entity_registry WHERE uid = ? AND status <> 'deleted'`)
-    .get(uid) as { design_category: string | null } | undefined
-  if (!element) {
-    throw new BackendError('not_found', `設計要素が見つかりません: ${uid}`, '')
+  const row = db.prepare(`SELECT entity_type FROM entity_registry WHERE uid=? AND status<>'deleted'`).get(uid) as
+    { entity_type: string } | undefined
+  if (row?.entity_type !== 'model_verif')
+    throw new BackendError('validation', '検証詳細は model_verif にのみ設定できます', '')
+  const current = db.prepare(`SELECT detail_json FROM model_verif WHERE uid=?`).get(uid) as
+    { detail_json: string } | undefined
+  if (!current) throw new BackendError('not_found', `検証モデルが見つかりません: ${uid}`, '')
+  const merged = {
+    ...JSON.parse(current.detail_json),
+    condition: detail.condition,
+    procedure: detail.procedure,
+    expected_result: detail.expected
   }
-  if (element.design_category !== 'VERIF') {
-    throw new BackendError(
-      'validation',
-      '検証詳細は VERIF 分類の要素にのみ設定できます',
-      `category=${element.design_category}`
-    )
-  }
-  const result = db.prepare(`UPDATE resource_text SET context_json = ? WHERE uid = ?`).run(JSON.stringify(detail), uid)
-  if (result.changes === 0) {
-    throw new BackendError('not_found', `検証要素の本文リソースが見つかりません: ${uid}`, '')
-  }
-  db.prepare(`UPDATE entity_registry SET updated_at = ?, updated_by = 'user' WHERE uid = ?`).run(nowIso(), uid)
+  db.prepare(`UPDATE model_verif SET detail_json=?,model_version=model_version+1 WHERE uid=?`).run(
+    JSON.stringify(merged),
+    uid
+  )
+  db.prepare(`UPDATE entity_registry SET updated_at=?,updated_by='user' WHERE uid=?`).run(nowIso(), uid)
 }
-
-/**
- * 対象要素（REQ/CST/FUNC 等）に対する検証項目を作成し、verifies で紐づける（EDIT-040/041）。
- * 同一トランザクションで要素作成とリンクを行う。
- */
 export function createVerificationFor(
   db: Database,
   projectUid: string,
@@ -137,59 +170,39 @@ export function createVerificationFor(
   title?: string
 ): { uid: string; code: string; linkUid: string } {
   const target = db
-    .prepare(`SELECT code, title, design_category FROM entity_registry WHERE uid = ? AND status <> 'deleted'`)
-    .get(targetUid) as { code: string; title: string | null; design_category: string | null } | undefined
-  if (!target) {
+    .prepare(`SELECT code,title,entity_type FROM entity_registry WHERE uid=? AND status<>'deleted'`)
+    .get(targetUid) as { code: string; title: string | null; entity_type: string } | undefined
+  if (!target?.entity_type.startsWith('model_'))
     throw new BackendError('not_found', `検証対象が見つかりません: ${targetUid}`, '')
-  }
   const txn = db.transaction(() => {
-    const verif = createDesignElement(db, projectUid, {
-      category: 'VERIF',
-      title: title ?? `${target.title ?? target.code} の検証`,
-      createdBy: 'user'
+    const v = createDesignElement(db, projectUid, {
+      modelType: 'model_verif',
+      title: title ?? `${target.title ?? target.code} の検証`
     })
-    db.prepare(`UPDATE entity_registry SET status = 'approved', updated_at = ? WHERE uid = ?`).run(nowIso(), verif.uid)
-    const link = createTraceLink(db, projectUid, {
-      fromUid: verif.uid,
+    db.prepare(`UPDATE entity_registry SET status='approved',updated_at=? WHERE uid=?`).run(nowIso(), v.uid)
+    const l = createTraceLink(db, projectUid, {
+      fromUid: v.uid,
       toUid: targetUid,
       relationType: 'verifies',
       createdBy: 'human',
       reviewStatus: 'approved'
     })
-    return { ...verif, linkUid: link.uid }
+    return { ...v, linkUid: l.uid }
   })
   const result = txn()
   eventBus.emit('design_model.updated', { kind: 'verification-created', uid: result.uid })
   eventBus.emit('relation.updated', { count: 1 })
   return result
 }
-
-// ---- P8-2: 関係管理（relation_rule_master 検査） ----
-
-export const RELATION_TYPES = [
-  'based_on',
-  'satisfies',
-  'allocated_to',
-  'verifies',
-  'contains',
-  'decomposes',
-  'implements',
-  'uses',
-  'calls',
-  'conflicts_with',
-  'relates_to'
-] as const
-export type RelationType = (typeof RELATION_TYPES)[number]
-
 export interface AllowedRelationRule {
   relationType: string
-  sourceCategory: string
-  targetCategory: string
+  sourceModelType: string
+  targetModelType: string
 }
 export function listAllowedRelationRules(db: Database): AllowedRelationRule[] {
   return db
     .prepare(
-      `SELECT relation_type AS relationType, source_category AS sourceCategory, target_category AS targetCategory FROM relation_rule_master WHERE allowed=1 ORDER BY relation_type,source_category,target_category`
+      `SELECT a.relation_type AS relationType,a.source_model_type AS sourceModelType,a.target_model_type AS targetModelType FROM ontology_relation_allowance a JOIN ontology_relation_definition r ON r.relation_type=a.relation_type AND r.is_enabled=1 JOIN ontology_model_definition s ON s.model_type=a.source_model_type AND s.is_enabled=1 JOIN ontology_model_definition t ON t.model_type=a.target_model_type AND t.is_enabled=1 WHERE a.allowed=1 ORDER BY a.relation_type,a.source_model_type,a.target_model_type`
     )
     .all() as AllowedRelationRule[]
 }
@@ -198,38 +211,42 @@ export interface RelationCheckResult {
   requiredAttr: string | null
   reason?: string
 }
-
-/** relation_rule_master による許容関係検査（ANY はワイルドカード） */
 export function checkRelationAllowed(
   db: Database,
   relationType: string,
-  sourceCategory: string | null,
-  targetCategory: string | null
+  sourceModelType: string | null,
+  targetModelType: string | null
 ): RelationCheckResult {
-  if (!RELATION_TYPES.includes(relationType as RelationType)) {
-    return { allowed: false, requiredAttr: null, reason: `relation_type は11種類に限定されています: ${relationType}` }
+  const relation = db
+    .prepare(`SELECT required_attr,is_enabled FROM ontology_relation_definition WHERE relation_type=?`)
+    .get(relationType) as { required_attr: string | null; is_enabled: number } | undefined
+  if (!relation || relation.is_enabled !== 1)
+    return { allowed: false, requiredAttr: null, reason: `未定義または無効な関係です: ${relationType}` }
+  if (relationType === 'based_on') {
+    const ok = Boolean(sourceModelType?.startsWith('model_')) && !targetModelType?.startsWith('model_')
+    return ok
+      ? { allowed: true, requiredAttr: relation.required_attr }
+      : {
+          allowed: false,
+          requiredAttr: null,
+          reason: 'based_on は設計モデルから②③の根拠Resourceへの関係に限定されます'
+        }
   }
-  const rule = db
+  if (!sourceModelType?.startsWith('model_') || !targetModelType?.startsWith('model_'))
+    return { allowed: false, requiredAttr: null, reason: '設計モデル間関係の両端は model_* である必要があります' }
+  const row = db
     .prepare(
-      `SELECT allowed, required_attr FROM relation_rule_master
-        WHERE relation_type = ?
-          AND (source_category = ? OR source_category = 'ANY')
-          AND (target_category = ? OR target_category = 'ANY')
-        ORDER BY CASE WHEN source_category = 'ANY' THEN 1 ELSE 0 END
-        LIMIT 1`
+      `SELECT allowed FROM ontology_relation_allowance WHERE relation_type=? AND source_model_type=? AND target_model_type=?`
     )
-    .get(relationType, sourceCategory ?? 'ANY', targetCategory ?? 'ANY') as
-    { allowed: number; required_attr: string | null } | undefined
-  if (!rule || rule.allowed !== 1) {
-    return {
-      allowed: false,
-      requiredAttr: null,
-      reason: `許容されない関係です: ${sourceCategory ?? '?'} -[${relationType}]-> ${targetCategory ?? '?'}（relation_rule_master）`
-    }
-  }
-  return { allowed: true, requiredAttr: rule.required_attr }
+    .get(relationType, sourceModelType, targetModelType) as { allowed: number } | undefined
+  return row?.allowed === 1
+    ? { allowed: true, requiredAttr: relation.required_attr }
+    : {
+        allowed: false,
+        requiredAttr: null,
+        reason: `許容されない関係です: ${sourceModelType} -[${relationType}]-> ${targetModelType}`
+      }
 }
-
 export interface TraceLinkAttributes {
   confidence?: number | null
   rationale?: string | null
@@ -237,95 +254,79 @@ export interface TraceLinkAttributes {
   evidenceSpan?: string | null
   transformNote?: string | null
   allocationKind?: string | null
-  decompositionKind?: string | null
   usageKind?: string | null
   conflictStatus?: string | null
   contextUid?: string | null
 }
-
 export interface CreateTraceLinkInput {
   fromUid: string
   toUid: string
-  relationType: RelationType
+  relationType: string
   attributes?: TraceLinkAttributes
   createdBy: 'human' | 'rule' | 'llm'
   reviewStatus?: 'draft' | 'review' | 'approved' | 'rejected' | 'provisional'
   llmRunUid?: string
 }
-
-function getDesignCategory(db: Database, uid: string): { category: string | null; exists: boolean } {
-  const row = db
-    .prepare(`SELECT design_category FROM entity_registry WHERE uid = ? AND status <> 'deleted'`)
-    .get(uid) as { design_category: string | null } | undefined
-  return { category: row?.design_category ?? null, exists: !!row }
+function endpoint(db: Database, uid: string): { entity_type: string; exists: boolean } {
+  const r = db.prepare(`SELECT entity_type FROM entity_registry WHERE uid=? AND status<>'deleted'`).get(uid) as
+    { entity_type: string } | undefined
+  return { entity_type: r?.entity_type ?? '', exists: !!r }
 }
-
-/** 検査済み trace_link の作成（P8-2）。検査 NG は validation/conflict エラー */
 export function createTraceLink(
   db: Database,
   projectUid: string,
   input: CreateTraceLinkInput
 ): { uid: string; code: string } {
-  const from = getDesignCategory(db, input.fromUid)
-  const to = getDesignCategory(db, input.toUid)
-  if (!from.exists || !to.exists) {
+  const from = endpoint(db, input.fromUid),
+    to = endpoint(db, input.toUid)
+  if (!from.exists || !to.exists)
     throw new BackendError(
       'validation',
       '関係の起点または終点が存在しません',
       `from=${input.fromUid} to=${input.toUid}`
     )
-  }
-
-  // based_on は根拠関係専用で、SRC・②③リソース等（design_category なし）を終点にできる
-  const categorySensitive = !['based_on', 'relates_to', 'conflicts_with'].includes(input.relationType)
-  if (categorySensitive) {
-    const check = checkRelationAllowed(db, input.relationType, from.category, to.category)
-    if (!check.allowed) {
-      throw new BackendError('validation', check.reason ?? '許容されない関係です', '')
-    }
-    // required_attr 検査（srs §9.4）
-    if (check.requiredAttr) {
-      const attrValue = {
+  const check = checkRelationAllowed(db, input.relationType, from.entity_type, to.entity_type)
+  if (!check.allowed) throw new BackendError('validation', check.reason ?? '許容されない関係です', '')
+  if (check.requiredAttr) {
+    const value = (
+      {
         basis_kind: input.attributes?.basisKind,
         allocation_kind: input.attributes?.allocationKind,
-        decomposition_kind: input.attributes?.decompositionKind,
         usage_kind: input.attributes?.usageKind,
         conflict_status: input.attributes?.conflictStatus,
         review_status: input.reviewStatus ?? 'draft'
-      }[check.requiredAttr]
-      if (!attrValue) {
-        throw new BackendError(
-          'validation',
-          `関係属性 ${check.requiredAttr} は必須です`,
-          `relation_type=${input.relationType}`
-        )
-      }
-    }
+      } as Record<string, unknown>
+    )[check.requiredAttr]
+    if (!value)
+      throw new BackendError(
+        'validation',
+        `関係属性 ${check.requiredAttr} は必須です`,
+        `relation_type=${input.relationType}`
+      )
   }
-
-  // 重複検査（同一 from/to/type。conflicts_with は context_uid 差分を許容）（§2.6）
   const dup = db
     .prepare(
-      `SELECT COUNT(*) AS n FROM trace_link t JOIN entity_registry e ON e.uid = t.uid
-        WHERE t.from_uid = ? AND t.to_uid = ? AND t.relation_type = ? AND e.status <> 'deleted'
-          AND (t.relation_type <> 'conflicts_with' OR ifnull(t.context_uid, '') = ifnull(?, ''))`
+      `SELECT COUNT(*) AS n FROM trace_link t JOIN entity_registry e ON e.uid=t.uid WHERE t.from_uid=? AND t.to_uid=? AND t.relation_type=? AND e.status<>'deleted' AND (t.relation_type<>'conflicts_with' OR ifnull(t.context_uid,'')=ifnull(?,''))`
     )
     .get(input.fromUid, input.toUid, input.relationType, input.attributes?.contextUid ?? null) as { n: number }
-  if (dup.n > 0) {
+  if (dup.n > 0)
     throw new BackendError(
       'conflict',
       '同一の関係が既に存在します',
       `${input.fromUid} -[${input.relationType}]-> ${input.toUid}`
     )
+  if (input.relationType === 'contains') {
+    if (input.fromUid === input.toUid) throw new BackendError('validation', '自己包含は禁止されています', '')
+    const cycle = db
+      .prepare(
+        `WITH RECURSIVE p(uid) AS (SELECT ? UNION SELECT t.to_uid FROM trace_link t JOIN p ON t.from_uid=p.uid JOIN entity_registry e ON e.uid=t.uid AND e.status<>'deleted' WHERE t.relation_type='contains') SELECT 1 AS found FROM p WHERE uid=? LIMIT 1`
+      )
+      .get(input.toUid, input.fromUid)
+    if (cycle) throw new BackendError('validation', 'contains の循環は禁止されています', '')
   }
-
   const link = registerEntity(db, { projectUid, entityType: 'trace_link', createdBy: input.createdBy })
   db.prepare(
-    `INSERT INTO trace_link
-       (uid, from_uid, to_uid, relation_type, rationale, confidence, created_by, review_status,
-        basis_kind, evidence_span, transform_note, allocation_kind, decomposition_kind, usage_kind,
-        conflict_status, context_uid, llm_run_uid)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO trace_link(uid,from_uid,to_uid,relation_type,rationale,confidence,created_by,review_status,basis_kind,evidence_span,transform_note,allocation_kind,usage_kind,conflict_status,context_uid,llm_run_uid,direction) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
   ).run(
     link.uid,
     input.fromUid,
@@ -339,15 +340,14 @@ export function createTraceLink(
     input.attributes?.evidenceSpan ?? null,
     input.attributes?.transformNote ?? null,
     input.attributes?.allocationKind ?? null,
-    input.attributes?.decompositionKind ?? null,
     input.attributes?.usageKind ?? null,
     input.attributes?.conflictStatus ?? null,
     input.attributes?.contextUid ?? null,
-    input.llmRunUid ?? null
+    input.llmRunUid ?? null,
+    input.relationType === 'conflicts_with' ? 'bidirectional' : 'forward'
   )
   return link
 }
-
 export interface TraceLinkRow {
   uid: string
   code: string
@@ -363,136 +363,89 @@ export interface TraceLinkRow {
   to_title: string | null
   to_code: string
 }
-
 export function listTraceLinks(
   db: Database,
   projectUid: string,
   filters?: { uid?: string; relationType?: string }
 ): TraceLinkRow[] {
-  const conditions = [`e.project_uid = ?`, `e.status <> 'deleted'`]
-  const params: unknown[] = [projectUid]
+  const c = [`e.project_uid=?`, `e.status<>'deleted'`],
+    p: unknown[] = [projectUid]
   if (filters?.uid) {
-    conditions.push(`(t.from_uid = ? OR t.to_uid = ?)`)
-    params.push(filters.uid, filters.uid)
+    c.push(`(t.from_uid=? OR t.to_uid=?)`)
+    p.push(filters.uid, filters.uid)
   }
   if (filters?.relationType) {
-    conditions.push(`t.relation_type = ?`)
-    params.push(filters.relationType)
+    c.push(`t.relation_type=?`)
+    p.push(filters.relationType)
   }
   return db
     .prepare(
-      `SELECT e.uid, e.code, t.from_uid, t.to_uid, t.relation_type, t.review_status, t.rationale, t.confidence, t.created_by,
-              ef.title AS from_title, ef.code AS from_code, et.title AS to_title, et.code AS to_code
-         FROM trace_link t
-         JOIN entity_registry e ON e.uid = t.uid
-         JOIN entity_registry ef ON ef.uid = t.from_uid
-         JOIN entity_registry et ON et.uid = t.to_uid
-        WHERE ${conditions.join(' AND ')}
-        ORDER BY e.code`
+      `SELECT e.uid,e.code,t.from_uid,t.to_uid,t.relation_type,t.review_status,t.rationale,t.confidence,t.created_by,ef.title AS from_title,ef.code AS from_code,et.title AS to_title,et.code AS to_code FROM trace_link t JOIN entity_registry e ON e.uid=t.uid JOIN entity_registry ef ON ef.uid=t.from_uid JOIN entity_registry et ON et.uid=t.to_uid WHERE ${c.join(' AND ')} ORDER BY e.code`
     )
-    .all(...params) as TraceLinkRow[]
+    .all(...p) as TraceLinkRow[]
 }
-
-// ---- P8-5: 候補セット採用トランザクション（MODEL-006〜009） ----
-
 export interface AdoptCandidatesInput {
   candidateSet: CandidateSet
-  /** 根拠となる③中間文書（based_on の対象。MODEL-009 の根拠リンク） */
   intermediateDocumentUid: string
   llmRunUid?: string
-  /** LLM候補生成元チャンク。LLM採用時のbased_on対象。 */
   chunkUid?: string
 }
-
 export interface AdoptCandidatesResult {
   elements: { tempId: string; uid: string; code: string }[]
   relationCount: number
   basedOnCount: number
 }
-
 export function adoptCandidates(db: Database, projectUid: string, input: AdoptCandidatesInput): AdoptCandidatesResult {
-  const { candidateSet } = input
-  if (candidateSet.elements.length === 0) {
-    throw new BackendError('validation', '採用する要素候補がありません', '')
-  }
-  // 根拠リンク不足の検査（MODEL-009）
-  const intermediate = db
-    .prepare(`SELECT uid FROM intermediate_document WHERE uid = ?`)
-    .get(input.intermediateDocumentUid) as { uid: string } | undefined
-  if (!intermediate) {
-    throw new BackendError(
-      'validation',
-      '根拠となる③中間文書が存在しません（根拠リンク不足）',
-      input.intermediateDocumentUid
-    )
-  }
+  if (input.candidateSet.elements.length === 0) throw new BackendError('validation', '採用する要素候補がありません', '')
+  if (!db.prepare(`SELECT uid FROM intermediate_document WHERE uid=?`).get(input.intermediateDocumentUid))
+    throw new BackendError('validation', '根拠となる③中間文書が存在しません', input.intermediateDocumentUid)
   const evidenceUid = input.chunkUid ?? input.intermediateDocumentUid
-  if (input.llmRunUid && !input.chunkUid) {
-    throw new BackendError('validation', 'LLM候補の生成元チャンクがありません（根拠リンク不足）', input.llmRunUid)
-  }
-  if (input.chunkUid) {
-    const chunk = db
-      .prepare('SELECT uid FROM chunk WHERE uid=? AND intermediate_document_uid=?')
-      .get(input.chunkUid, input.intermediateDocumentUid)
-    if (!chunk) throw new BackendError('validation', '生成元チャンクが中間文書に属していません', input.chunkUid)
-  }
-
-  const txn = db.transaction((): AdoptCandidatesResult => {
-    // 1) 要素候補 → 一時ID→UUIDv7 変換して正本登録
-    const uidByTempId = new Map<string, { uid: string; code: string; category: string }>()
-    for (const element of candidateSet.elements) {
-      if (uidByTempId.has(element.temp_id)) {
-        throw new BackendError('validation', `一時IDが重複しています: ${element.temp_id}`, '')
-      }
+  const txn = db.transaction(() => {
+    const map = new Map<string, { uid: string; code: string; modelType: string }>()
+    for (const el of input.candidateSet.elements) {
+      if (map.has(el.temp_id)) throw new BackendError('validation', `一時IDが重複しています: ${el.temp_id}`, '')
       const created = createDesignElement(db, projectUid, {
-        category: element.category as DesignCategory,
-        title: element.title,
-        description: element.description ?? undefined,
+        modelType: el.category,
+        title: el.title,
+        summary: el.description ?? undefined,
         createdBy: 'llm'
       })
-      // 採用済み = 正本（approved）
-      db.prepare(
-        `UPDATE entity_registry SET status = 'approved', updated_by = 'user', updated_at = ? WHERE uid = ?`
-      ).run(nowIso(), created.uid)
-      uidByTempId.set(element.temp_id, { ...created, category: element.category })
+      db.prepare(`UPDATE entity_registry SET status='approved',updated_by='user',updated_at=? WHERE uid=?`).run(
+        nowIso(),
+        created.uid
+      )
+      map.set(el.temp_id, { ...created, modelType: el.category })
     }
-
-    // 2) 根拠リンク: LLM採用は設計要素 → チャンク、手動採用は設計要素 → ③中間文書
     let basedOnCount = 0
-    for (const [tempId, element] of uidByTempId) {
-      const evidence = candidateSet.elements.find((e) => e.temp_id === tempId)?.evidence ?? null
+    for (const [id, e] of map) {
       createTraceLink(db, projectUid, {
-        fromUid: element.uid,
+        fromUid: e.uid,
         toUid: evidenceUid,
         relationType: 'based_on',
-        attributes: { basisKind: 'inferred', evidenceSpan: evidence },
+        attributes: {
+          basisKind: 'inferred',
+          evidenceSpan: input.candidateSet.elements.find((x) => x.temp_id === id)?.evidence ?? null
+        },
         createdBy: 'llm',
         reviewStatus: 'approved',
         llmRunUid: input.llmRunUid
       })
       basedOnCount++
     }
-
-    // 3) 関係候補 → 未解決参照・許容関係・重複を検査して登録（NG があれば全体 ROLLBACK）
     let relationCount = 0
-    for (const relation of candidateSet.relations) {
-      const from = uidByTempId.get(relation.from_temp_id)
-      const to = uidByTempId.get(relation.to_temp_id)
-      if (!from || !to) {
-        throw new BackendError(
-          'validation',
-          `関係候補の参照が未解決です: ${relation.from_temp_id} -> ${relation.to_temp_id}`,
-          '要素候補に含まれない一時IDです（MODEL-009）'
-        )
-      }
+    for (const rel of input.candidateSet.relations) {
+      const from = map.get(rel.from_temp_id),
+        to = map.get(rel.to_temp_id)
+      if (!from || !to)
+        throw new BackendError('validation', `関係候補の参照が未解決です: ${rel.from_temp_id} -> ${rel.to_temp_id}`, '')
       createTraceLink(db, projectUid, {
         fromUid: from.uid,
         toUid: to.uid,
-        relationType: relation.relation_type as RelationType,
+        relationType: rel.relation_type,
         attributes: {
-          rationale: relation.rationale ?? null,
-          confidence: relation.confidence ?? null,
-          ...(relation.attributes as TraceLinkAttributes | undefined)
+          rationale: rel.rationale ?? null,
+          confidence: rel.confidence ?? null,
+          ...(rel.attributes as TraceLinkAttributes | undefined)
         },
         createdBy: 'llm',
         reviewStatus: 'approved',
@@ -500,20 +453,14 @@ export function adoptCandidates(db: Database, projectUid: string, input: AdoptCa
       })
       relationCount++
     }
-
     return {
-      elements: [...uidByTempId.entries()].map(([tempId, e]) => ({ tempId, uid: e.uid, code: e.code })),
+      elements: [...map].map(([tempId, e]) => ({ tempId, uid: e.uid, code: e.code })),
       relationCount,
       basedOnCount
     }
   })
-
   const result = txn()
-  eventBus.emit('design_model.updated', {
-    elementCount: result.elements.length,
-    relationCount: result.relationCount,
-    llmRunUid: input.llmRunUid ?? null
-  })
+  eventBus.emit('design_model.updated', result)
   eventBus.emit('relation.updated', { count: result.relationCount + result.basedOnCount })
   return result
 }
