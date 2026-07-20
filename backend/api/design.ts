@@ -246,6 +246,36 @@ export function registerDesignApi(router: ApiRouter, jobs: JobManager): void {
     }
   })
 
+  /** 編集途中の候補セットは LLM 実行ごとに1件だけ保持する（MODEL-030）。 */
+  router.register('design.getCandidateDraft', (params) => {
+    const p = asRecord(params)
+    const { db } = requireProject()
+    const llmRunUid = requireString(p, 'llmRunUid')
+    const row = db
+      .prepare(
+        `SELECT candidate_set_json AS candidateSetJson, updated_at AS updatedAt FROM llm_candidate_draft WHERE llm_run_uid=?`
+      )
+      .get(llmRunUid) as { candidateSetJson: string; updatedAt: string } | undefined
+    return row ? { candidateSet: JSON.parse(row.candidateSetJson) as unknown, updatedAt: row.updatedAt } : null
+  })
+
+  router.register('design.saveCandidateDraft', (params) => {
+    const p = asRecord(params)
+    const { db } = requireProject()
+    const llmRunUid = requireString(p, 'llmRunUid')
+    const candidateSet = { elements: p.elements ?? [], relations: p.relations ?? [], warnings: [] }
+    if (!Array.isArray(candidateSet.elements) || !Array.isArray(candidateSet.relations))
+      throw new BackendError(
+        'validation',
+        '一時保存する候補セットの形式が不正です',
+        'elements / relations は配列が必要です'
+      )
+    db.prepare(
+      `INSERT INTO llm_candidate_draft(llm_run_uid,candidate_set_json,updated_at) VALUES(?,?,CURRENT_TIMESTAMP)
+       ON CONFLICT(llm_run_uid) DO UPDATE SET candidate_set_json=excluded.candidate_set_json,updated_at=CURRENT_TIMESTAMP`
+    ).run(llmRunUid, JSON.stringify(candidateSet))
+    return { saved: true }
+  })
   /**
    * 編集済み候補セットの採用（MODEL-006〜009）。
    * スキーマ・参照・許容関係・重複を同一トランザクションで検査し、NG なら全体を反映しない。
@@ -272,11 +302,13 @@ export function registerDesignApi(router: ApiRouter, jobs: JobManager): void {
       throw new BackendError('validation', '候補セットに検証エラーがあります', validation.errors.join('; '))
     }
 
-    return adoptCandidates(db, info.projectUid, {
+    const result = adoptCandidates(db, info.projectUid, {
       candidateSet: validation.candidateSet,
       intermediateDocumentUid,
       chunkUid: context.chunkUid ?? undefined,
       llmRunUid
     })
+    db.prepare('DELETE FROM llm_candidate_draft WHERE llm_run_uid=?').run(llmRunUid)
+    return result
   })
 }

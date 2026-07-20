@@ -36,6 +36,11 @@ interface PersistedEditorLayout {
   activeGroupId: number
 }
 
+export interface CandidateEditorDraft {
+  elements: Array<Record<string, unknown>>
+  relations: Array<Record<string, unknown>>
+}
+
 interface EditorState {
   groups: EditorGroup[]
   layout: EditorLayoutNode
@@ -43,6 +48,7 @@ interface EditorState {
   activeUri: string | null
   persistKey: string
   refreshVersion: number
+  candidateDrafts: Record<string, CandidateEditorDraft>
   openResource(uri: string, title: string, options?: { preview?: boolean; groupId?: number }): void
   closeTab(uri: string, groupId?: number): void
   activateTab(uri: string, groupId: number): void
@@ -58,6 +64,8 @@ interface EditorState {
   moveActiveTab(offset: -1 | 1): void
   activateAdjacentTab(offset: -1 | 1): void
   refreshActiveResource(): void
+  setCandidateDraft(uri: string, draft: CandidateEditorDraft): void
+  clearCandidateDraft(uri: string): void
   closeGroup(groupId: number): void
   loadPersisted(persistKey: string): void
 }
@@ -140,6 +148,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   activeUri: null,
   persistKey: 'global',
   refreshVersion: 0,
+  candidateDrafts: {},
 
   openResource: (uri, title, options) => {
     const state = get()
@@ -178,7 +187,15 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       pruneLayout(state.layout, new Set(groups.map((candidate) => candidate.id))) ??
       ({ kind: 'group', groupId: groups[0]!.id } as const)
     const activeGroup = groups.find((candidate) => candidate.id === state.activeGroupId) ?? groups[0]!
-    commit(set, get, { groups, layout, activeGroupId: activeGroup.id, activeUri: activeGroup.activeUri })
+    const candidateDrafts = { ...state.candidateDrafts }
+    delete candidateDrafts[uri]
+    commit(set, get, {
+      groups,
+      layout,
+      activeGroupId: activeGroup.id,
+      activeUri: activeGroup.activeUri,
+      candidateDrafts
+    })
   },
 
   activateTab: (uri, groupId) => {
@@ -302,8 +319,22 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   refreshActiveResource: () => {
-    if (get().activeUri) set({ refreshVersion: get().refreshVersion + 1 })
+    const uri = get().activeUri
+    if (uri) {
+      const candidateDrafts = { ...get().candidateDrafts }
+      delete candidateDrafts[uri]
+      set({ refreshVersion: get().refreshVersion + 1, candidateDrafts })
+    }
   },
+
+  setCandidateDraft: (uri, draft) => set((state) => ({ candidateDrafts: { ...state.candidateDrafts, [uri]: draft } })),
+
+  clearCandidateDraft: (uri) =>
+    set((state) => {
+      const candidateDrafts = { ...state.candidateDrafts }
+      delete candidateDrafts[uri]
+      return { candidateDrafts }
+    }),
 
   closeGroup: (groupId) => {
     const state = get()
@@ -313,7 +344,15 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       pruneLayout(state.layout, new Set(groups.map((group) => group.id))) ??
       ({ kind: 'group', groupId: groups[0]!.id } as const)
     const activeGroup = groups[0]!
-    commit(set, get, { groups, layout, activeGroupId: activeGroup.id, activeUri: activeGroup.activeUri })
+    const candidateDrafts = { ...state.candidateDrafts }
+    for (const tab of state.groups.find((group) => group.id === groupId)?.tabs ?? []) delete candidateDrafts[tab.uri]
+    commit(set, get, {
+      groups,
+      layout,
+      activeGroupId: activeGroup.id,
+      activeUri: activeGroup.activeUri,
+      candidateDrafts
+    })
   },
 
   loadPersisted: (persistKey) => {

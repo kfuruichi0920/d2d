@@ -1,7 +1,15 @@
-/** 現在採用中のオントロジー設定管理（MODEL-019〜028）。 */
+/** 現在採用中の設計モデル設定管理（MODEL-019〜029）。 */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { invoke } from '../../services/backend'
 import { useJobsStore } from '../../stores/jobs-store'
+interface FieldDef {
+  key: string
+  label: string
+  type: 'text' | 'multiline' | 'json' | 'select'
+  description: string
+  options?: string[]
+  is_enabled?: number
+}
 interface ModelDef {
   model_type: string
   code_prefix: string
@@ -64,7 +72,7 @@ export function OntologySettingsSection(): React.JSX.Element {
   if (!data)
     return (
       <section>
-        <h2>オントロジー設定</h2>
+        <h2>設計モデル設定</h2>
         <p>プロジェクトを開くと設定できます。</p>
       </section>
     )
@@ -111,7 +119,7 @@ export function OntologySettingsSection(): React.JSX.Element {
   return (
     <section style={{ marginTop: 24 }} data-testid="ontology-settings">
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <h2 style={{ fontSize: 14, margin: 0 }}>設計オントロジー設定</h2>
+        <h2 style={{ fontSize: 14, margin: 0 }}>設計モデル・関係設定</h2>
         <span className="d2d-badge status-success">v{data.version}</span>
         <button
           className="d2d-btn primary small"
@@ -127,9 +135,24 @@ export function OntologySettingsSection(): React.JSX.Element {
           設定を確定して版更新
         </button>
       </div>
-      <p style={{ fontSize: 11.5, color: 'var(--d2d-fg-muted)' }}>
-        定義は③中間データから④設計モデルと関係を導出する際の入力です。削除せず無効化し、確定時に版数を更新します。
-      </p>
+      <div
+        style={{
+          fontSize: 11.5,
+          color: 'var(--d2d-fg-muted)',
+          border: '1px solid var(--d2d-border)',
+          padding: 10,
+          marginTop: 10
+        }}
+        data-testid="ontology-setting-guide"
+      >
+        <b>設定方法</b>
+        <ol style={{ margin: '6px 0 0', paddingLeft: 20 }}>
+          <li>設計モデルの日本語定義と属性定義を編集し、モデルごとの「保存」を押します。</li>
+          <li>属性は追加・無効化・削除できます。無効化した属性は既存データを残したまま編集画面から除外されます。</li>
+          <li>関係定義と許可マトリクスを調整し、内容が確定したら「設定を確定して版更新」を押します。</li>
+        </ol>
+        定義は③中間データから④設計モデルと関係を導出する際の入力です。モデル自体は削除せず無効化します。
+      </div>
       <details open>
         <summary>
           <b>設計モデル定義（{data.models.length}）</b>
@@ -192,20 +215,15 @@ export function OntologySettingsSection(): React.JSX.Element {
               }
               style={{ width: '100%', minHeight: 55, marginTop: 6 }}
             />{' '}
-            <textarea
+            <AttributeDefinitionEditor
               value={m.field_schema_json}
-              aria-label={`${m.model_type} 独自項目定義`}
-              title="独自項目のJSON配列（key、label、type、description、options）"
-              onChange={(e) =>
+              label={`${m.model_type} 属性定義`}
+              onChange={(value) =>
                 setData(
                   (d) =>
-                    d && {
-                      ...d,
-                      models: d.models.map((x, j) => (j === i ? { ...x, field_schema_json: e.target.value } : x))
-                    }
+                    d && { ...d, models: d.models.map((x, j) => (j === i ? { ...x, field_schema_json: value } : x)) }
                 )
               }
-              style={{ width: '100%', minHeight: 70, marginTop: 6, fontFamily: 'monospace' }}
             />
           </div>
         ))}
@@ -264,12 +282,13 @@ export function OntologySettingsSection(): React.JSX.Element {
             placeholder="日本語定義"
             style={{ gridColumn: '1 / -1', minHeight: 50 }}
           />{' '}
-          <textarea
-            value={newModel.fieldSchemaJson}
-            onChange={(e) => setNewModel((v) => ({ ...v, fieldSchemaJson: e.target.value }))}
-            placeholder='独自項目定義 JSON: [{"key":"...","label":"...","type":"text","description":"..."}]'
-            style={{ gridColumn: '1 / -1', minHeight: 60, fontFamily: 'monospace' }}
-          />
+          <div style={{ gridColumn: '1 / -1' }}>
+            <AttributeDefinitionEditor
+              value={newModel.fieldSchemaJson}
+              label="追加するモデルの属性定義"
+              onChange={(value) => setNewModel((v) => ({ ...v, fieldSchemaJson: value }))}
+            />
+          </div>
         </div>
       </details>
       <details open style={{ marginTop: 12 }}>
@@ -454,5 +473,124 @@ export function OntologySettingsSection(): React.JSX.Element {
         )}
       </details>
     </section>
+  )
+}
+
+function AttributeDefinitionEditor({
+  value,
+  label,
+  onChange
+}: {
+  value: string
+  label: string
+  onChange: (value: string) => void
+}): React.JSX.Element {
+  let fields: FieldDef[] = []
+  try {
+    fields = JSON.parse(value) as FieldDef[]
+  } catch {
+    fields = []
+  }
+  const update = (next: FieldDef[]): void => onChange(JSON.stringify(next))
+  const patch = (index: number, changes: Partial<FieldDef>): void =>
+    update(fields.map((field, i) => (i === index ? { ...field, ...changes } : field)))
+  return (
+    <fieldset
+      style={{ marginTop: 8, border: '1px solid var(--d2d-border)' }}
+      data-testid={`attribute-definitions-${label}`}
+    >
+      <legend>{label}</legend>
+      {fields.map((field, index) => (
+        <div
+          key={`${field.key}-${index}`}
+          style={{
+            display: 'grid',
+            gridTemplateColumns: '120px 140px 100px minmax(180px,1fr) auto auto',
+            gap: 6,
+            marginBottom: 6,
+            opacity: field.is_enabled === 0 ? 0.55 : 1
+          }}
+        >
+          <input
+            value={field.key}
+            aria-label={`${label} キー ${index + 1}`}
+            onChange={(event) => patch(index, { key: event.target.value })}
+          />
+          <input
+            value={field.label}
+            aria-label={`${label} 表示名 ${index + 1}`}
+            onChange={(event) => patch(index, { label: event.target.value })}
+          />
+          <select
+            value={field.type}
+            aria-label={`${label} 型 ${index + 1}`}
+            onChange={(event) =>
+              patch(index, {
+                type: event.target.value as FieldDef['type'],
+                options: event.target.value === 'select' ? (field.options ?? ['選択肢']) : undefined
+              })
+            }
+          >
+            {['text', 'multiline', 'json', 'select'].map((type) => (
+              <option key={type}>{type}</option>
+            ))}
+          </select>
+          <input
+            value={field.description}
+            aria-label={`${label} 説明 ${index + 1}`}
+            onChange={(event) => patch(index, { description: event.target.value })}
+          />
+          <button
+            type="button"
+            className="d2d-btn small"
+            onClick={() => patch(index, { is_enabled: field.is_enabled === 0 ? 1 : 0 })}
+          >
+            {field.is_enabled === 0 ? '有効化' : '無効化'}
+          </button>
+          <button
+            type="button"
+            className="d2d-btn small danger"
+            onClick={() => update(fields.filter((_, i) => i !== index))}
+          >
+            削除
+          </button>
+          {field.type === 'select' && (
+            <input
+              style={{ gridColumn: '1 / -1' }}
+              value={(field.options ?? []).join(',')}
+              aria-label={`${label} 選択肢 ${index + 1}`}
+              onChange={(event) =>
+                patch(index, {
+                  options: event.target.value
+                    .split(',')
+                    .map((item) => item.trim())
+                    .filter(Boolean)
+                })
+              }
+              placeholder="選択肢（カンマ区切り）"
+            />
+          )}
+        </div>
+      ))}
+      <button
+        type="button"
+        className="d2d-btn small"
+        onClick={() =>
+          update([
+            ...fields,
+            {
+              key: `field_${fields.length + 1}`,
+              label: '新しい属性',
+              type: 'text',
+              description: '属性の説明',
+              is_enabled: 1
+            }
+          ])
+        }
+        data-testid={`add-attribute-${label}`}
+      >
+        + 属性を追加
+      </button>
+    </fieldset>
   )
 }

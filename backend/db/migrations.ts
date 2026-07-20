@@ -279,6 +279,20 @@ export const MIGRATIONS: Migration[] = [
     }
   },
   {
+    version: '2.1.0',
+    description: 'LLM候補セットの一時保存を追加（MODEL-030）',
+    apply(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS llm_candidate_draft (
+          llm_run_uid TEXT PRIMARY KEY,
+          candidate_set_json TEXT NOT NULL CHECK (json_valid(candidate_set_json) AND json_type(candidate_set_json)='object'),
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (llm_run_uid) REFERENCES llm_run_ref(uid) ON DELETE CASCADE
+        );
+      `)
+    }
+  },
+  {
     version: '1.10.0',
     description: '図・表・コードResource編集情報の拡張（EDIT-087〜091）',
     apply(db) {

@@ -20,6 +20,7 @@ export interface DesignElementRow {
   detail_json: string
   entity_type: string
   owner_uid?: string | null
+  created_at?: string
   updated_at?: string
 }
 interface TraceLinkRow {
@@ -40,6 +41,7 @@ interface FieldDefinition {
   type: 'text' | 'multiline' | 'json' | 'select'
   description: string
   options?: string[]
+  is_enabled?: number
 }
 interface ModelDefinition {
   model_type: string
@@ -173,7 +175,9 @@ export function DesignElementViewer({ uid }: { uid: string }): React.JSX.Element
   if (!element) return <div className="d2d-empty">読込中…</div>
   let fields: FieldDefinition[] = []
   try {
-    fields = definition ? (JSON.parse(definition.field_schema_json) as FieldDefinition[]) : []
+    fields = definition
+      ? (JSON.parse(definition.field_schema_json) as FieldDefinition[]).filter((field) => field.is_enabled !== 0)
+      : []
   } catch {
     fields = []
   }

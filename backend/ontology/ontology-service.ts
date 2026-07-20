@@ -9,6 +9,7 @@ export interface OntologyFieldDefinition {
   type: 'text' | 'multiline' | 'json' | 'select'
   description: string
   options?: string[]
+  is_enabled?: number
 }
 export interface OntologyModelDefinition {
   model_type: string
@@ -469,7 +470,15 @@ export const parseFieldSchema = (json: string): OntologyFieldDefinition[] => {
       } else if (item.options !== undefined) {
         throw new Error(`[${index}].options は select の場合だけ指定できます`)
       }
-      return { key, label, type: type as OntologyFieldDefinition['type'], description, ...(options ? { options } : {}) }
+      const isEnabled = item.is_enabled === undefined || item.is_enabled === 1 || item.is_enabled === true ? 1 : 0
+      return {
+        key,
+        label,
+        type: type as OntologyFieldDefinition['type'],
+        description,
+        ...(options ? { options } : {}),
+        is_enabled: isEnabled
+      }
     })
   } catch (e) {
     if (e instanceof BackendError) throw e
@@ -487,6 +496,7 @@ export function validateModelDetail(db: Database, modelType: string, detail: Rec
     .get(modelType) as { field_schema_json: string } | undefined
   if (!row) throw new BackendError('validation', `未定義の設計モデルです: ${modelType}`, '')
   for (const field of parseFieldSchema(row.field_schema_json)) {
+    if (field.is_enabled === 0) continue
     const value = detail[field.key]
     if (value === undefined || value === null || value === '') continue
     if ((field.type === 'text' || field.type === 'multiline') && typeof value !== 'string')

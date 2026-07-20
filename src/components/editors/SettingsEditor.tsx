@@ -21,7 +21,6 @@ import { SearchEngineSettingsSection } from '../views/SearchSettingsView'
 import { PlantUmlSettingsSection } from '../views/PlantUmlSettingsView'
 import { AppSettingsStorageNotice } from '../views/AppSettingsStorageNotice'
 import { KeybindingSettingsSection } from '../views/KeybindingSettingsView'
-import { OntologySettingsSection } from '../views/OntologySettingsView'
 
 function toColorInputValue(value: string, fallback: string): string {
   const trimmed = value.trim()
@@ -280,7 +279,6 @@ export function SettingsEditor(): React.JSX.Element {
         </button>
       </div>
 
-      {hasProject && <OntologySettingsSection />}
       {hasProject && <LlmSettingsSection showExternalSend={false} />}
       {!hasProject && (
         <p style={{ color: 'var(--d2d-fg-muted)', marginTop: 20 }}>

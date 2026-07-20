@@ -40,6 +40,7 @@ export interface DesignElementRow {
   owner_uid: string | null
   summary: string
   detail_json: string
+  created_at: string
   updated_at: string
   entity_type: string
 }
@@ -126,7 +127,7 @@ export function listDesignElements(
   }
   const base = db
     .prepare(
-      `SELECT e.uid,e.code,e.entity_type AS model_type,e.entity_type,e.title,e.status,e.owner_uid,e.updated_at,d.label AS model_label,d.layer FROM entity_registry e JOIN ontology_model_definition d ON d.model_type=e.entity_type WHERE ${where.join(' AND ')} ORDER BY d.sort_order,e.code`
+      `SELECT e.uid,e.code,e.entity_type AS model_type,e.entity_type,e.title,e.status,e.owner_uid,e.created_at,e.updated_at,d.label AS model_label,d.layer FROM entity_registry e JOIN ontology_model_definition d ON d.model_type=e.entity_type WHERE ${where.join(' AND ')} ORDER BY d.sort_order,e.code`
     )
     .all(...params) as Array<Omit<DesignElementRow, 'summary' | 'detail_json'>>
   return base.map((row) => {
@@ -198,11 +199,12 @@ export interface AllowedRelationRule {
   relationType: string
   sourceModelType: string
   targetModelType: string
+  requiredAttr: string | null
 }
 export function listAllowedRelationRules(db: Database): AllowedRelationRule[] {
   return db
     .prepare(
-      `SELECT a.relation_type AS relationType,a.source_model_type AS sourceModelType,a.target_model_type AS targetModelType FROM ontology_relation_allowance a JOIN ontology_relation_definition r ON r.relation_type=a.relation_type AND r.is_enabled=1 JOIN ontology_model_definition s ON s.model_type=a.source_model_type AND s.is_enabled=1 JOIN ontology_model_definition t ON t.model_type=a.target_model_type AND t.is_enabled=1 WHERE a.allowed=1 ORDER BY a.relation_type,a.source_model_type,a.target_model_type`
+      `SELECT a.relation_type AS relationType,a.source_model_type AS sourceModelType,a.target_model_type AS targetModelType,r.required_attr AS requiredAttr FROM ontology_relation_allowance a JOIN ontology_relation_definition r ON r.relation_type=a.relation_type AND r.is_enabled=1 JOIN ontology_model_definition s ON s.model_type=a.source_model_type AND s.is_enabled=1 JOIN ontology_model_definition t ON t.model_type=a.target_model_type AND t.is_enabled=1 WHERE a.allowed=1 ORDER BY a.relation_type,a.source_model_type,a.target_model_type`
     )
     .all() as AllowedRelationRule[]
 }

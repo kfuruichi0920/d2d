@@ -7,6 +7,7 @@ import { useEditorStore, type EditorGroup, type EditorLayoutNode } from '../../s
 import { showContextMenu } from '../common/ContextMenu'
 import { DashboardEditor } from '../editors/DashboardEditor'
 import { SettingsEditor } from '../editors/SettingsEditor'
+import { DesignModelSettingsEditor } from '../editors/DesignModelSettingsEditor'
 import { ProjectSettingsEditor } from '../editors/ProjectSettingsEditor'
 import { JobLogEditor } from '../editors/JobLogEditor'
 import { WelcomeEditor } from '../editors/WelcomeEditor'
@@ -47,6 +48,7 @@ function resolveEditor(uri: string): React.JSX.Element {
   if (uri.startsWith('help://')) return <HelpEditor topic={uri.slice('help://'.length) as HelpTopic} />
   if (uri === 'project://current') return <DashboardEditor />
   if (uri.startsWith('stage://')) return <PipelineStageEditor stage={uri.slice('stage://'.length) as PipelineStage} />
+  if (uri === 'settings://design-model') return <DesignModelSettingsEditor />
   if (uri.startsWith('settings://')) return <SettingsEditor />
   if (uri.startsWith('project-settings://')) return <ProjectSettingsEditor />
   if (uri.startsWith('log://job/')) return <JobLogEditor jobId={uri.slice('log://job/'.length)} />

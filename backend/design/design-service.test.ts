@@ -179,12 +179,14 @@ describe('④設計モデル（P8）', () => {
     expect(rules).toContainEqual({
       relationType: 'satisfies',
       sourceModelType: 'model_func',
-      targetModelType: 'model_req'
+      targetModelType: 'model_req',
+      requiredAttr: null
     })
     expect(rules).toContainEqual({
       relationType: 'relates_to',
       sourceModelType: 'model_req',
-      targetModelType: 'model_mgmt'
+      targetModelType: 'model_mgmt',
+      requiredAttr: 'review_status'
     })
     expect(rules).not.toContainEqual({
       relationType: 'satisfies',

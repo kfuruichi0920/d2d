@@ -84,6 +84,15 @@ function SettingsShortcutView(): React.JSX.Element {
         type="button"
         className="d2d-btn"
         disabled={!hasProject}
+        data-testid="open-design-model-settings"
+        onClick={() => void executeCommand('designModelSettings.open', undefined, getCommandContext())}
+      >
+        └ 設計モデル設定
+      </button>
+      <button
+        type="button"
+        className="d2d-btn"
+        disabled={!hasProject}
         onClick={() => void executeCommand('projectSettings.open', undefined, getCommandContext())}
       >
         プロジェクト設定を開く
