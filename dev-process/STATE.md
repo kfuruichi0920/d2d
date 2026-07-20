@@ -77,7 +77,7 @@
 | P9トレース編集改善         | 根拠Resource間のbased_on許可（model同士のみ禁止）、関係種別の全選択ON/OFF、操作名短縮、Activity Barの全設計モデル初期化、分析の4リスト初期化（Unit 274／E2E 28）                                                                                                                                                             | —               |
 | MCPサーバ機能              | MCP-001〜008。ローカルMCPサーバ（Streamable HTTP・127.0.0.1・依存追加なし）、設計要素一覧／種別情報／検索（スコア上位・AND/OR・既定20件）／詳細（複数UID）／上流・下流トレースの6ツール、ツール設定「MCPサーバ設定」、Status Bar起動状態（Unit 283／E2E 29）                                                                 | 984e8f6         |
 | MCPログ＋設計分析          | MCP-009/010: アクセスログ（メモリ500件＋logs/mcp/JSONL、Panel「MCPログ」）。ANA-001〜006: 推論規則DSL（FROM/TRAVERSE/FILTER/PATH）、影響分析・経路検索の決定論的実行、設計モデル設定のクエリ規則10スロット、Trace分析サイドバー、過程付きMarkdownレポート（Unit 291／E2E 31）                                                | 5a90f9e         |
-| DSL拡張＋MCP公開＋評価基盤 | ANA-007: FILTER [NOT] TYPE/STATUS/ATTR・SET集合演算・WHERE関係属性。ANA-008/009: analysis://グラフ・HTMLレポート。MCP-011/012: analysis_slot_Nツール動的公開・MCP説明LLM生成。EVAL-001〜003: サンプル「温度監視装置」（正解モデル43件・関係57件・変更3ケース）投入、評価①②の自動実行・指標算出・レポート（Unit 300／E2E 32） | —               |
+| DSL拡張＋MCP公開＋評価基盤 | ANA-007: FILTER [NOT] TYPE/STATUS/ATTR・SET集合演算・WHERE関係属性。ANA-008/009: analysis://グラフ・HTMLレポート。MCP-011/012: analysis_slot_Nツール動的公開・MCP説明LLM生成。EVAL-001〜003: サンプル「温度監視装置」（正解モデル43件・関係57件・変更3ケース）投入、評価①②の自動実行・指標算出・レポート（Unit 300／E2E 32） | 379da61         |
 
 ## 恒久制約（違反するとビルド/実行が壊れる、または設計方針違反）
 
