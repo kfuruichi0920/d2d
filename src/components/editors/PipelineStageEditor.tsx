@@ -21,6 +21,7 @@ import {
 import type { DesignElementRow } from '../views/DesignModelViews'
 import { ResizablePaneGroup } from '../workbench/ResizablePaneGroup'
 import { IntermediateImportDialog } from './IntermediateImportDialog'
+import { DesignRelationDialog, type DesignRelationRule } from './DesignRelationDialog'
 import { pushUndo } from '../../services/undo-service'
 import { confirmDialog } from '../common/ConfirmDialog'
 import {
@@ -68,6 +69,12 @@ interface DevPhaseSetting {
   dev_phase_name: string
   sort_order: number
   is_active: number
+}
+interface OntologyModelDefinition {
+  model_type: string
+  label: string
+  layer: string
+  is_enabled: number
 }
 
 const STAGE_TITLES: Record<PipelineStage, string> = {
@@ -223,6 +230,11 @@ export function PipelineStageEditor({ stage }: { stage: PipelineStage }): React.
   const [extracted, setExtracted] = useState<ExtractedDocumentItem[]>([])
   const [intermediates, setIntermediates] = useState<IntermediateDocumentItem[]>([])
   const [models, setModels] = useState<DesignElementRow[]>([])
+  const [modelDefinitions, setModelDefinitions] = useState<OntologyModelDefinition[]>([])
+  const [relationRules, setRelationRules] = useState<DesignRelationRule[]>([])
+  const [relationSource, setRelationSource] = useState<DesignElementRow | null>(null)
+  const [newModelType, setNewModelType] = useState('model_req')
+  const [newModelTitle, setNewModelTitle] = useState('')
   const [artifacts, setArtifacts] = useState<ArtifactSetting[]>([])
   const [phases, setPhases] = useState<DevPhaseSetting[]>([])
   const [selectedUid, setSelectedUid] = useState<string | null>(null)
@@ -235,21 +247,39 @@ export function PipelineStageEditor({ stage }: { stage: PipelineStage }): React.
   const clearSelectedItem = useSelectionStore((state) => state.clearSelectedItem)
 
   const refresh = useCallback(async () => {
-    const [sourceResult, extractedResult, intermediateResult, modelResult, artifactResult, phaseResult] =
-      await Promise.all([
-        invoke<SourceDocumentItem[]>('document.list', { includeArchived: true }),
-        invoke<ExtractedDocumentItem[]>('extracted.list', { includeArchived: true }),
-        invoke<IntermediateDocumentItem[]>('intermediate.list', { includeArchived: true }),
-        invoke<DesignElementRow[]>('design.listElements'),
-        invoke<ArtifactSetting[]>('project.listArtifactSettings'),
-        invoke<DevPhaseSetting[]>('project.listDevPhases')
-      ])
+    const [
+      sourceResult,
+      extractedResult,
+      intermediateResult,
+      modelResult,
+      artifactResult,
+      phaseResult,
+      ontologyResult,
+      relationRuleResult
+    ] = await Promise.all([
+      invoke<SourceDocumentItem[]>('document.list', { includeArchived: true }),
+      invoke<ExtractedDocumentItem[]>('extracted.list', { includeArchived: true }),
+      invoke<IntermediateDocumentItem[]>('intermediate.list', { includeArchived: true }),
+      invoke<DesignElementRow[]>('design.listElements'),
+      invoke<ArtifactSetting[]>('project.listArtifactSettings'),
+      invoke<DevPhaseSetting[]>('project.listDevPhases'),
+      invoke<{ models: OntologyModelDefinition[] }>('ontology.get'),
+      invoke<DesignRelationRule[]>('design.listAllowedRelationRules')
+    ])
     if (sourceResult.ok) setSources(sourceResult.result)
     if (extractedResult.ok) setExtracted(extractedResult.result)
     if (intermediateResult.ok) setIntermediates(intermediateResult.result)
     if (modelResult.ok) setModels(modelResult.result)
     if (artifactResult.ok) setArtifacts(artifactResult.result)
     if (phaseResult.ok) setPhases(phaseResult.result)
+    if (relationRuleResult.ok) setRelationRules(relationRuleResult.result)
+    if (ontologyResult.ok) {
+      const enabled = ontologyResult.result.models.filter((model) => model.is_enabled === 1)
+      setModelDefinitions(enabled)
+      setNewModelType((current) =>
+        enabled.some((model) => model.model_type === current) ? current : (enabled[0]?.model_type ?? 'model_req')
+      )
+    }
   }, [])
 
   useEffect(() => {
@@ -264,7 +294,8 @@ export function PipelineStageEditor({ stage }: { stage: PipelineStage }): React.
           'job.updated',
           'extracted.updated',
           'intermediate.updated',
-          'design_model.updated'
+          'design_model.updated',
+          'ontology.updated'
         ].includes(event)
       )
         void refresh()
@@ -295,11 +326,13 @@ export function PipelineStageEditor({ stage }: { stage: PipelineStage }): React.
         undo: async () => {
           const undone = await invoke(undoSpec.undoMethod, undoSpec.undoParams)
           if (!undone.ok) throw new Error(undone.error.message)
+          await refresh()
           await refreshStats()
         },
         redo: async () => {
           const redone = await invoke(method, params)
           if (!redone.ok) throw new Error(redone.error.message)
+          await refresh()
           await refreshStats()
         }
       })
@@ -355,13 +388,26 @@ export function PipelineStageEditor({ stage }: { stage: PipelineStage }): React.
     await refresh()
   }
 
-  const createStateMachine = async (): Promise<void> => {
-    const result = await invoke<{ uid: string; code: string }>('state.create', { name: '新しい状態機械' })
-    if (!result.ok) {
-      notify('error', '状態遷移を作成できませんでした', result.error.message)
+  const createModelElement = async (): Promise<void> => {
+    if (!newModelTitle.trim()) {
+      notify('warning', '設計モデルの名称を入力してください')
       return
     }
-    openResource(`design://${result.result.uid}`, result.result.code, { preview: false })
+    const result =
+      newModelType === 'model_state'
+        ? await invoke<{ uid: string; code: string }>('state.create', { name: newModelTitle.trim() })
+        : await invoke<{ uid: string; code: string }>('design.createElement', {
+            modelType: newModelType,
+            title: newModelTitle.trim()
+          })
+    if (!result.ok) {
+      notify('error', '設計モデルを作成できませんでした', result.error.message)
+      return
+    }
+    setNewModelTitle('')
+    await refresh()
+    await refreshStats()
+    setSelectedUid(result.result.uid)
   }
   const sourceRows = useMemo(() => sortedRows(sources, sort), [sort, sources])
   const extractedRows = useMemo(() => sortedRows(extracted, sort), [extracted, sort])
@@ -469,29 +515,39 @@ export function PipelineStageEditor({ stage }: { stage: PipelineStage }): React.
             )}
             {stage === 'design' && (
               <>
+                <select
+                  value={newModelType}
+                  onChange={(event) => setNewModelType(event.target.value)}
+                  aria-label="追加する設計モデル種別"
+                >
+                  {modelDefinitions.map((model) => (
+                    <option key={model.model_type} value={model.model_type}>
+                      {model.label}（{model.model_type}）
+                    </option>
+                  ))}
+                </select>
+                <input
+                  value={newModelTitle}
+                  onChange={(event) => setNewModelTitle(event.target.value)}
+                  placeholder="新しい設計モデルの名称"
+                  aria-label="新しい設計モデルの名称"
+                />
                 <button
                   type="button"
-                  className="d2d-btn"
-                  data-testid="add-state-machine"
-                  onClick={() => void createStateMachine()}
+                  className="d2d-btn primary"
+                  data-testid="add-design-model"
+                  disabled={!newModelTitle.trim() || modelDefinitions.length === 0}
+                  onClick={() => void createModelElement()}
                 >
-                  +状態遷移
+                  +設計モデル
                 </button>
                 <button
                   type="button"
                   className="d2d-btn"
                   data-testid="open-model-editor"
-                  onClick={() => openResource('model://playground', 'モデルエディタ', { preview: false })}
+                  onClick={() => openResource('model://playground', 'PlantUML', { preview: false })}
                 >
-                  +モデル
-                </button>
-                <button
-                  type="button"
-                  className="d2d-btn"
-                  data-testid="open-glossary"
-                  onClick={() => openResource('glossary://', '用語集', { preview: false })}
-                >
-                  用語集
+                  +PlantUML
                 </button>
               </>
             )}
@@ -678,11 +734,13 @@ export function PipelineStageEditor({ stage }: { stage: PipelineStage }): React.
             <table className="d2d-table stage-table">
               <thead>
                 <tr>
-                  <SortHeader label="分類" column="design_category" sort={sort} onSort={changeSort} />
+                  <SortHeader label="モデル種別" column="model_type" sort={sort} onSort={changeSort} />
                   <SortHeader label="ID" column="code" sort={sort} onSort={changeSort} />
                   <SortHeader label="名称" column="title" sort={sort} onSort={changeSort} />
                   <SortHeader label="種別" column="entity_type" sort={sort} onSort={changeSort} />
                   <SortHeader label="状態" column="status" sort={sort} onSort={changeSort} />
+                  <SortHeader label="作成日時" column="created_at" sort={sort} onSort={changeSort} />
+                  <SortHeader label="更新日時" column="updated_at" sort={sort} onSort={changeSort} />
                 </tr>
               </thead>
               <tbody>
@@ -693,17 +751,25 @@ export function PipelineStageEditor({ stage }: { stage: PipelineStage }): React.
                     aria-selected={selectedUid === row.uid}
                     tabIndex={0}
                     data-stage-row-uid={row.uid}
-                    onClick={() => openDesign(row.uid)}
+                    onClick={() => setSelectedUid(row.uid)}
+                    onDoubleClick={() => openDesign(row.uid)}
+                    onContextMenu={(event) => {
+                      event.preventDefault()
+                      setSelectedUid(row.uid)
+                      setRelationSource(row)
+                    }}
                     onKeyDown={(event) => handleStageRowKey(event, row.uid, modelUids, setSelectedUid, openDesign)}
                     data-testid={`stage-design-row-${row.code}`}
                   >
-                    <td>{row.design_category}</td>
+                    <td>{row.model_type}</td>
                     <td>{row.code}</td>
                     <td>{row.title}</td>
                     <td>{row.entity_type}</td>
                     <td>
                       <ReviewStatusBadge status={reviewStateFromEntityStatus(row.status)} />
                     </td>
+                    <td>{row.created_at ?? '—'}</td>
+                    <td>{row.updated_at ?? '—'}</td>
                   </tr>
                 ))}
               </tbody>
@@ -735,6 +801,15 @@ export function PipelineStageEditor({ stage }: { stage: PipelineStage }): React.
           </aside>
         )}
       </ResizablePaneGroup>
+      {relationSource && (
+        <DesignRelationDialog
+          source={relationSource}
+          models={models}
+          rules={relationRules}
+          onClose={() => setRelationSource(null)}
+          onSaved={() => void refresh()}
+        />
+      )}
       {importDialogOpen && (
         <IntermediateImportDialog
           onClose={() => setImportDialogOpen(false)}

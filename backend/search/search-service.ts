@@ -43,7 +43,7 @@ interface IndexedRow extends SearchDocument {
 
 const RESOURCE_TEXT = `trim(concat_ws(' ', child.title, child.review_info_json, child.memo_json,
   rl.label_text, rt.text_body, rtb.table_title, rf.formula_text, rc.code_text, rm.model_name, rm.model_source,
-  rs.scenario_name, rst.state_machine_name, rr.reference_text, rg.term_text, rg.definition))`
+  rr.reference_text, rg.term_text, rg.definition))`
 
 function collectDocuments(db: Database, projectUid: string): SearchDocument[] {
   const resources = db
@@ -51,14 +51,13 @@ function collectDocuments(db: Database, projectUid: string): SearchDocument[] {
       `
     SELECT er.uid, er.entity_type, er.code, COALESCE(er.title, er.code) AS title,
       trim(concat_ws(' ', er.title, er.review_info_json, er.memo_json, rl.label_text, rt.text_body,
-        rtb.table_title, rf.formula_text, rc.code_text, rm.model_name, rm.model_source, rs.scenario_name,
-        rst.state_machine_name, rr.reference_text, rg.term_text, rg.definition,
+        rtb.table_title, rf.formula_text, rc.code_text, rm.model_name, rm.model_source,
+        rr.reference_text, rg.term_text, rg.definition,
         (SELECT group_concat(s.synonym_text, ' ') FROM resource_glossary_synonym s WHERE s.glossary_uid = er.uid))) AS search_text
     FROM entity_registry er
     LEFT JOIN resource_label rl ON rl.uid = er.uid LEFT JOIN resource_text rt ON rt.uid = er.uid
     LEFT JOIN resource_table rtb ON rtb.uid = er.uid LEFT JOIN resource_formula rf ON rf.uid = er.uid
     LEFT JOIN resource_code rc ON rc.uid = er.uid LEFT JOIN resource_model rm ON rm.uid = er.uid
-    LEFT JOIN resource_scenario rs ON rs.uid = er.uid LEFT JOIN resource_state_transition rst ON rst.uid = er.uid
     LEFT JOIN resource_reference rr ON rr.uid = er.uid LEFT JOIN resource_glossary rg ON rg.uid = er.uid
     WHERE er.project_uid = ? AND er.status <> 'deleted'`
     )
@@ -79,7 +78,6 @@ function collectDocuments(db: Database, projectUid: string): SearchDocument[] {
     LEFT JOIN resource_label rl ON rl.uid = child.uid LEFT JOIN resource_text rt ON rt.uid = child.uid
     LEFT JOIN resource_table rtb ON rtb.uid = child.uid LEFT JOIN resource_formula rf ON rf.uid = child.uid
     LEFT JOIN resource_code rc ON rc.uid = child.uid LEFT JOIN resource_model rm ON rm.uid = child.uid
-    LEFT JOIN resource_scenario rs ON rs.uid = child.uid LEFT JOIN resource_state_transition rst ON rst.uid = child.uid
     LEFT JOIN resource_reference rr ON rr.uid = child.uid LEFT JOIN resource_glossary rg ON rg.uid = child.uid`
     )
     .all(projectUid) as SearchDocument[]
@@ -99,7 +97,6 @@ function collectDocuments(db: Database, projectUid: string): SearchDocument[] {
     LEFT JOIN resource_label rl ON rl.uid = child.uid LEFT JOIN resource_text rt ON rt.uid = child.uid
     LEFT JOIN resource_table rtb ON rtb.uid = child.uid LEFT JOIN resource_formula rf ON rf.uid = child.uid
     LEFT JOIN resource_code rc ON rc.uid = child.uid LEFT JOIN resource_model rm ON rm.uid = child.uid
-    LEFT JOIN resource_scenario rs ON rs.uid = child.uid LEFT JOIN resource_state_transition rst ON rst.uid = child.uid
     LEFT JOIN resource_reference rr ON rr.uid = child.uid LEFT JOIN resource_glossary rg ON rg.uid = child.uid`
     )
     .all(projectUid) as SearchDocument[]
@@ -119,10 +116,17 @@ function collectDocuments(db: Database, projectUid: string): SearchDocument[] {
     LEFT JOIN resource_label rl ON rl.uid = child.uid LEFT JOIN resource_text rt ON rt.uid = child.uid
     LEFT JOIN resource_table rtb ON rtb.uid = child.uid LEFT JOIN resource_formula rf ON rf.uid = child.uid
     LEFT JOIN resource_code rc ON rc.uid = child.uid LEFT JOIN resource_model rm ON rm.uid = child.uid
-    LEFT JOIN resource_scenario rs ON rs.uid = child.uid LEFT JOIN resource_state_transition rst ON rst.uid = child.uid
     LEFT JOIN resource_reference rr ON rr.uid = child.uid LEFT JOIN resource_glossary rg ON rg.uid = child.uid`
     )
     .all(projectUid) as SearchDocument[]
+
+  for (const resource of resources) {
+    if (!/^model_[a-z][a-z0-9_]*$/.test(resource.entity_type)) continue
+    const model = db
+      .prepare(`SELECT summary, detail_json FROM "${resource.entity_type}" WHERE uid = ?`)
+      .get(resource.uid) as { summary: string | null; detail_json: string } | undefined
+    if (model) resource.search_text = [resource.search_text, model.summary, model.detail_json].filter(Boolean).join(' ')
+  }
 
   return [...resources, ...extracted, ...originals, ...intermediate]
 }

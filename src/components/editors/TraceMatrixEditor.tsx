@@ -19,7 +19,7 @@ interface MatrixResource {
   code: string
   title: string | null
   entityType: string
-  designCategory: string | null
+  modelType: string | null
   status: string
   itemType: string | null
   scopes: string[]
@@ -34,39 +34,33 @@ interface MatrixLink {
   reviewStatus: string | null
 }
 
+interface MatrixRelationDefinition {
+  relationType: string
+  label: string
+  requiredAttr: string | null
+  isEnabled: boolean
+  iconColor: string
+  iconText: string
+}
+
 interface MatrixData {
   rows: MatrixResource[]
   cols: MatrixResource[]
   cells: Record<string, Record<string, MatrixLink[]>>
   relationTypes: string[]
+  relationDefinitions: MatrixRelationDefinition[]
 }
 
-const RELATION_COLORS: Record<string, string> = {
-  based_on: '#4aa3df',
-  satisfies: '#50b36b',
-  allocated_to: '#b08adf',
-  verifies: '#df789e',
-  contains: '#d99b42',
-  decomposes: '#c77c55',
-  implements: '#7e9ddd',
-  uses: '#50aaa0',
-  calls: '#8d8dd8',
-  conflicts_with: '#df5c5c',
-  relates_to: '#9099a8'
+const ATTRIBUTE_OPTIONS: Record<string, string[]> = {
+  basis_kind: ['original', 'extracted', 'normalized', 'inferred', 'human_approved'],
+  allocation_kind: ['structure', 'behavior', 'state', 'interface', 'data'],
+  usage_kind: ['input', 'output', 'read', 'write', 'update', 'publish', 'subscribe'],
+  conflict_status: ['suspected', 'confirmed', 'resolved', 'dismissed'],
+  review_status: ['creating', 'draft', 'review', 'approved', 'rejected', 'provisional']
 }
 
-const RELATION_LABELS: Record<string, string> = {
-  based_on: 'B',
-  satisfies: 'S',
-  allocated_to: 'A',
-  verifies: 'V',
-  contains: 'C',
-  decomposes: 'D',
-  implements: 'I',
-  uses: 'U',
-  calls: 'Call',
-  conflicts_with: '!',
-  relates_to: 'R'
+function traceReviewLabel(status: string | null): string {
+  return status === 'creating' ? '作成中' : (status ?? '-')
 }
 
 function scopeSelection(event: React.ChangeEvent<HTMLSelectElement>): string[] {
@@ -83,7 +77,7 @@ function resourceTooltip(resource: MatrixResource, scopes: MatrixScope[]): strin
     `ID: ${resource.code}`,
     `名称: ${resource.title ?? '-'}`,
     `entity_type: ${resource.entityType}`,
-    `design_category: ${resource.designCategory ?? '-'}`,
+    `model_type: ${resource.modelType ?? '-'}`,
     `item_type: ${resource.itemType ?? '-'}`,
     `状態: ${resource.status}`,
     `所属: ${labels.join(' / ')}`
@@ -101,7 +95,8 @@ export function TraceMatrixEditor({
   const [rowScopeIds, setRowScopeIds] = useState<string[]>([])
   const [colScopeIds, setColScopeIds] = useState<string[]>([])
   const [relationTypes, setRelationTypes] = useState<string[]>(['satisfies'])
-  const [allRelationTypes, setAllRelationTypes] = useState<string[]>([])
+  const [relationDefinitions, setRelationDefinitions] = useState<MatrixRelationDefinition[]>([])
+  const [relationAttributes, setRelationAttributes] = useState<Record<string, string>>({})
   const [direction, setDirection] = useState<'row_to_col' | 'col_to_row'>('row_to_col')
   const [matrix, setMatrix] = useState<MatrixData | null>(null)
   const [selectedCells, setSelectedCells] = useState<Set<string>>(new Set())
@@ -115,8 +110,8 @@ export function TraceMatrixEditor({
     void invoke<MatrixScope[]>('trace.matrixScopes').then((result) => {
       if (!result.ok) return
       setScopes(result.result)
-      const initialRowId = `design:${initialRow}`
-      const initialColId = `design:${initialCol}`
+      const initialRowId = initialRow.includes(':') ? initialRow : `design:${initialRow}`
+      const initialColId = initialCol.includes(':') ? initialCol : `design:${initialCol}`
       setRowScopeIds((current) =>
         current.length > 0
           ? current
@@ -146,7 +141,7 @@ export function TraceMatrixEditor({
     })
     if (result.ok) {
       setMatrix(result.result)
-      setAllRelationTypes(result.result.relationTypes)
+      setRelationDefinitions(result.result.relationDefinitions)
     } else {
       notify('error', 'トレースマトリクスを取得できません', result.error.message)
     }
@@ -155,7 +150,12 @@ export function TraceMatrixEditor({
   useEffect(() => {
     void load()
     return onBackendEvent((event) => {
-      if (event === 'relation.updated' || event === 'intermediate.updated' || event === 'design_model.updated') {
+      if (
+        event === 'relation.updated' ||
+        event === 'ontology.updated' ||
+        event === 'intermediate.updated' ||
+        event === 'design_model.updated'
+      ) {
         void load()
       }
     })
@@ -179,6 +179,7 @@ export function TraceMatrixEditor({
     const result = await invoke<{ added: number; deleted: number; unchanged: number }>('trace.updateMatrix', {
       pairs,
       relationTypes,
+      relationAttributes,
       direction,
       operation
     })
@@ -200,7 +201,7 @@ export function TraceMatrixEditor({
       toggle: 'toggle'
     }
     if (operation === 'toggle' || result.result.unchanged === 0) {
-      const request = { pairs, relationTypes, direction }
+      const request = { pairs, relationTypes, relationAttributes, direction }
       const apply = async (op: 'add' | 'delete' | 'toggle'): Promise<void> => {
         const res = await invoke('trace.updateMatrix', { ...request, operation: op })
         if (!res.ok) throw new Error(res.error.message)
@@ -340,24 +341,61 @@ export function TraceMatrixEditor({
         <div className="trace-matrix-edit-config">
           <fieldset>
             <legend>表示・編集する関係種別（複数選択可）</legend>
+            <label className="trace-relation-select-all">
+              <input
+                type="checkbox"
+                checked={
+                  relationDefinitions.length > 0 &&
+                  relationDefinitions.every((definition) => relationTypes.includes(definition.relationType))
+                }
+                onChange={(event) =>
+                  setRelationTypes(
+                    event.target.checked ? relationDefinitions.map((definition) => definition.relationType) : []
+                  )
+                }
+                data-testid="trace-relation-all"
+              />
+              全選択 ON/OFF
+            </label>
             <div className="trace-relation-options">
-              {allRelationTypes.map((type) => (
-                <label key={type} style={{ '--relation-color': RELATION_COLORS[type] } as React.CSSProperties}>
-                  <input
-                    aria-label={type}
-                    data-testid={`trace-relation-${type}`}
-                    type="checkbox"
-                    checked={relationTypes.includes(type)}
-                    onChange={(event) =>
-                      setRelationTypes((current) =>
-                        event.target.checked ? [...current, type] : current.filter((value) => value !== type)
-                      )
-                    }
-                  />
-                  <span>{RELATION_LABELS[type]}</span>
-                  {type}
-                </label>
-              ))}
+              {relationDefinitions.map((definition) => {
+                const type = definition.relationType
+                return (
+                  <label key={type} style={{ '--relation-color': definition.iconColor } as React.CSSProperties}>
+                    <input
+                      aria-label={type}
+                      data-testid={`trace-relation-${type}`}
+                      type="checkbox"
+                      checked={relationTypes.includes(type)}
+                      onChange={(event) =>
+                        setRelationTypes((current) =>
+                          event.target.checked ? [...current, type] : current.filter((value) => value !== type)
+                        )
+                      }
+                    />
+                    <span>{definition.iconText}</span>
+                    {type}
+                    {definition.isEnabled ? '' : '（無効）'}
+                    {definition.requiredAttr && relationTypes.includes(type) && (
+                      <select
+                        aria-label={`${type} 必須属性`}
+                        data-testid={`trace-relation-attribute-${type}`}
+                        value={relationAttributes[type] ?? ''}
+                        onChange={(event) =>
+                          setRelationAttributes((current) => ({ ...current, [type]: event.target.value }))
+                        }
+                      >
+                        <option value="">仮設定（作成中）</option>
+                        {(ATTRIBUTE_OPTIONS[definition.requiredAttr] ?? []).map((value) => (
+                          <option key={value} value={value}>
+                            {value}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </label>
+                )
+              })}
             </div>
           </fieldset>
           <div className="trace-matrix-actions">
@@ -379,7 +417,7 @@ export function TraceMatrixEditor({
               onClick={() => void update('add')}
               data-testid="trace-matrix-add"
             >
-              選択へ追加
+              選択
             </button>
             <button
               type="button"
@@ -388,7 +426,7 @@ export function TraceMatrixEditor({
               onClick={() => void update('delete')}
               data-testid="trace-matrix-delete"
             >
-              選択から削除
+              削除
             </button>
             <span>{selectedPairs.length} セル選択</span>
             <label className="trace-matrix-zoom">
@@ -468,7 +506,7 @@ export function TraceMatrixEditor({
                             ? links
                                 .map(
                                   (link) =>
-                                    `${link.direction === 'row_to_col' ? '→' : '←'} ${link.relationType} [${link.reviewStatus ?? '-'}]`
+                                    `${link.direction === 'row_to_col' ? '→' : '←'} ${link.relationType} [${traceReviewLabel(link.reviewStatus)}]`
                                 )
                                 .join('\n')
                             : '関係なし。クリックで設定をトグルします'
@@ -480,10 +518,18 @@ export function TraceMatrixEditor({
                           {links.map((link) => (
                             <i
                               key={link.uid}
-                              style={{ '--relation-color': RELATION_COLORS[link.relationType] } as React.CSSProperties}
+                              style={
+                                {
+                                  '--relation-color':
+                                    relationDefinitions.find(
+                                      (definition) => definition.relationType === link.relationType
+                                    )?.iconColor ?? '#9099a8'
+                                } as React.CSSProperties
+                              }
                             >
                               {link.direction === 'row_to_col' ? '→' : '←'}
-                              {RELATION_LABELS[link.relationType] ?? '?'}
+                              {relationDefinitions.find((definition) => definition.relationType === link.relationType)
+                                ?.iconText ?? '?'}
                             </i>
                           ))}
                         </span>

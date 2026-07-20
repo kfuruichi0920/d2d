@@ -16,10 +16,7 @@
         "additionalProperties": true,
         "properties": {
           "temp_id": { "type": "string", "minLength": 1 },
-          "category": {
-            "type": "string",
-            "enum": ["STD", "REQ", "CST", "FUNC", "STRUCT", "BEH", "STATE", "IF", "DATA", "VERIF", "MGMT", "IMPL"]
-          },
+          "category": { "type": "string", "pattern": "^model_[a-z][a-z0-9_]*$" },
           "title": { "type": "string", "minLength": 1 },
           "description": { "type": ["string", "null"] },
           "confidence": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
@@ -36,22 +33,7 @@
         "properties": {
           "from_temp_id": { "type": "string", "minLength": 1 },
           "to_temp_id": { "type": "string", "minLength": 1 },
-          "relation_type": {
-            "type": "string",
-            "enum": [
-              "based_on",
-              "satisfies",
-              "allocated_to",
-              "verifies",
-              "contains",
-              "decomposes",
-              "implements",
-              "uses",
-              "calls",
-              "conflicts_with",
-              "relates_to"
-            ]
-          },
+          "relation_type": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
           "confidence": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
           "rationale": { "type": ["string", "null"] },
           "attributes": { "type": ["object", "null"] }

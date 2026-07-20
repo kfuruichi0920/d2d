@@ -105,9 +105,7 @@ export function registerTraceApi(router: ApiRouter): void {
     if (!['row_to_col', 'col_to_row'].includes(direction)) {
       throw new BackendError('validation', 'direction は row_to_col/col_to_row のいずれかです', direction)
     }
-    if (relationTypes.some((type) => !RELATION_TYPES.includes(type))) {
-      throw new BackendError('validation', 'relationTypesに未定義の関係種別があります', relationTypes.join(','))
-    }
+
     const pairs = Array.isArray(p.pairs)
       ? p.pairs.map((value) => {
           const pair = asRecord(value)
@@ -118,7 +116,16 @@ export function registerTraceApi(router: ApiRouter): void {
       pairs,
       relationTypes,
       direction,
-      operation
+      operation,
+      relationAttributes:
+        typeof p.relationAttributes === 'object' && p.relationAttributes !== null
+          ? Object.fromEntries(
+              Object.entries(p.relationAttributes as Record<string, unknown>).map(([key, value]) => [
+                key,
+                String(value)
+              ])
+            )
+          : {}
     } as MatrixUpdateInput)
   })
   /** 複数のResource集合列と方向付きリンクを返すインパクト分析（TRACE-030〜038、UI-015）。 */
@@ -166,10 +173,10 @@ export function registerTraceApi(router: ApiRouter): void {
     // 設計要素ごとに based_on を最大3段辿る（④→③→②→①）
     const elements = db
       .prepare(
-        `SELECT uid, code, title, design_category FROM entity_registry
-          WHERE project_uid = ? AND design_category IS NOT NULL AND status <> 'deleted' ORDER BY code`
+        `SELECT uid, code, title, entity_type AS model_type FROM entity_registry
+          WHERE project_uid = ? AND entity_type LIKE 'model_%' AND status <> 'deleted' ORDER BY code`
       )
-      .all(info.projectUid) as { uid: string; code: string; title: string | null; design_category: string }[]
+      .all(info.projectUid) as { uid: string; code: string; title: string | null; model_type: string }[]
     const basisOf = db.prepare(
       `SELECT t.to_uid, e.code, e.title, e.entity_type FROM trace_link t
          JOIN entity_registry le ON le.uid = t.uid AND le.status <> 'deleted'

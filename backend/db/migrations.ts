@@ -27,6 +27,18 @@ export interface Migration {
  */
 export const MIGRATIONS: Migration[] = [
   {
+    version: '2.0.0',
+    description: '設計モデルをresource_*からmodel_*へ分離（破壊的変更）',
+    apply() {
+      throw new BackendError(
+        'db',
+        'schema 1.x のプロジェクトは開けません。schema 2.0.0 でプロジェクトを再作成してください',
+        '本改修は後方互換マイグレーションを提供しません',
+        false
+      )
+    }
+  },
+  {
     // TBD-04 決定: resource_table_cell を別テーブルへ分割（互換的な機能追加 → 第2桁更新）
     // セル ID（uid）は行内で安定に保持し、セル単位の設計根拠（EDIT-024/025）は
     // trace_link.evidence_span からこの uid を参照して利用する。
@@ -267,6 +279,78 @@ export const MIGRATIONS: Migration[] = [
     }
   },
   {
+    version: '2.1.0',
+    description: 'LLM候補セットの一時保存を追加（MODEL-030）',
+    apply(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS llm_candidate_draft (
+          llm_run_uid TEXT PRIMARY KEY,
+          candidate_set_json TEXT NOT NULL CHECK (json_valid(candidate_set_json) AND json_type(candidate_set_json)='object'),
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (llm_run_uid) REFERENCES llm_run_ref(uid) ON DELETE CASCADE
+        );
+      `)
+    }
+  },
+  {
+    version: '2.2.0',
+    description: '振舞モデル名・関係作成中状態・関係アイコン設定を追加（MODEL-033〜035 / TRACE-041〜043）',
+    apply(db) {
+      const legacyBehavior = db.prepare(`SELECT 1 FROM sqlite_master WHERE type='table' AND name='model_action'`).get()
+      if (legacyBehavior) {
+        throw new BackendError(
+          'db',
+          'model_action を含む旧プロジェクトは再作成してください',
+          'model_beh への変更は後方互換マイグレーションを提供しません',
+          false
+        )
+      }
+      const relationColumns = db.prepare(`PRAGMA table_info(ontology_relation_definition)`).all() as { name: string }[]
+      if (!relationColumns.some((column) => column.name === 'icon_color')) {
+        db.exec(`ALTER TABLE ontology_relation_definition ADD COLUMN icon_color TEXT NOT NULL DEFAULT '#9099a8'`)
+      }
+      if (!relationColumns.some((column) => column.name === 'icon_text')) {
+        db.exec(`ALTER TABLE ontology_relation_definition ADD COLUMN icon_text TEXT NOT NULL DEFAULT '?'`)
+      }
+      const traceSql = (
+        db.prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='trace_link'`).get() as { sql: string }
+      ).sql
+      if (!traceSql.includes(`'creating'`)) {
+        db.exec(`
+          ALTER TABLE trace_link RENAME TO trace_link_before_2_2;
+          CREATE TABLE trace_link (
+            uid TEXT PRIMARY KEY, from_uid TEXT NOT NULL, to_uid TEXT NOT NULL, relation_type TEXT NOT NULL,
+            direction TEXT NOT NULL DEFAULT 'forward' CHECK (direction IN ('forward', 'bidirectional')),
+            rationale TEXT, confidence REAL CHECK (confidence IS NULL OR (confidence >= 0.0 AND confidence <= 1.0)),
+            created_by TEXT CHECK (created_by IS NULL OR created_by IN ('human', 'rule', 'llm')),
+            review_status TEXT DEFAULT 'draft' CHECK (review_status IS NULL OR review_status IN ('creating', 'draft', 'review', 'approved', 'rejected', 'provisional')),
+            basis_kind TEXT CHECK (basis_kind IS NULL OR basis_kind IN ('original', 'extracted', 'normalized', 'inferred', 'human_approved')),
+            evidence_span TEXT, transform_note TEXT,
+            allocation_kind TEXT CHECK (allocation_kind IS NULL OR allocation_kind IN ('structure', 'behavior', 'state', 'interface', 'data')),
+            allocation_role TEXT CHECK (allocation_role IS NULL OR allocation_role IN ('primary', 'supporting')),
+            usage_kind TEXT CHECK (usage_kind IS NULL OR usage_kind IN ('input', 'output', 'read', 'write', 'update', 'publish', 'subscribe')),
+            context_uid TEXT, condition TEXT, severity TEXT,
+            conflict_status TEXT CHECK (conflict_status IS NULL OR conflict_status IN ('suspected', 'confirmed', 'resolved', 'dismissed')),
+            resolution_note TEXT, llm_run_uid TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (uid) REFERENCES entity_registry(uid) ON DELETE CASCADE,
+            FOREIGN KEY (from_uid) REFERENCES entity_registry(uid) ON DELETE CASCADE,
+            FOREIGN KEY (to_uid) REFERENCES entity_registry(uid) ON DELETE CASCADE,
+            FOREIGN KEY (context_uid) REFERENCES entity_registry(uid) ON DELETE SET NULL,
+            FOREIGN KEY (llm_run_uid) REFERENCES llm_run_ref(uid) ON DELETE SET NULL
+          );
+          INSERT INTO trace_link SELECT * FROM trace_link_before_2_2;
+          DROP TABLE trace_link_before_2_2;
+          CREATE INDEX idx_trace_link_pair_type ON trace_link(from_uid, to_uid, relation_type);
+          CREATE INDEX idx_trace_link_from_type ON trace_link(from_uid, relation_type);
+          CREATE INDEX idx_trace_link_to_type ON trace_link(to_uid, relation_type);
+          CREATE INDEX idx_trace_link_relation_type ON trace_link(relation_type);
+          CREATE INDEX idx_trace_link_review_status ON trace_link(review_status);
+          CREATE INDEX idx_trace_link_context ON trace_link(context_uid);
+        `)
+      }
+    }
+  },
+  {
     version: '1.10.0',
     description: '図・表・コードResource編集情報の拡張（EDIT-087〜091）',
     apply(db) {
@@ -282,7 +366,9 @@ export const MIGRATIONS: Migration[] = [
   }
 ]
 /** 最新の schema_version（新規 DB 作成時にもマイグレーションを適用して到達させる） */
-export const LATEST_SCHEMA_VERSION = MIGRATIONS.at(-1)?.version ?? INITIAL_SCHEMA_VERSION
+export const LATEST_SCHEMA_VERSION =
+  [INITIAL_SCHEMA_VERSION, ...MIGRATIONS.map((item) => item.version)].sort(compareVersion).at(-1) ??
+  INITIAL_SCHEMA_VERSION
 
 export function compareVersion(a: string, b: string): number {
   const pa = a.split('.').map(Number)
@@ -329,6 +415,14 @@ export function checkIntegrity(db: Database): void {
  */
 export function runMigrations(db: Database, dbFilePath: string): string {
   const current = getSchemaVersion(db)
+  if (compareVersion(current, '2.0.0') < 0) {
+    throw new BackendError(
+      'db',
+      'schema 1.x のプロジェクトは開けません。schema 2.0.0 でプロジェクトを再作成してください',
+      '本改修は後方互換マイグレーションを提供しません',
+      false
+    )
+  }
   const pending = pendingMigrations(current)
   if (pending.length === 0) {
     return current

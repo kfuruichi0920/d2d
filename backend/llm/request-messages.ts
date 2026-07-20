@@ -64,15 +64,42 @@ export function buildDesignCandidateMessages(db: Database, chunkUid: string): Ch
       db.prepare('SELECT additional_prompt FROM chunk WHERE uid=?').get(chunkUid) as
         { additional_prompt: string } | undefined
     )?.additional_prompt ?? ''
+  const modelDefinitions = db
+    .prepare(
+      `SELECT model_type, label, layer, definition, field_schema_json
+                FROM ontology_model_definition WHERE is_enabled=1 ORDER BY sort_order, model_type`
+    )
+    .all() as Array<{ model_type: string; label: string; layer: string; definition: string; field_schema_json: string }>
+  const relationDefinitions = db
+    .prepare(
+      `SELECT relation_type, label, definition, required_attr
+                FROM ontology_relation_definition WHERE is_enabled=1 ORDER BY sort_order, relation_type`
+    )
+    .all() as Array<{ relation_type: string; label: string; definition: string; required_attr: string | null }>
+  const allowances = db
+    .prepare(
+      `SELECT a.relation_type, a.source_model_type, a.target_model_type
+         FROM ontology_relation_allowance a
+         JOIN ontology_relation_definition r ON r.relation_type=a.relation_type AND r.is_enabled=1
+         JOIN ontology_model_definition s ON s.model_type=a.source_model_type AND s.is_enabled=1
+         JOIN ontology_model_definition t ON t.model_type=a.target_model_type AND t.is_enabled=1
+        WHERE a.allowed=1
+        ORDER BY a.relation_type, a.source_model_type, a.target_model_type`
+    )
+    .all() as Array<{ relation_type: string; source_model_type: string; target_model_type: string }>
   const systemPrompt = [
     'あなたは設計文書から設計モデル候補を抽出するAIです。',
-    '与えられた本文から設計要素候補と関係候補を抽出し、次の JSON だけを出力してください。',
-    '{"elements":[{"temp_id":"t1","category":"REQ","title":"...","description":"...","evidence":"根拠となる本文の抜粋"}],',
+    '以下の採用中オントロジー定義を判断基準として、本文から設計要素候補と関係候補を抽出してください。定義にないモデルや関係を作らないでください。',
+    `設計モデル定義: ${JSON.stringify(modelDefinitions)}`,
+    `設計モデル関係定義: ${JSON.stringify(relationDefinitions)}`,
+    `関係の許容組合せ: ${JSON.stringify(allowances)}`,
+    '次の JSON だけを出力してください。',
+    '{"elements":[{"temp_id":"t1","category":"model_req","title":"...","description":"...","evidence":"根拠となる本文の抜粋"}],',
     ' "relations":[{"from_temp_id":"t2","to_temp_id":"t1","relation_type":"satisfies","rationale":"..."}],',
     ' "warnings":[]}',
-    'category は STD/REQ/CST/FUNC/STRUCT/BEH/STATE/IF/DATA/VERIF/MGMT/IMPL のいずれか。',
-    'relation_type は based_on/satisfies/allocated_to/verifies/contains/decomposes/implements/uses/calls/conflicts_with/relates_to のいずれか。',
-    '関係の from_temp_id / to_temp_id は elements の temp_id を参照すること。'
+    `category は有効な model_*（${modelDefinitions.map((model) => model.model_type).join('/')}）のいずれか。`,
+    `relation_type は有効な関係（${relationDefinitions.map((relation) => relation.relation_type).join('/')}）のいずれか。`,
+    '関係の from_temp_id / to_temp_id は elements の temp_id を参照し、許容組合せに従うこと。'
   ].join('\n')
   return [
     { role: 'system', content: systemPrompt },

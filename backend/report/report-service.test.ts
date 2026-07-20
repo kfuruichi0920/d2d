@@ -73,8 +73,7 @@ describe('P13 レポート出力', () => {
     // ④ REQ + FUNC + satisfies 関係
     const req = registerEntity(db, {
       projectUid,
-      entityType: 'resource_text',
-      designCategory: 'REQ',
+      entityType: 'model_req',
       title: '応答時間要求',
       createdBy: 'user'
     })
@@ -83,8 +82,7 @@ describe('P13 レポート出力', () => {
     ).run(req.uid, '応答は100ms以内であること。')
     const func = registerEntity(db, {
       projectUid,
-      entityType: 'resource_text',
-      designCategory: 'FUNC',
+      entityType: 'model_func',
       title: '応答処理機能',
       createdBy: 'user'
     })
@@ -117,7 +115,7 @@ describe('P13 レポート出力', () => {
     // 設計観点 REQ のみ → FUNC は要素節に出ない
     const reqOnly = buildReportMarkdown(db, projectUid, {
       format: 'markdown',
-      filters: { categories: ['REQ'] }
+      filters: { categories: ['model_req'] }
     }).markdown
     expect(reqOnly).toContain('REQ-000001')
     expect(reqOnly).not.toContain('#### FUNC-000001')

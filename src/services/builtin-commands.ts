@@ -392,6 +392,14 @@ export function registerBuiltinCommands(): void {
   })
 
   registerCommand({
+    id: 'designModelSettings.open',
+    title: '設計モデル設定を開く',
+    category: '設定',
+    isEnabled: (ctx) => ctx.hasProject,
+    run: () => editor().openResource('settings://design-model', '設計モデル設定')
+  })
+
+  registerCommand({
     id: 'projectSettings.open',
     title: 'プロジェクト設定を開く',
     category: '設定',

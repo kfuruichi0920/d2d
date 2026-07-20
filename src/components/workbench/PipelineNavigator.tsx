@@ -136,7 +136,7 @@ export function PipelineNavigator(): React.JSX.Element {
           className="wb-stage"
           data-testid="pipeline-analysis"
           disabled={!project}
-          title="全抽出データ・全中間データ・全モデルの汎用インパクト分析を開く"
+          title="全抽出データ・全中間データ・全チャンク・全設計モデルの汎用インパクト分析を開く"
           onClick={() => openResource('trace://list-link/pipeline', '汎用インパクト分析', { preview: false })}
         >
           分析

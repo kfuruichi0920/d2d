@@ -1,9 +1,9 @@
 /**
- * project.db 初期スキーマ（schema_version 1.0.0）。
+ * project.db 初期スキーマ（schema_version 2.0.0）。
  * DDL は sdd_data_structure.md §7「SQLite DDL案」に従う。
  * 変更時は §10.4 のマイグレーション手順に従い、backend/db/migrations.ts へ追加する。
  */
-export const INITIAL_SCHEMA_VERSION = '1.0.0'
+export const INITIAL_SCHEMA_VERSION = '2.0.0'
 
 export const INITIAL_SCHEMA_SQL = `
 CREATE TABLE project (
@@ -11,7 +11,7 @@ CREATE TABLE project (
     name TEXT NOT NULL,
     description TEXT,
     root_path TEXT,
-    schema_version TEXT NOT NULL DEFAULT '1.0.0',
+    schema_version TEXT NOT NULL DEFAULT '2.0.0',
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CHECK (length(uid) >= 32)
@@ -76,45 +76,7 @@ CREATE TABLE batch_operation_info (
 CREATE TABLE entity_registry (
     uid TEXT PRIMARY KEY,
     project_uid TEXT NOT NULL,
-    entity_type TEXT NOT NULL CHECK (entity_type IN (
-        'project',
-        'project_artifact_setting',
-        'project_artifact_relation',
-        'project_dev_phase_setting',
-        'batch_operation_info',
-        'source_document',
-        'source_location',
-        'blob_resource',
-        'extracted_document',
-        'extracted_item',
-        'intermediate_document',
-        'intermediate_item',
-        'chunk',
-        'chunk_item',
-        'resource_label',
-        'resource_text',
-        'resource_list',
-        'resource_figure',
-        'resource_table',
-        'resource_formula',
-        'resource_code',
-        'resource_model',
-        'resource_scenario',
-        'resource_interface',
-        'resource_state_transition',
-        'resource_data_structure',
-        'resource_reference',
-        'resource_metadata',
-        'resource_glossary',
-        'resource_glossary_synonym',
-        'trace_link',
-        'llm_run_ref',
-        'prompt_template'
-    )),
-    design_category TEXT CHECK (design_category IS NULL OR design_category IN (
-        'SRC', 'STD', 'REQ', 'CST', 'FUNC', 'STRUCT', 'BEH',
-        'STATE', 'IF', 'DATA', 'VERIF', 'MGMT', 'IMPL'
-    )),
+    entity_type TEXT NOT NULL,
     code TEXT NOT NULL CHECK (code GLOB '*-[0-9][0-9][0-9][0-9][0-9][0-9]'),
     title TEXT,
     status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'review', 'approved', 'rejected', 'deleted')),
@@ -253,6 +215,12 @@ CREATE TABLE resource_table (
     FOREIGN KEY (uid) REFERENCES entity_registry(uid) ON DELETE CASCADE
 );
 
+CREATE TABLE resource_table_cell (
+    uid TEXT PRIMARY KEY, table_uid TEXT NOT NULL, row_no INTEGER NOT NULL CHECK (row_no >= 0),
+    col_no INTEGER NOT NULL CHECK (col_no >= 0), cell_text TEXT NOT NULL DEFAULT '', colspan INTEGER NOT NULL DEFAULT 1 CHECK (colspan >= 1),
+    is_header INTEGER NOT NULL DEFAULT 0 CHECK (is_header IN (0, 1)), UNIQUE (table_uid, row_no, col_no),
+    FOREIGN KEY (table_uid) REFERENCES resource_table(uid) ON DELETE CASCADE
+);
 CREATE TABLE resource_formula (
     uid TEXT PRIMARY KEY,
     formula_text TEXT NOT NULL,
@@ -291,57 +259,9 @@ CREATE TABLE resource_model (
     FOREIGN KEY (uid) REFERENCES entity_registry(uid) ON DELETE CASCADE
 );
 
-CREATE TABLE resource_scenario (
-    uid TEXT PRIMARY KEY,
-    scenario_name TEXT,
-    actors_json TEXT,
-    trigger_text TEXT,
-    preconditions_json TEXT,
-    steps_json TEXT,
-    postconditions_json TEXT,
-    source_resource_uids_json TEXT,
-    FOREIGN KEY (uid) REFERENCES entity_registry(uid) ON DELETE CASCADE
-);
 
-CREATE TABLE resource_interface (
-    uid TEXT PRIMARY KEY,
-    interface_name TEXT,
-    interface_kind TEXT CHECK (interface_kind IS NULL OR interface_kind IN ('api', 'communication', 'file', 'db', 'screen', 'device', 'library', 'other')),
-    provider TEXT,
-    consumer TEXT,
-    protocol TEXT,
-    operations_json TEXT,
-    inputs_json TEXT,
-    outputs_json TEXT,
-    errors_json TEXT,
-    timing TEXT,
-    constraints_json TEXT,
-    FOREIGN KEY (uid) REFERENCES entity_registry(uid) ON DELETE CASCADE
-);
 
-CREATE TABLE resource_state_transition (
-    uid TEXT PRIMARY KEY,
-    state_machine_name TEXT,
-    states_json TEXT,
-    events_json TEXT,
-    transitions_json TEXT,
-    initial_state TEXT,
-    final_states_json TEXT,
-    source_resource_uids_json TEXT,
-    FOREIGN KEY (uid) REFERENCES entity_registry(uid) ON DELETE CASCADE
-);
 
-CREATE TABLE resource_data_structure (
-    uid TEXT PRIMARY KEY,
-    data_structure_name TEXT,
-    data_structure_kind TEXT CHECK (data_structure_kind IS NULL OR data_structure_kind IN ('db_table', 'message', 'file', 'struct', 'record', 'screen_item', 'other')),
-    fields_json TEXT,
-    keys_json TEXT,
-    relations_json TEXT,
-    constraints_json TEXT,
-    source_resource_uids_json TEXT,
-    FOREIGN KEY (uid) REFERENCES entity_registry(uid) ON DELETE CASCADE
-);
 
 CREATE TABLE resource_reference (
     uid TEXT PRIMARY KEY,
@@ -360,19 +280,6 @@ CREATE TABLE resource_reference (
     FOREIGN KEY (target_document_uid) REFERENCES source_document(uid) ON DELETE SET NULL
 );
 
-CREATE TABLE resource_metadata (
-    uid TEXT PRIMARY KEY,
-    metadata_kind TEXT NOT NULL CHECK (metadata_kind IN ('document', 'extraction', 'quality', 'review', 'version', 'diff', 'other')),
-    target_resource_uid TEXT,
-    metadata_key TEXT NOT NULL,
-    metadata_value TEXT,
-    value_type TEXT NOT NULL DEFAULT 'string' CHECK (value_type IN ('string', 'number', 'boolean', 'date', 'json')),
-    unit TEXT,
-    metadata_source TEXT CHECK (metadata_source IS NULL OR metadata_source IN ('file', 'parser', 'user', 'system', 'other')),
-    UNIQUE (target_resource_uid, metadata_key),
-    FOREIGN KEY (uid) REFERENCES entity_registry(uid) ON DELETE CASCADE,
-    FOREIGN KEY (target_resource_uid) REFERENCES entity_registry(uid) ON DELETE CASCADE
-);
 
 CREATE TABLE prompt_template (
     uid TEXT PRIMARY KEY,
@@ -404,6 +311,8 @@ CREATE TABLE llm_run_ref (
     error_detail TEXT,
     prompt_blob_uid TEXT,
     result_blob_uid TEXT,
+    raw_request_blob_uid TEXT,
+    raw_response_blob_uid TEXT,
     status TEXT NOT NULL CHECK (status IN ('success', 'failed', 'partial')),
     executed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (uid) REFERENCES entity_registry(uid) ON DELETE CASCADE,
@@ -424,6 +333,10 @@ CREATE TABLE resource_glossary (
     is_prohibited INTEGER NOT NULL DEFAULT 0 CHECK (is_prohibited IN (0, 1)),
     llm_run_uid TEXT,
     confirmed_at TEXT,
+    dictionary_scope TEXT NOT NULL DEFAULT 'project',
+    version_tag TEXT NOT NULL DEFAULT '1',
+    is_deprecated INTEGER NOT NULL DEFAULT 0 CHECK (is_deprecated IN (0,1)),
+    access_level TEXT NOT NULL DEFAULT 'write' CHECK (access_level IN ('read','write','none')),
     UNIQUE (normalized_text, language),
     FOREIGN KEY (uid) REFERENCES entity_registry(uid) ON DELETE CASCADE,
     FOREIGN KEY (llm_run_uid) REFERENCES llm_run_ref(uid) ON DELETE SET NULL
@@ -440,6 +353,27 @@ CREATE TABLE resource_glossary_synonym (
     FOREIGN KEY (glossary_uid) REFERENCES resource_glossary(uid) ON DELETE CASCADE
 );
 
+CREATE TABLE semantic_text (
+    uid TEXT PRIMARY KEY, project_uid TEXT NOT NULL, owner_uid TEXT NOT NULL, field_name TEXT NOT NULL,
+    original_text TEXT NOT NULL, display_text TEXT NOT NULL, policy_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE (owner_uid, field_name),
+    FOREIGN KEY (project_uid) REFERENCES project(uid) ON DELETE CASCADE, FOREIGN KEY (owner_uid) REFERENCES entity_registry(uid) ON DELETE CASCADE
+);
+CREATE TABLE semantic_reference (
+    uid TEXT PRIMARY KEY, semantic_text_uid TEXT NOT NULL, start_offset INTEGER NOT NULL CHECK (start_offset >= 0),
+    end_offset INTEGER NOT NULL CHECK (end_offset > start_offset), surface_text TEXT NOT NULL, target_uid TEXT NOT NULL,
+    target_kind TEXT NOT NULL CHECK (target_kind IN ('glossary', 'model')), display_mode TEXT NOT NULL CHECK (display_mode IN ('link', 'string', 'id', 'uid')),
+    relation_type TEXT NOT NULL DEFAULT 'relates_to', status TEXT NOT NULL DEFAULT 'candidate' CHECK (status IN ('candidate', 'approved', 'rejected')),
+    source TEXT NOT NULL DEFAULT 'user' CHECK (source IN ('user', 'dictionary', 'morphology', 'llm')), confidence REAL,
+    created_at TEXT NOT NULL, updated_at TEXT NOT NULL, FOREIGN KEY (semantic_text_uid) REFERENCES semantic_text(uid) ON DELETE CASCADE,
+    FOREIGN KEY (target_uid) REFERENCES entity_registry(uid)
+);
+CREATE TABLE semantic_normalization_history (
+    uid TEXT PRIMARY KEY, semantic_text_uid TEXT NOT NULL, before_text TEXT NOT NULL, after_text TEXT NOT NULL,
+    method TEXT NOT NULL CHECK (method IN ('mechanical', 'dictionary', 'llm', 'user')),
+    status TEXT NOT NULL CHECK (status IN ('candidate', 'approved', 'rejected', 'reverted')), detail_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL, decided_at TEXT, FOREIGN KEY (semantic_text_uid) REFERENCES semantic_text(uid) ON DELETE CASCADE
+);
 CREATE TABLE extracted_item (
     uid TEXT PRIMARY KEY,
     extracted_document_uid TEXT NOT NULL,
@@ -454,12 +388,7 @@ CREATE TABLE extracted_item (
         'resource_formula',
         'resource_code',
         'resource_model',
-        'resource_scenario',
-        'resource_interface',
-        'resource_state_transition',
-        'resource_data_structure',
-        'resource_reference',
-        'resource_metadata'
+        'resource_reference'
     )),
     resource_uid TEXT NOT NULL,
     FOREIGN KEY (uid) REFERENCES entity_registry(uid) ON DELETE CASCADE,
@@ -497,12 +426,7 @@ CREATE TABLE intermediate_item (
         'resource_formula',
         'resource_code',
         'resource_model',
-        'resource_scenario',
-        'resource_interface',
-        'resource_state_transition',
-        'resource_data_structure',
-        'resource_reference',
-        'resource_metadata'
+        'resource_reference'
     )),
     resource_uid TEXT NOT NULL,
     FOREIGN KEY (uid) REFERENCES entity_registry(uid) ON DELETE CASCADE,
@@ -535,34 +459,59 @@ CREATE TABLE chunk_item (
     FOREIGN KEY (intermediate_item_uid) REFERENCES intermediate_item(uid) ON DELETE CASCADE
 );
 
+CREATE TABLE ontology_version (
+    singleton INTEGER PRIMARY KEY CHECK (singleton = 1), version TEXT NOT NULL DEFAULT '0.1.0',
+    confirmed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, confirmed_by TEXT
+);
+CREATE TABLE ontology_model_definition (
+    model_type TEXT PRIMARY KEY CHECK (model_type GLOB 'model_[a-z0-9_]*'),
+    code_prefix TEXT NOT NULL UNIQUE CHECK (code_prefix GLOB '[A-Z][A-Z0-9_]*'), label TEXT NOT NULL,
+    layer TEXT NOT NULL, definition TEXT NOT NULL, field_schema_json TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(field_schema_json) AND json_type(field_schema_json)='array'),
+    is_enabled INTEGER NOT NULL DEFAULT 1 CHECK (is_enabled IN (0, 1)), is_builtin INTEGER NOT NULL DEFAULT 0 CHECK (is_builtin IN (0, 1)),
+    sort_order INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE ontology_relation_definition (
+    relation_type TEXT PRIMARY KEY CHECK (relation_type GLOB '[a-z][a-z0-9_]*'), label TEXT NOT NULL, definition TEXT NOT NULL,
+    required_attr TEXT, icon_color TEXT NOT NULL DEFAULT '#9099a8', icon_text TEXT NOT NULL DEFAULT '?', is_enabled INTEGER NOT NULL DEFAULT 1 CHECK (is_enabled IN (0, 1)),
+    is_builtin INTEGER NOT NULL DEFAULT 0 CHECK (is_builtin IN (0, 1)), sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE ontology_relation_allowance (
+    relation_type TEXT NOT NULL, source_model_type TEXT NOT NULL, target_model_type TEXT NOT NULL,
+    allowed INTEGER NOT NULL DEFAULT 1 CHECK (allowed IN (0, 1)), PRIMARY KEY (relation_type, source_model_type, target_model_type),
+    FOREIGN KEY (relation_type) REFERENCES ontology_relation_definition(relation_type) ON DELETE CASCADE,
+    FOREIGN KEY (source_model_type) REFERENCES ontology_model_definition(model_type),
+    FOREIGN KEY (target_model_type) REFERENCES ontology_model_definition(model_type)
+);
+CREATE TABLE model_src (uid TEXT PRIMARY KEY, summary TEXT NOT NULL DEFAULT '', detail_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(detail_json) AND json_type(detail_json)='object'), model_version INTEGER NOT NULL DEFAULT 1, FOREIGN KEY (uid) REFERENCES entity_registry(uid) ON DELETE CASCADE);
+CREATE TABLE model_std (uid TEXT PRIMARY KEY, summary TEXT NOT NULL DEFAULT '', detail_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(detail_json) AND json_type(detail_json)='object'), model_version INTEGER NOT NULL DEFAULT 1, FOREIGN KEY (uid) REFERENCES entity_registry(uid) ON DELETE CASCADE);
+CREATE TABLE model_req (uid TEXT PRIMARY KEY, summary TEXT NOT NULL DEFAULT '', detail_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(detail_json) AND json_type(detail_json)='object'), model_version INTEGER NOT NULL DEFAULT 1, FOREIGN KEY (uid) REFERENCES entity_registry(uid) ON DELETE CASCADE);
+CREATE TABLE model_cst (uid TEXT PRIMARY KEY, summary TEXT NOT NULL DEFAULT '', detail_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(detail_json) AND json_type(detail_json)='object'), model_version INTEGER NOT NULL DEFAULT 1, FOREIGN KEY (uid) REFERENCES entity_registry(uid) ON DELETE CASCADE);
+CREATE TABLE model_func (uid TEXT PRIMARY KEY, summary TEXT NOT NULL DEFAULT '', detail_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(detail_json) AND json_type(detail_json)='object'), model_version INTEGER NOT NULL DEFAULT 1, FOREIGN KEY (uid) REFERENCES entity_registry(uid) ON DELETE CASCADE);
+CREATE TABLE model_struct (uid TEXT PRIMARY KEY, summary TEXT NOT NULL DEFAULT '', detail_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(detail_json) AND json_type(detail_json)='object'), model_version INTEGER NOT NULL DEFAULT 1, FOREIGN KEY (uid) REFERENCES entity_registry(uid) ON DELETE CASCADE);
+CREATE TABLE model_beh (uid TEXT PRIMARY KEY, summary TEXT NOT NULL DEFAULT '', detail_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(detail_json) AND json_type(detail_json)='object'), model_version INTEGER NOT NULL DEFAULT 1, FOREIGN KEY (uid) REFERENCES entity_registry(uid) ON DELETE CASCADE);
+CREATE TABLE model_state (uid TEXT PRIMARY KEY, summary TEXT NOT NULL DEFAULT '', detail_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(detail_json) AND json_type(detail_json)='object'), model_version INTEGER NOT NULL DEFAULT 1, FOREIGN KEY (uid) REFERENCES entity_registry(uid) ON DELETE CASCADE);
+CREATE TABLE model_data (uid TEXT PRIMARY KEY, summary TEXT NOT NULL DEFAULT '', detail_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(detail_json) AND json_type(detail_json)='object'), model_version INTEGER NOT NULL DEFAULT 1, FOREIGN KEY (uid) REFERENCES entity_registry(uid) ON DELETE CASCADE);
+CREATE TABLE model_if (uid TEXT PRIMARY KEY, summary TEXT NOT NULL DEFAULT '', detail_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(detail_json) AND json_type(detail_json)='object'), model_version INTEGER NOT NULL DEFAULT 1, FOREIGN KEY (uid) REFERENCES entity_registry(uid) ON DELETE CASCADE);
+CREATE TABLE model_verif (uid TEXT PRIMARY KEY, summary TEXT NOT NULL DEFAULT '', detail_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(detail_json) AND json_type(detail_json)='object'), model_version INTEGER NOT NULL DEFAULT 1, FOREIGN KEY (uid) REFERENCES entity_registry(uid) ON DELETE CASCADE);
+CREATE TABLE model_impl (uid TEXT PRIMARY KEY, summary TEXT NOT NULL DEFAULT '', detail_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(detail_json) AND json_type(detail_json)='object'), model_version INTEGER NOT NULL DEFAULT 1, FOREIGN KEY (uid) REFERENCES entity_registry(uid) ON DELETE CASCADE);
+CREATE TABLE model_mgmt (uid TEXT PRIMARY KEY, summary TEXT NOT NULL DEFAULT '', detail_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(detail_json) AND json_type(detail_json)='object'), model_version INTEGER NOT NULL DEFAULT 1, FOREIGN KEY (uid) REFERENCES entity_registry(uid) ON DELETE CASCADE);
+
 CREATE TABLE trace_link (
     uid TEXT PRIMARY KEY,
     from_uid TEXT NOT NULL,
     to_uid TEXT NOT NULL,
-    relation_type TEXT NOT NULL CHECK (relation_type IN (
-        'based_on',
-        'satisfies',
-        'allocated_to',
-        'verifies',
-        'contains',
-        'decomposes',
-        'implements',
-        'uses',
-        'calls',
-        'conflicts_with',
-        'relates_to'
-    )),
+    relation_type TEXT NOT NULL,
     direction TEXT NOT NULL DEFAULT 'forward' CHECK (direction IN ('forward', 'bidirectional')),
     rationale TEXT,
     confidence REAL CHECK (confidence IS NULL OR (confidence >= 0.0 AND confidence <= 1.0)),
     created_by TEXT CHECK (created_by IS NULL OR created_by IN ('human', 'rule', 'llm')),
-    review_status TEXT DEFAULT 'draft' CHECK (review_status IS NULL OR review_status IN ('draft', 'review', 'approved', 'rejected', 'provisional')),
+    review_status TEXT DEFAULT 'draft' CHECK (review_status IS NULL OR review_status IN ('creating', 'draft', 'review', 'approved', 'rejected', 'provisional')),
     basis_kind TEXT CHECK (basis_kind IS NULL OR basis_kind IN ('original', 'extracted', 'normalized', 'inferred', 'human_approved')),
     evidence_span TEXT,
     transform_note TEXT,
     allocation_kind TEXT CHECK (allocation_kind IS NULL OR allocation_kind IN ('structure', 'behavior', 'state', 'interface', 'data')),
     allocation_role TEXT CHECK (allocation_role IS NULL OR allocation_role IN ('primary', 'supporting')),
-    decomposition_kind TEXT CHECK (decomposition_kind IS NULL OR decomposition_kind IN ('structural', 'functional', 'behavioral', 'logical', 'refinement')),
     usage_kind TEXT CHECK (usage_kind IS NULL OR usage_kind IN ('input', 'output', 'read', 'write', 'update', 'publish', 'subscribe')),
     context_uid TEXT,
     condition TEXT,
@@ -579,19 +528,9 @@ CREATE TABLE trace_link (
     FOREIGN KEY (llm_run_uid) REFERENCES llm_run_ref(uid) ON DELETE SET NULL
 );
 
-CREATE TABLE relation_rule_master (
-    relation_type TEXT NOT NULL,
-    source_category TEXT NOT NULL,
-    target_category TEXT NOT NULL,
-    allowed INTEGER NOT NULL DEFAULT 1 CHECK (allowed IN (0, 1)),
-    required_attr TEXT,
-    description TEXT,
-    PRIMARY KEY (relation_type, source_category, target_category)
-);
 
 CREATE INDEX idx_entity_registry_project ON entity_registry(project_uid);
 CREATE INDEX idx_entity_registry_type ON entity_registry(entity_type);
-CREATE INDEX idx_entity_registry_design_category ON entity_registry(design_category);
 CREATE INDEX idx_entity_registry_status ON entity_registry(status);
 CREATE INDEX idx_entity_registry_owner ON entity_registry(owner_uid);
 CREATE INDEX idx_entity_registry_updated_at ON entity_registry(updated_at);
@@ -638,17 +577,23 @@ CREATE INDEX idx_resource_table_kind ON resource_table(table_kind);
 CREATE INDEX idx_resource_figure_hash ON resource_figure(image_hash);
 CREATE INDEX idx_resource_code_kind ON resource_code(code_kind);
 CREATE INDEX idx_resource_model_kind ON resource_model(model_kind);
-CREATE INDEX idx_resource_interface_kind ON resource_interface(interface_kind);
 CREATE INDEX idx_resource_reference_source ON resource_reference(source_resource_uid);
 CREATE INDEX idx_resource_reference_target ON resource_reference(target_resource_uid);
 CREATE INDEX idx_resource_reference_status ON resource_reference(resolution_status);
-CREATE INDEX idx_resource_metadata_target_key ON resource_metadata(target_resource_uid, metadata_key);
 CREATE INDEX idx_resource_glossary_text ON resource_glossary(term_text);
 CREATE INDEX idx_resource_glossary_category ON resource_glossary(category);
 CREATE INDEX idx_resource_glossary_prohibited ON resource_glossary(is_prohibited);
 CREATE INDEX idx_resource_glossary_llm_run ON resource_glossary(llm_run_uid);
 CREATE INDEX idx_resource_glossary_synonym_glossary ON resource_glossary_synonym(glossary_uid);
 CREATE INDEX idx_resource_glossary_synonym_text ON resource_glossary_synonym(synonym_text);
+
+CREATE INDEX idx_resource_table_cell_table ON resource_table_cell(table_uid, row_no, col_no);
+CREATE INDEX idx_semantic_text_owner ON semantic_text(owner_uid, field_name);
+CREATE INDEX idx_semantic_reference_text ON semantic_reference(semantic_text_uid, start_offset);
+CREATE INDEX idx_semantic_reference_target ON semantic_reference(target_uid, status, updated_at);
+CREATE INDEX idx_semantic_history_text ON semantic_normalization_history(semantic_text_uid, created_at);
+CREATE INDEX idx_ontology_model_enabled ON ontology_model_definition(is_enabled, sort_order);
+CREATE INDEX idx_ontology_relation_enabled ON ontology_relation_definition(is_enabled, sort_order);
 
 CREATE INDEX idx_trace_link_pair_type ON trace_link(from_uid, to_uid, relation_type);
 CREATE INDEX idx_trace_link_from_type ON trace_link(from_uid, relation_type);

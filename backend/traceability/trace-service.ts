@@ -14,7 +14,7 @@ export interface TraceNode {
   code: string
   title: string | null
   entity_type: string
-  design_category: string | null
+  model_type: string | null
   status: string
   hop: number
 }
@@ -86,7 +86,7 @@ export function getTraceSubgraph(db: Database, query: SubgraphQuery): TraceSubgr
            JOIN entity_registry le ON le.uid = t.uid AND le.status <> 'deleted'
           WHERE w.hop < ?
        )
-       SELECT e.uid, e.code, e.title, e.entity_type, e.design_category, e.status, MIN(w.hop) AS hop
+       SELECT e.uid, e.code, e.title, e.entity_type, e.entity_type AS model_type, e.status, MIN(w.hop) AS hop
          FROM walk w JOIN entity_registry e ON e.uid = w.uid
         WHERE e.status <> 'deleted'
         GROUP BY e.uid
@@ -145,7 +145,7 @@ export function getTraceMatrix(
     db
       .prepare(
         `SELECT uid, code, title FROM entity_registry
-          WHERE project_uid = ? AND design_category = ? AND status <> 'deleted' ORDER BY code`
+          WHERE project_uid = ? AND entity_type = ? AND status <> 'deleted' ORDER BY code`
       )
       .all(projectUid, category) as { uid: string; code: string; title: string | null }[]
 
@@ -158,8 +158,8 @@ export function getTraceMatrix(
         `SELECT t.from_uid, t.to_uid, t.relation_type
            FROM trace_link t
            JOIN entity_registry e ON e.uid = t.uid AND e.status <> 'deleted'
-           JOIN entity_registry ef ON ef.uid = t.from_uid AND ef.design_category = ?
-           JOIN entity_registry et ON et.uid = t.to_uid AND et.design_category = ?
+           JOIN entity_registry ef ON ef.uid = t.from_uid AND ef.entity_type = ?
+           JOIN entity_registry et ON et.uid = t.to_uid AND et.entity_type = ?
           ${relationType ? 'WHERE t.relation_type = ?' : ''}`
       )
       .all(...(relationType ? [rowCategory, colCategory, relationType] : [rowCategory, colCategory])) as {
@@ -192,7 +192,7 @@ export function checkConsistency(db: Database, projectUid: string): ConsistencyP
   const unconnected = db
     .prepare(
       `SELECT e.uid, e.code, e.title FROM entity_registry e
-        WHERE e.project_uid = ? AND e.design_category IS NOT NULL AND e.status <> 'deleted'
+        WHERE e.project_uid = ? AND e.entity_type LIKE 'model_%' AND e.status <> 'deleted'
           AND NOT EXISTS (
             SELECT 1 FROM trace_link t JOIN entity_registry le ON le.uid = t.uid AND le.status <> 'deleted'
              WHERE (t.from_uid = e.uid OR t.to_uid = e.uid) AND t.relation_type <> 'based_on'
@@ -207,7 +207,7 @@ export function checkConsistency(db: Database, projectUid: string): ConsistencyP
   const noBasis = db
     .prepare(
       `SELECT e.uid, e.code, e.title FROM entity_registry e
-        WHERE e.project_uid = ? AND e.design_category IS NOT NULL AND e.status <> 'deleted'
+        WHERE e.project_uid = ? AND e.entity_type LIKE 'model_%' AND e.status <> 'deleted'
           AND NOT EXISTS (
             SELECT 1 FROM trace_link t JOIN entity_registry le ON le.uid = t.uid AND le.status <> 'deleted'
              WHERE t.from_uid = e.uid AND t.relation_type = 'based_on'
@@ -223,7 +223,7 @@ export function checkConsistency(db: Database, projectUid: string): ConsistencyP
     .prepare(
       `SELECT t.from_uid, t.to_uid FROM trace_link t
          JOIN entity_registry le ON le.uid = t.uid AND le.status <> 'deleted'
-         JOIN entity_registry ef ON ef.uid = t.from_uid AND ef.project_uid = ? AND ef.design_category IS NOT NULL
+         JOIN entity_registry ef ON ef.uid = t.from_uid AND ef.project_uid = ? AND ef.entity_type LIKE 'model_%'
         WHERE t.relation_type NOT IN ('based_on', 'conflicts_with', 'relates_to')`
     )
     .all(projectUid) as { from_uid: string; to_uid: string }[]
@@ -282,7 +282,7 @@ export function checkConsistency(db: Database, projectUid: string): ConsistencyP
   const unverified = db
     .prepare(
       `SELECT e.uid, e.code, e.title FROM entity_registry e
-        WHERE e.project_uid = ? AND e.design_category IN ('REQ', 'CST') AND e.status <> 'deleted'
+        WHERE e.project_uid = ? AND e.entity_type IN ('model_req', 'model_cst') AND e.status <> 'deleted'
           AND NOT EXISTS (
             SELECT 1 FROM trace_link t JOIN entity_registry le ON le.uid = t.uid AND le.status <> 'deleted'
              WHERE t.to_uid = e.uid AND t.relation_type = 'verifies'
@@ -325,7 +325,7 @@ export function exportSubgraph(subgraph: TraceSubgraph, format: ExportFormat): s
     '',
     '| hop | code | 分類 | タイトル |',
     '| --- | --- | --- | --- |',
-    ...subgraph.nodes.map((n) => `| ${n.hop} | ${n.code} | ${n.design_category ?? n.entity_type} | ${n.title ?? ''} |`),
+    ...subgraph.nodes.map((n) => `| ${n.hop} | ${n.code} | ${n.model_type ?? n.entity_type} | ${n.title ?? ''} |`),
     '',
     '## 関係',
     '',

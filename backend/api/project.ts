@@ -73,7 +73,7 @@ export function registerProjectApi(router: ApiRouter, settings: SettingsService)
       ).n
     const designElements = (
       db
-        .prepare(`SELECT COUNT(*) AS n FROM entity_registry WHERE design_category IS NOT NULL AND status <> 'deleted'`)
+        .prepare(`SELECT COUNT(*) AS n FROM entity_registry WHERE entity_type LIKE 'model_%' AND status <> 'deleted'`)
         .get() as { n: number }
     ).n
     const candidates = (

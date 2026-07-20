@@ -37,7 +37,7 @@ const MENU_GROUPS: { label: string; items: string[] }[] = [
       'job.openPanel'
     ]
   },
-  { label: '設定', items: ['settings.open', 'projectSettings.open'] },
+  { label: '設定', items: ['settings.open', 'designModelSettings.open', 'projectSettings.open'] },
   { label: 'ヘルプ', items: ['help.workflow', 'help.schema', 'help.designModel'] }
 ]
 

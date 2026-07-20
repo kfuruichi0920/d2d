@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -6,12 +6,7 @@ import type { Database } from 'better-sqlite3'
 import { closeDatabase, createDatabase, getProjectRow, openDatabase } from '../store/database'
 import { getSchemaVersion, LATEST_SCHEMA_VERSION } from '../db/migrations'
 import { createProjectLayout } from '../project/layout'
-import {
-  addArtifactRelation,
-  listArtifactRelations,
-  saveArtifactSetting,
-  saveDevPhase
-} from '../project/project-settings'
+
 import { importSourceDocument, listSourceDocuments } from '../import/import-service'
 import { storeExtractionResult } from '../extract/store-extraction'
 import { createIntermediateDocument } from '../intermediate/intermediate-service'
@@ -52,9 +47,9 @@ describe('P10 編集機能', () => {
     rmSync(dir, { recursive: true, force: true })
   })
 
-  it('マイグレーション 1.10.0: 新規 DB は最新版の表セル・アーカイブ列・セマンティック表・LLM生ログ列を持つ', () => {
-    expect(LATEST_SCHEMA_VERSION).toBe('1.10.0')
-    expect(getSchemaVersion(db)).toBe('1.10.0')
+  it('schema 2.2.0: 新規 DB は最新版の表セル・アーカイブ列・セマンティック表・LLM生ログ列を持つ', () => {
+    expect(LATEST_SCHEMA_VERSION).toBe('2.2.0')
+    expect(getSchemaVersion(db)).toBe('2.2.0')
     const table = db
       .prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'resource_table_cell'`)
       .get()
@@ -76,53 +71,13 @@ describe('P10 編集機能', () => {
     expect(formulaColumns.some((column) => column.name === 'description')).toBe(true)
   })
 
-  it('マイグレーション: 1.0.0 の既存 DB を開くと 1.10.0 へ移行しバックアップを作る', () => {
-    // 1.0.0 状態を再現（テーブル削除 + 版数戻し）
+  it('schema 1.x の既存 DB は変更せず、schema 2.0.0 での再作成を要求する', () => {
     const path = join(dir, 'old.db')
-    const oldDb = createDatabase(path, { projectName: 'old' })
-    oldDb.exec(`DROP TABLE resource_table_cell`)
-    oldDb.exec(`DROP INDEX idx_entity_registry_archive`)
-    oldDb.exec(`ALTER TABLE entity_registry DROP COLUMN is_archived`)
-    oldDb.prepare(`UPDATE project SET schema_version = '1.0.0'`).run()
-    closeDatabase(oldDb)
+    const legacy = createDatabase(path, { projectName: 'old' })
+    legacy.prepare(`UPDATE project SET schema_version = '1.10.0'`).run()
+    closeDatabase(legacy)
 
-    const migrated = openDatabase(path)
-    expect(getSchemaVersion(migrated)).toBe('1.10.0')
-    expect(migrated.prepare(`SELECT name FROM sqlite_master WHERE name = 'resource_table_cell'`).get()).toBeTruthy()
-    const columns = migrated.prepare(`PRAGMA table_info(entity_registry)`).all() as { name: string }[]
-    expect(columns.some((column) => column.name === 'is_archived')).toBe(true)
-    closeDatabase(migrated)
-    expect(existsSync(`${path}.bak-1.0.0`)).toBe(true)
-  })
-
-  it('マイグレーション 1.7.0 は既存の成果物親子関係を保持する（CORE-013）', () => {
-    saveDevPhase(db, projectUid, { devPhaseId: 'DD', devPhaseName: '詳細設計' })
-    const parent = saveArtifactSetting(db, projectUid, {
-      artifactName: '親成果物',
-      artifactTypeId: 'parent',
-      devPhaseId: 'DD'
-    })
-    const child = saveArtifactSetting(db, projectUid, {
-      artifactName: '子成果物',
-      artifactTypeId: 'child',
-      devPhaseId: 'DD'
-    })
-    const relation = addArtifactRelation(db, projectUid, {
-      parentArtifactUid: parent.uid,
-      childArtifactUid: child.uid
-    })
-    db.prepare("UPDATE project SET schema_version = '1.6.0'").run()
-    closeDatabase(db)
-
-    db = openDatabase(join(root, 'project.db'))
-    expect(getSchemaVersion(db)).toBe('1.10.0')
-    expect(listArtifactRelations(db, projectUid)).toEqual([
-      expect.objectContaining({
-        uid: relation.uid,
-        parent_artifact_uid: parent.uid,
-        child_artifact_uid: child.uid
-      })
-    ])
+    expect(() => openDatabase(path)).toThrowError(/再作成/)
   })
   it('原本一覧はアーカイブを既定で除外し、指定時は復元対象として返す（UI-047）', () => {
     const sourcePath = join(dir, 'archive-target.docx')

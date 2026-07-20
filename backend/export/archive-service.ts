@@ -118,7 +118,7 @@ export function createArchive(
       extracted_documents: count(`SELECT COUNT(*) AS n FROM extracted_document`),
       intermediate_documents: count(`SELECT COUNT(*) AS n FROM intermediate_document`),
       design_elements: count(
-        `SELECT COUNT(*) AS n FROM entity_registry WHERE design_category IS NOT NULL AND status <> 'deleted'`
+        `SELECT COUNT(*) AS n FROM entity_registry WHERE entity_type LIKE 'model_%' AND status <> 'deleted'`
       )
     },
     files: targets.map((t) => ({ path: t.rel, role: roleOf(t.rel), size: statSync(t.abs).size }))

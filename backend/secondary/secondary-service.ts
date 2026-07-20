@@ -45,6 +45,7 @@ export function listItemRelations(db: Database, projectUid: string, itemUid: str
               CASE WHEN t.from_uid=? THEN t.to_uid ELSE t.from_uid END AS other_uid,
               oe.code AS other_code, oe.title AS other_title, oe.entity_type AS other_entity_type,
               CASE
+                WHEN oe.entity_type LIKE 'model_%' THEN 'design://' || oe.uid
                 WHEN oe.entity_type LIKE 'resource_%' THEN 'resource://' || oe.uid
                 WHEN oe.entity_type='source_document' THEN 'original://' || oe.uid
                 WHEN oe.entity_type='extracted_document' THEN 'extracted://' || oe.uid

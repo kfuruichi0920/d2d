@@ -15,13 +15,20 @@ import {
   listDesignElements,
   listAllowedRelationRules,
   listTraceLinks,
-  RELATION_TYPES,
+  prepareRelationDraft,
+  checkRelationAllowed,
   setVerificationDetail,
-  type RelationType,
-  type TraceLinkAttributes
+  type TraceLinkAttributes,
+  updateDesignElement
 } from '../design/design-service'
 import { validateCandidateOutput } from '../llm/candidate-validation'
-import type { DesignCategory } from '../store/entity-types'
+import {
+  confirmOntology,
+  getOntology,
+  saveModelDefinition,
+  saveRelationDefinition,
+  setAllowance
+} from '../ontology/ontology-service'
 
 function asRecord(params: unknown): Record<string, unknown> {
   if (typeof params !== 'object' || params === null) {
@@ -87,9 +94,10 @@ export function registerDesignApi(router: ApiRouter, jobs: JobManager): void {
     const p = asRecord(params)
     const { db, info } = requireProject()
     return createDesignElement(db, info.projectUid, {
-      category: requireString(p, 'category') as DesignCategory,
+      modelType: requireString(p, 'modelType'),
       title: requireString(p, 'title'),
-      description: p.description === undefined ? undefined : String(p.description),
+      summary: p.summary === undefined ? undefined : String(p.summary),
+      detail: typeof p.detail === 'object' && p.detail !== null ? (p.detail as Record<string, unknown>) : undefined,
       ownerUid: p.ownerUid === undefined ? undefined : String(p.ownerUid)
     })
   })
@@ -98,11 +106,71 @@ export function registerDesignApi(router: ApiRouter, jobs: JobManager): void {
     const p = asRecord(params ?? {})
     const { db, info } = requireProject()
     return listDesignElements(db, info.projectUid, {
-      category: p.category === undefined ? undefined : (String(p.category) as DesignCategory),
+      modelType: p.modelType === undefined ? undefined : String(p.modelType),
       status: p.status === undefined ? undefined : String(p.status)
     })
   })
 
+  router.register('design.updateElement', (params) => {
+    const p = asRecord(params)
+    const { db } = requireProject()
+    updateDesignElement(db, requireString(p, 'uid'), {
+      title: requireString(p, 'title'),
+      summary: String(p.summary ?? ''),
+      detail: typeof p.detail === 'object' && p.detail !== null ? (p.detail as Record<string, unknown>) : {},
+      status: p.status === undefined ? undefined : String(p.status)
+    })
+    return { saved: true }
+  })
+
+  // ---- オントロジー設定（MODEL-019〜028） ----
+  router.register('ontology.get', () => {
+    const { db } = requireProject()
+    return getOntology(db)
+  })
+  router.register('ontology.saveModel', (params) => {
+    const p = asRecord(params)
+    const { db } = requireProject()
+    saveModelDefinition(db, {
+      modelType: requireString(p, 'modelType'),
+      codePrefix: p.codePrefix === undefined ? undefined : String(p.codePrefix),
+      label: requireString(p, 'label'),
+      layer: requireString(p, 'layer'),
+      definition: requireString(p, 'definition'),
+      fieldSchemaJson: String(p.fieldSchemaJson ?? '[]'),
+      enabled: p.enabled !== false
+    })
+    return getOntology(db)
+  })
+  router.register('ontology.saveRelation', (params) => {
+    const p = asRecord(params)
+    const { db } = requireProject()
+    saveRelationDefinition(db, {
+      relationType: requireString(p, 'relationType'),
+      label: requireString(p, 'label'),
+      definition: requireString(p, 'definition'),
+      requiredAttr: p.requiredAttr === undefined ? undefined : String(p.requiredAttr),
+      iconColor: p.iconColor === undefined ? undefined : String(p.iconColor),
+      iconText: p.iconText === undefined ? undefined : String(p.iconText),
+      enabled: p.enabled !== false
+    })
+    return getOntology(db)
+  })
+  router.register('ontology.setAllowance', (params) => {
+    const p = asRecord(params)
+    const { db } = requireProject()
+    setAllowance(db, {
+      relationType: requireString(p, 'relationType'),
+      sourceModelType: requireString(p, 'sourceModelType'),
+      targetModelType: requireString(p, 'targetModelType'),
+      allowed: p.allowed === true
+    })
+    return { saved: true }
+  })
+  router.register('ontology.confirm', () => {
+    const { db } = requireProject()
+    return { version: confirmOntology(db) }
+  })
   /** 検証項目の作成 + verifies 紐づけ（P10-5、EDIT-040/041） */
   router.register('design.createVerification', (params) => {
     const p = asRecord(params)
@@ -138,16 +206,26 @@ export function registerDesignApi(router: ApiRouter, jobs: JobManager): void {
     const p = asRecord(params)
     const { db, info } = requireProject()
     const relationType = requireString(p, 'relationType')
-    if (!RELATION_TYPES.includes(relationType as RelationType)) {
-      throw new BackendError('validation', `relation_type は11種類に限定されています: ${relationType}`, '')
-    }
+
+    const fromUid = requireString(p, 'fromUid')
+    const toUid = requireString(p, 'toUid')
+    const endpointTypes = db
+      .prepare(`SELECT uid,entity_type FROM entity_registry WHERE uid IN (?,?) AND status<>'deleted'`)
+      .all(fromUid, toUid) as { uid: string; entity_type: string }[]
+    const requiredAttr = checkRelationAllowed(
+      db,
+      relationType,
+      endpointTypes.find((row) => row.uid === fromUid)?.entity_type ?? null,
+      endpointTypes.find((row) => row.uid === toUid)?.entity_type ?? null
+    ).requiredAttr
+    const prepared = prepareRelationDraft(requiredAttr, (p.attributes as TraceLinkAttributes | undefined) ?? {})
     return createTraceLink(db, info.projectUid, {
-      fromUid: requireString(p, 'fromUid'),
-      toUid: requireString(p, 'toUid'),
-      relationType: relationType as RelationType,
-      attributes: (p.attributes as TraceLinkAttributes | undefined) ?? {},
+      fromUid,
+      toUid,
+      relationType,
+      attributes: prepared.attributes,
       createdBy: 'human',
-      reviewStatus: 'approved'
+      reviewStatus: prepared.reviewStatus
     })
   })
 
@@ -184,6 +262,36 @@ export function registerDesignApi(router: ApiRouter, jobs: JobManager): void {
     }
   })
 
+  /** 編集途中の候補セットは LLM 実行ごとに1件だけ保持する（MODEL-030）。 */
+  router.register('design.getCandidateDraft', (params) => {
+    const p = asRecord(params)
+    const { db } = requireProject()
+    const llmRunUid = requireString(p, 'llmRunUid')
+    const row = db
+      .prepare(
+        `SELECT candidate_set_json AS candidateSetJson, updated_at AS updatedAt FROM llm_candidate_draft WHERE llm_run_uid=?`
+      )
+      .get(llmRunUid) as { candidateSetJson: string; updatedAt: string } | undefined
+    return row ? { candidateSet: JSON.parse(row.candidateSetJson) as unknown, updatedAt: row.updatedAt } : null
+  })
+
+  router.register('design.saveCandidateDraft', (params) => {
+    const p = asRecord(params)
+    const { db } = requireProject()
+    const llmRunUid = requireString(p, 'llmRunUid')
+    const candidateSet = { elements: p.elements ?? [], relations: p.relations ?? [], warnings: [] }
+    if (!Array.isArray(candidateSet.elements) || !Array.isArray(candidateSet.relations))
+      throw new BackendError(
+        'validation',
+        '一時保存する候補セットの形式が不正です',
+        'elements / relations は配列が必要です'
+      )
+    db.prepare(
+      `INSERT INTO llm_candidate_draft(llm_run_uid,candidate_set_json,updated_at) VALUES(?,?,CURRENT_TIMESTAMP)
+       ON CONFLICT(llm_run_uid) DO UPDATE SET candidate_set_json=excluded.candidate_set_json,updated_at=CURRENT_TIMESTAMP`
+    ).run(llmRunUid, JSON.stringify(candidateSet))
+    return { saved: true }
+  })
   /**
    * 編集済み候補セットの採用（MODEL-006〜009）。
    * スキーマ・参照・許容関係・重複を同一トランザクションで検査し、NG なら全体を反映しない。
@@ -210,11 +318,13 @@ export function registerDesignApi(router: ApiRouter, jobs: JobManager): void {
       throw new BackendError('validation', '候補セットに検証エラーがあります', validation.errors.join('; '))
     }
 
-    return adoptCandidates(db, info.projectUid, {
+    const result = adoptCandidates(db, info.projectUid, {
       candidateSet: validation.candidateSet,
       intermediateDocumentUid,
       chunkUid: context.chunkUid ?? undefined,
       llmRunUid
     })
+    db.prepare('DELETE FROM llm_candidate_draft WHERE llm_run_uid=?').run(llmRunUid)
+    return result
   })
 }

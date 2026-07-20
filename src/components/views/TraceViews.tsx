@@ -16,7 +16,7 @@ interface TraceNode {
   uid: string
   code: string
   title: string | null
-  design_category: string | null
+  model_type: string | null
   entity_type: string
   hop: number
 }
@@ -141,7 +141,7 @@ export function TraceSideBar(): React.JSX.Element {
         className="d2d-btn"
         style={{ width: '100%', marginBottom: 4 }}
         onClick={() =>
-          openResource(uniqueTraceUri('trace://matrix/FUNC/REQ'), 'トレースマトリクス', { preview: false })
+          openResource(uniqueTraceUri('trace://matrix/all:design/all:design'), 'トレースマトリクス', { preview: false })
         }
         data-testid="open-matrix"
       >
@@ -163,12 +163,12 @@ export function TraceSideBar(): React.JSX.Element {
 // ---- 関係グラフ（P9-3、SVG 自前・hop レイアウト・ホップ強調） ----
 
 const CATEGORY_COLORS: Record<string, string> = {
-  REQ: 'var(--d2d-review-candidate)',
-  CST: 'var(--d2d-warning)',
-  FUNC: 'var(--d2d-success)',
-  STRUCT: '#9c7bd0',
-  VERIF: '#d07b9c',
-  IF: '#7bb8d0'
+  model_req: 'var(--d2d-review-candidate)',
+  model_cst: 'var(--d2d-warning)',
+  model_func: 'var(--d2d-success)',
+  model_struct: '#9c7bd0',
+  model_verif: '#d07b9c',
+  model_if: '#7bb8d0'
 }
 
 export function TraceGraphEditor({
@@ -287,7 +287,7 @@ export function TraceGraphEditor({
           {graph.nodes.map((node) => {
             const pos = positions.get(node.uid)!
             const dimmed = node.hop > highlightHops
-            const accent = CATEGORY_COLORS[node.design_category ?? ''] ?? 'var(--d2d-border)'
+            const accent = CATEGORY_COLORS[node.model_type ?? ''] ?? 'var(--d2d-border)'
             return (
               <g
                 key={node.uid}
@@ -306,7 +306,7 @@ export function TraceGraphEditor({
                   strokeWidth={node.uid === graph.root ? 2.5 : 1.5}
                 />
                 <text x={8} y={16} fontSize={10} fill={accent} fontWeight={700}>
-                  {node.design_category ?? node.entity_type} {node.code}
+                  {node.model_type ?? node.entity_type} {node.code}
                 </text>
                 <text x={8} y={31} fontSize={11} fill="var(--d2d-fg)">
                   {(node.title ?? '').slice(0, 20)}
@@ -322,7 +322,21 @@ export function TraceGraphEditor({
 
 // ---- トレースマトリクス（P9-4） ----
 
-const CATEGORIES = ['STD', 'REQ', 'CST', 'FUNC', 'STRUCT', 'BEH', 'STATE', 'IF', 'DATA', 'VERIF', 'MGMT', 'IMPL']
+const CATEGORIES = [
+  'model_src',
+  'model_std',
+  'model_req',
+  'model_cst',
+  'model_func',
+  'model_struct',
+  'model_beh',
+  'model_state',
+  'model_data',
+  'model_if',
+  'model_verif',
+  'model_impl',
+  'model_mgmt'
+]
 
 interface MatrixData {
   rows: { uid: string; code: string; title: string | null }[]
@@ -413,7 +427,7 @@ interface BasisChainRow {
   uid: string
   code: string
   title: string | null
-  design_category: string
+  model_type: string
   basis: { code: string; title: string | null; entity_type: string }[]
 }
 
@@ -437,7 +451,7 @@ export function BasisChainEditor(): React.JSX.Element {
             key={row.uid}
             style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 0', flexWrap: 'wrap' }}
           >
-            <span className="d2d-badge status-running">{row.design_category}</span>
+            <span className="d2d-badge status-running">{row.model_type}</span>
             <span>
               {row.code} {row.title}
             </span>

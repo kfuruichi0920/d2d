@@ -4,13 +4,12 @@
  * 関係候補は一時ID（temp_id）で参照するため、要素名変更は From/To 表示へ即時追従する。
  * 採用時のみ同一トランザクションで④正本へ反映される（MODEL-006/009）。
  */
-import { useCallback, useEffect, useState } from 'react'
-import { invoke } from '../../services/backend'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { invoke, onBackendEvent } from '../../services/backend'
 import { useEditorStore } from '../../stores/editor-store'
 import { useJobsStore } from '../../stores/jobs-store'
 import { useProjectStore } from '../../stores/project-store'
 
-const CATEGORIES = ['STD', 'REQ', 'CST', 'FUNC', 'STRUCT', 'BEH', 'STATE', 'IF', 'DATA', 'VERIF', 'MGMT', 'IMPL']
 interface CandidateElement {
   temp_id: string
   category: string
@@ -24,12 +23,53 @@ interface CandidateRelation {
   to_temp_id: string
   relation_type: string
   rationale?: string | null
+  attributes?: Record<string, unknown> | null
 }
 
 interface AllowedRelationRule {
   relationType: string
-  sourceCategory: string
-  targetCategory: string
+  sourceModelType: string
+  targetModelType: string
+  requiredAttr: string | null
+}
+
+interface CandidateDraftResponse {
+  candidateSet: { elements: CandidateElement[]; relations: CandidateRelation[] }
+  updatedAt: string
+}
+
+const ATTRIBUTE_KEYS: Record<string, string> = {
+  basis_kind: 'basisKind',
+  allocation_kind: 'allocationKind',
+  usage_kind: 'usageKind',
+  conflict_status: 'conflictStatus'
+}
+const ATTRIBUTE_OPTIONS: Record<string, string[]> = {
+  basis_kind: ['original', 'extracted', 'normalized', 'inferred', 'human_approved'],
+  allocation_kind: ['structure', 'behavior', 'state', 'interface', 'data'],
+  usage_kind: ['input', 'output', 'read', 'write', 'update', 'publish', 'subscribe'],
+  conflict_status: ['suspected', 'confirmed', 'resolved', 'dismissed'],
+  review_status: ['creating', 'draft', 'review', 'approved', 'rejected', 'provisional']
+}
+
+const candidatePrefix = (modelType: string): string => modelType.replace(/^model_/, '').replaceAll('_', '-') || 'model'
+
+function normalizeCandidateIds(
+  sourceElements: CandidateElement[],
+  sourceRelations: CandidateRelation[]
+): { elements: CandidateElement[]; relations: CandidateRelation[] } {
+  const idMap = new Map<string, string>()
+  const elements = sourceElements.map((element, index) => {
+    const tempId = `${candidatePrefix(element.category)}-${String(index + 1).padStart(2, '0')}`
+    idMap.set(element.temp_id, tempId)
+    return { ...element, temp_id: tempId }
+  })
+  const relations = sourceRelations.map((relation) => ({
+    ...relation,
+    from_temp_id: idMap.get(relation.from_temp_id) ?? relation.from_temp_id,
+    to_temp_id: idMap.get(relation.to_temp_id) ?? relation.to_temp_id
+  }))
+  return { elements, relations }
 }
 
 interface CandidateSetResponse {
@@ -46,27 +86,73 @@ export function CandidateSetReviewEditor({ llmRunUid }: { llmRunUid: string }): 
   const [elements, setElements] = useState<CandidateElement[]>([])
   const [relations, setRelations] = useState<CandidateRelation[]>([])
   const [serverErrors, setServerErrors] = useState<string[]>([])
+  const [hasSavedDraft, setHasSavedDraft] = useState(false)
+  const [hydrated, setHydrated] = useState(false)
+  const skipDraftEffect = useRef(true)
   const [adopting, setAdopting] = useState(false)
   const [allowedRules, setAllowedRules] = useState<AllowedRelationRule[]>([])
+  const [modelTypes, setModelTypes] = useState<string[]>([])
   const notify = useJobsStore((s) => s.notify)
   const closeTab = useEditorStore((s) => s.closeTab)
+  const setDirty = useEditorStore((s) => s.setDirty)
+  const candidateUri = `candidate://${llmRunUid}`
 
   const load = useCallback(async () => {
-    const res = await invoke<CandidateSetResponse>('design.getCandidateSet', { llmRunUid })
+    const [res, saved] = await Promise.all([
+      invoke<CandidateSetResponse>('design.getCandidateSet', { llmRunUid }),
+      invoke<CandidateDraftResponse | null>('design.getCandidateDraft', { llmRunUid })
+    ])
+    if (saved.ok) setHasSavedDraft(saved.result !== null)
     if (res.ok) {
+      const memoryDraft = useEditorStore.getState().candidateDrafts[candidateUri]
+      const source = memoryDraft
+        ? {
+            elements: memoryDraft.elements as unknown as CandidateElement[],
+            relations: memoryDraft.relations as unknown as CandidateRelation[]
+          }
+        : normalizeCandidateIds(res.result.candidateSet?.elements ?? [], res.result.candidateSet?.relations ?? [])
+      skipDraftEffect.current = true
       setContext(res.result)
-      setElements(res.result.candidateSet?.elements ?? [])
-      setRelations(res.result.candidateSet?.relations ?? [])
-      setServerErrors(res.result.errors)
+      setElements(source.elements)
+      setRelations(source.relations)
+      setServerErrors(memoryDraft ? [] : res.result.errors)
+      setHydrated(true)
     }
-  }, [llmRunUid])
+  }, [candidateUri, llmRunUid])
 
   useEffect(() => {
     void load()
   }, [load])
   useEffect(() => {
-    void invoke<AllowedRelationRule[]>('design.listAllowedRelationRules').then((res) => {
-      if (res.ok) setAllowedRules(res.result)
+    if (!hydrated) return
+    if (skipDraftEffect.current) {
+      skipDraftEffect.current = false
+      return
+    }
+    useEditorStore.getState().setCandidateDraft(candidateUri, {
+      elements: elements as unknown as Array<Record<string, unknown>>,
+      relations: relations as unknown as Array<Record<string, unknown>>
+    })
+    setDirty(candidateUri, true)
+    setServerErrors([])
+  }, [candidateUri, elements, hydrated, relations, setDirty])
+
+  useEffect(() => {
+    const loadOntology = (): void => {
+      void Promise.all([
+        invoke<AllowedRelationRule[]>('design.listAllowedRelationRules'),
+        invoke<{ models: Array<{ model_type: string; is_enabled: number }> }>('ontology.get')
+      ]).then(([rules, ontology]) => {
+        if (rules.ok) setAllowedRules(rules.result)
+        if (ontology.ok)
+          setModelTypes(
+            ontology.result.models.filter((model) => model.is_enabled === 1).map((model) => model.model_type)
+          )
+      })
+    }
+    loadOntology()
+    return onBackendEvent((event) => {
+      if (event === 'ontology.updated') loadOntology()
     })
   }, [])
 
@@ -90,12 +176,24 @@ export function CandidateSetReviewEditor({ llmRunUid }: { llmRunUid: string }): 
         allowedRules
           .filter(
             (rule) =>
-              (rule.sourceCategory === source || rule.sourceCategory === 'ANY') &&
-              (rule.targetCategory === target || rule.targetCategory === 'ANY')
+              (rule.sourceModelType === source || rule.sourceModelType === 'ANY') &&
+              (rule.targetModelType === target || rule.targetModelType === 'ANY')
           )
           .map((rule) => rule.relationType)
       )
     ]
+  }
+  const requiredAttrOf = (relation: CandidateRelation): string | null => {
+    const source = elements.find((e) => e.temp_id === relation.from_temp_id)?.category
+    const target = elements.find((e) => e.temp_id === relation.to_temp_id)?.category
+    return (
+      allowedRules.find(
+        (rule) =>
+          rule.relationType === relation.relation_type &&
+          rule.sourceModelType === source &&
+          rule.targetModelType === target
+      )?.requiredAttr ?? null
+    )
   }
   const relationAllowed = (relation: CandidateRelation): boolean =>
     allowedTypes(relation).includes(relation.relation_type)
@@ -106,6 +204,21 @@ export function CandidateSetReviewEditor({ llmRunUid }: { llmRunUid: string }): 
   const titleOf = (tempId: string): string => elements.find((e) => e.temp_id === tempId)?.title ?? tempId
 
   const updateElement = (index: number, patch: Partial<CandidateElement>): void => {
+    const current = elements[index]
+    if (!current) return
+    if (patch.category && patch.category !== current.category) {
+      const suffix = /-(\d+)$/.exec(current.temp_id)?.[1] ?? String(index + 1).padStart(2, '0')
+      const nextId = `${candidatePrefix(patch.category)}-${suffix}`
+      setElements((prev) => prev.map((e, i) => (i === index ? { ...e, ...patch, temp_id: nextId } : e)))
+      setRelations((prev) =>
+        prev.map((relation) => ({
+          ...relation,
+          from_temp_id: relation.from_temp_id === current.temp_id ? nextId : relation.from_temp_id,
+          to_temp_id: relation.to_temp_id === current.temp_id ? nextId : relation.to_temp_id
+        }))
+      )
+      return
+    }
     setElements((prev) => prev.map((e, i) => (i === index ? { ...e, ...patch } : e)))
   }
 
@@ -117,9 +230,16 @@ export function CandidateSetReviewEditor({ llmRunUid }: { llmRunUid: string }): 
   }
 
   const addElement = (): void => {
-    let n = elements.length + 1
-    while (tempIds.has(`t${n}`)) n++
-    setElements((prev) => [...prev, { temp_id: `t${n}`, category: 'REQ', title: '' }])
+    const category = modelTypes.includes('model_req') ? 'model_req' : (modelTypes[0] ?? 'model_req')
+    const maxSequence = elements.reduce((max, item) => Math.max(max, Number(/-(\d+)$/.exec(item.temp_id)?.[1] ?? 0)), 0)
+    setElements((prev) => [
+      ...prev,
+      {
+        temp_id: `${candidatePrefix(category)}-${String(maxSequence + 1).padStart(2, '0')}`,
+        category,
+        title: ''
+      }
+    ])
   }
 
   const updateRelation = (index: number, patch: Partial<CandidateRelation>): void => {
@@ -127,9 +247,32 @@ export function CandidateSetReviewEditor({ llmRunUid }: { llmRunUid: string }): 
   }
 
   const addRelation = (): void => {
-    const first = elements[0]?.temp_id ?? 't1'
+    const first = elements[0]?.temp_id ?? 'req-01'
     const second = elements[1]?.temp_id ?? first
     setRelations((prev) => [...prev, { from_temp_id: second, to_temp_id: first, relation_type: 'relates_to' }])
+  }
+
+  const saveDraft = async (): Promise<void> => {
+    const result = await invoke('design.saveCandidateDraft', { llmRunUid, elements, relations })
+    if (result.ok) {
+      setHasSavedDraft(true)
+      setDirty(candidateUri, false)
+      notify('info', '編集途中の候補セットを一時保存しました')
+    } else notify('error', '候補セットを一時保存できませんでした', result.error.message)
+  }
+
+  const resumeDraft = async (): Promise<void> => {
+    const result = await invoke<CandidateDraftResponse | null>('design.getCandidateDraft', { llmRunUid })
+    if (!result.ok || !result.result) {
+      notify('warning', '再開できる一時保存はありません')
+      setHasSavedDraft(false)
+      return
+    }
+    const normalized = normalizeCandidateIds(result.result.candidateSet.elements, result.result.candidateSet.relations)
+    setElements(normalized.elements)
+    setRelations(normalized.relations)
+    setServerErrors([])
+    notify('info', '一時保存した候補セットを再開しました')
   }
 
   const adopt = async (): Promise<void> => {
@@ -147,7 +290,8 @@ export function CandidateSetReviewEditor({ llmRunUid }: { llmRunUid: string }): 
           `④設計モデルへ反映しました（要素 ${res.result.elements.length} 件 / 関係 ${res.result.relationCount} 件）`
         )
         void useProjectStore.getState().refreshStats()
-        closeTab(`candidate://${llmRunUid}`)
+        useEditorStore.getState().clearCandidateDraft(candidateUri)
+        closeTab(candidateUri)
       } else {
         notify('error', '採用できませんでした（正本は変更されていません）', res.error.detail || res.error.message)
       }
@@ -174,6 +318,18 @@ export function CandidateSetReviewEditor({ llmRunUid }: { llmRunUid: string }): 
         <h1 style={{ fontSize: 14, margin: 0 }}>LLM 候補セット</h1>
         <span className="d2d-badge review-candidate">候補（採用まで正本を変更しません）</span>
         <span style={{ flex: 1 }} />
+        <button type="button" className="d2d-btn" onClick={() => void saveDraft()} data-testid="candidate-save-draft">
+          一時保存
+        </button>
+        <button
+          type="button"
+          className="d2d-btn"
+          disabled={!hasSavedDraft}
+          onClick={() => void resumeDraft()}
+          data-testid="candidate-resume-draft"
+        >
+          一時保存を再開
+        </button>
         <button
           type="button"
           className="d2d-btn primary"
@@ -215,7 +371,7 @@ export function CandidateSetReviewEditor({ llmRunUid }: { llmRunUid: string }): 
               </td>
               <td style={tdStyle}>
                 <select value={element.category} onChange={(e) => updateElement(i, { category: e.target.value })}>
-                  {CATEGORIES.map((c) => (
+                  {modelTypes.map((c) => (
                     <option key={c} value={c}>
                       {c}
                     </option>
@@ -265,6 +421,7 @@ export function CandidateSetReviewEditor({ llmRunUid }: { llmRunUid: string }): 
             <th style={thStyle}>From（要素名に追従）</th>
             <th style={{ ...thStyle, width: 130 }}>関係</th>
             <th style={thStyle}>To（要素名に追従）</th>
+            <th style={{ ...thStyle, width: 180 }}>必須属性</th>
             <th style={thStyle}>根拠</th>
             <th style={{ ...thStyle, width: 40 }} />
           </tr>
@@ -291,7 +448,7 @@ export function CandidateSetReviewEditor({ llmRunUid }: { llmRunUid: string }): 
               <td style={tdStyle}>
                 <select
                   value={relation.relation_type}
-                  onChange={(e) => updateRelation(i, { relation_type: e.target.value })}
+                  onChange={(e) => updateRelation(i, { relation_type: e.target.value, attributes: null })}
                 >
                   {[
                     ...new Set([
@@ -314,6 +471,33 @@ export function CandidateSetReviewEditor({ llmRunUid }: { llmRunUid: string }): 
                     </option>
                   ))}
                 </select>
+              </td>
+              <td style={tdStyle}>
+                {requiredAttrOf(relation) ? (
+                  <select
+                    value={String(
+                      relation.attributes?.[ATTRIBUTE_KEYS[requiredAttrOf(relation)!] ?? 'reviewStatus'] ?? ''
+                    )}
+                    aria-label={`${relation.relation_type} 必須属性`}
+                    data-testid={`candidate-relation-attribute-${i}`}
+                    onChange={(e) => {
+                      const requiredAttr = requiredAttrOf(relation)!
+                      const key = ATTRIBUTE_KEYS[requiredAttr] ?? 'reviewStatus'
+                      updateRelation(i, {
+                        attributes: e.target.value ? { ...(relation.attributes ?? {}), [key]: e.target.value } : null
+                      })
+                    }}
+                  >
+                    <option value="">仮設定（作成中）</option>
+                    {(ATTRIBUTE_OPTIONS[requiredAttrOf(relation)!] ?? []).map((value) => (
+                      <option key={value} value={value}>
+                        {value}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  '—'
+                )}
               </td>
               <td style={tdStyle}>
                 <input

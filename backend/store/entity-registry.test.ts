@@ -30,30 +30,19 @@ describe('entity_registry 台帳・採番（P1-2）', () => {
     expect(a.uid).not.toBe(b.uid)
   })
 
-  it('design_category 指定時は分類 prefix で採番する（REQ-000001）', () => {
-    const req = registerEntity(db, {
-      projectUid,
-      entityType: 'resource_text',
-      designCategory: 'REQ',
-      title: 'ログインできること'
-    })
+  it('model_* は物理テーブル種別のprefixで採番する（REQ-000001）', () => {
+    const req = registerEntity(db, { projectUid, entityType: 'model_req', title: 'ログインできること' })
     expect(req.code).toBe('REQ-000001')
     const row = getEntity(db, req.uid)
-    expect(row.design_category).toBe('REQ')
-    expect(row.entity_type).toBe('resource_text')
+    expect(row.entity_type).toBe('model_req')
   })
 
-  it('IF/DATA 分類は entity_type prefix と同一連番空間になる（§10.1）', () => {
-    const byType = registerEntity(db, { projectUid, entityType: 'resource_interface' }) // IF-000001
-    const byCategory = registerEntity(db, {
-      projectUid,
-      entityType: 'resource_table',
-      designCategory: 'IF'
-    })
-    expect(byType.code).toBe('IF-000001')
-    expect(byCategory.code).toBe('IF-000002')
+  it('同じmodel_typeは同一連番空間で採番する', () => {
+    const first = registerEntity(db, { projectUid, entityType: 'model_if' })
+    const second = registerEntity(db, { projectUid, entityType: 'model_if' })
+    expect(first.code).toBe('IF-000001')
+    expect(second.code).toBe('IF-000002')
   })
-
   it('欠番許容: 論理削除後も再採番しない', () => {
     const a = registerEntity(db, { projectUid, entityType: 'resource_figure' })
     updateEntityStatus(db, a.uid, 'deleted')

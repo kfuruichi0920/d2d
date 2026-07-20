@@ -4,7 +4,12 @@
  */
 import type { Database } from 'better-sqlite3'
 import { BackendError } from '../api/errors'
-import { createTraceLink, RELATION_TYPES, type RelationType, type TraceLinkAttributes } from '../design/design-service'
+import {
+  createTraceLink,
+  prepareRelationDraft,
+  type RelationType,
+  type TraceLinkAttributes
+} from '../design/design-service'
 import { eventBus } from '../events/event-bus'
 import { updateEntityStatus } from '../store/entity-registry'
 
@@ -21,7 +26,7 @@ export interface TraceMatrixResource {
   code: string
   title: string | null
   entityType: string
-  designCategory: string | null
+  modelType: string | null
   status: string
   itemType: string | null
   scopes: string[]
@@ -41,22 +46,32 @@ export interface EditableTraceMatrix {
   cols: TraceMatrixResource[]
   cells: Record<string, Record<string, EditableMatrixLink[]>>
   relationTypes: readonly string[]
+  relationDefinitions: readonly MatrixRelationDefinition[]
+}
+
+export interface MatrixRelationDefinition {
+  relationType: string
+  label: string
+  requiredAttr: string | null
+  isEnabled: boolean
+  iconColor: string
+  iconText: string
 }
 
 const MATRIX_CATEGORIES = [
-  'SRC',
-  'STD',
-  'REQ',
-  'CST',
-  'FUNC',
-  'STRUCT',
-  'BEH',
-  'STATE',
-  'IF',
-  'DATA',
-  'VERIF',
-  'MGMT',
-  'IMPL'
+  'model_src',
+  'model_std',
+  'model_req',
+  'model_cst',
+  'model_func',
+  'model_struct',
+  'model_beh',
+  'model_state',
+  'model_if',
+  'model_data',
+  'model_verif',
+  'model_mgmt',
+  'model_impl'
 ]
 
 /** 行・列へ配置可能なResource集合を列挙する。③文書とチャンクは成果物単位の表示グループも返す。 */
@@ -68,7 +83,7 @@ export function listTraceMatrixScopes(db: Database, projectUid: string): TraceMa
         (SELECT COUNT(*) FROM extracted_item i JOIN entity_registry e ON e.uid=i.uid WHERE e.project_uid=? AND e.status <> 'deleted') AS extracted,
         (SELECT COUNT(*) FROM intermediate_item i JOIN entity_registry e ON e.uid=i.uid WHERE e.project_uid=? AND e.status <> 'deleted') AS intermediate,
         (SELECT COUNT(*) FROM chunk c JOIN entity_registry e ON e.uid=c.uid WHERE e.project_uid=? AND e.status <> 'deleted') AS chunk,
-        (SELECT COUNT(*) FROM entity_registry e WHERE e.project_uid=? AND e.design_category IS NOT NULL AND e.status <> 'deleted') AS design`
+        (SELECT COUNT(*) FROM entity_registry e WHERE e.project_uid=? AND e.entity_type LIKE 'model_%' AND e.status <> 'deleted') AS design`
     )
     .get(projectUid, projectUid, projectUid, projectUid) as {
     extracted: number
@@ -108,9 +123,9 @@ export function listTraceMatrixScopes(db: Database, projectUid: string): TraceMa
   )
   const categoryCounts = db
     .prepare(
-      `SELECT design_category AS id, COUNT(*) AS count FROM entity_registry
-        WHERE project_uid=? AND design_category IS NOT NULL AND status <> 'deleted'
-        GROUP BY design_category`
+      `SELECT entity_type AS id, COUNT(*) AS count FROM entity_registry
+        WHERE project_uid=? AND entity_type LIKE 'model_%' AND status <> 'deleted'
+        GROUP BY entity_type`
     )
     .all(projectUid) as { id: string; count: number }[]
   const countByCategory = new Map(categoryCounts.map((row) => [row.id, row.count]))
@@ -249,30 +264,30 @@ export function resolveMatrixResources(
       const sql =
         value === 'extracted'
           ? `SELECT i.uid, e.code, COALESCE(e.title, r.title) AS title, e.entity_type AS entityType,
-                    e.design_category AS designCategory, e.status, i.item_type AS itemType
+                    CASE WHEN e.entity_type LIKE 'model_%' THEN e.entity_type END AS modelType, e.status, i.item_type AS itemType
                FROM extracted_item i JOIN entity_registry e ON e.uid=i.uid AND e.project_uid=? AND e.status <> 'deleted'
                LEFT JOIN entity_registry r ON r.uid=i.resource_uid ORDER BY e.code`
           : value === 'intermediate'
             ? `SELECT i.uid, e.code, COALESCE(e.title, r.title) AS title, e.entity_type AS entityType,
-                      e.design_category AS designCategory, e.status, i.item_type AS itemType
+                      CASE WHEN e.entity_type LIKE 'model_%' THEN e.entity_type END AS modelType, e.status, i.item_type AS itemType
                  FROM intermediate_item i JOIN entity_registry e ON e.uid=i.uid AND e.project_uid=? AND e.status <> 'deleted'
                  LEFT JOIN entity_registry r ON r.uid=i.resource_uid ORDER BY e.code`
             : value === 'chunk'
               ? `SELECT c.uid, e.code, e.title, e.entity_type AS entityType,
-                        e.design_category AS designCategory, e.status, NULL AS itemType
+                        CASE WHEN e.entity_type LIKE 'model_%' THEN e.entity_type END AS modelType, e.status, NULL AS itemType
                    FROM chunk c JOIN entity_registry e ON e.uid=c.uid AND e.project_uid=? AND e.status <> 'deleted'
                   ORDER BY c.sort_order, e.code`
-              : `SELECT uid, code, title, entity_type AS entityType, design_category AS designCategory,
+              : `SELECT uid, code, title, entity_type AS entityType, CASE WHEN entity_type LIKE 'model_%' THEN entity_type END AS modelType,
                       status, NULL AS itemType FROM entity_registry
-                 WHERE project_uid=? AND design_category IS NOT NULL AND status <> 'deleted' ORDER BY code`
+                 WHERE project_uid=? AND entity_type LIKE 'model_%' AND status <> 'deleted' ORDER BY code`
       add(db.prepare(sql).all(projectUid) as Omit<TraceMatrixResource, 'scopes'>[], scopeId)
     } else if (kind === 'design' && MATRIX_CATEGORIES.includes(value)) {
       add(
         db
           .prepare(
-            `SELECT uid, code, title, entity_type AS entityType, design_category AS designCategory,
+            `SELECT uid, code, title, entity_type AS entityType, CASE WHEN entity_type LIKE 'model_%' THEN entity_type END AS modelType,
                     status, NULL AS itemType
-               FROM entity_registry WHERE project_uid=? AND design_category=? AND status <> 'deleted'
+               FROM entity_registry WHERE project_uid=? AND entity_type=? AND status <> 'deleted'
               ORDER BY code`
           )
           .all(projectUid, value) as Omit<TraceMatrixResource, 'scopes'>[],
@@ -282,7 +297,7 @@ export function resolveMatrixResources(
       add(
         db
           .prepare(
-            `SELECT uid, code, title, entity_type AS entityType, design_category AS designCategory,
+            `SELECT uid, code, title, entity_type AS entityType, CASE WHEN entity_type LIKE 'model_%' THEN entity_type END AS modelType,
                     status, NULL AS itemType
                FROM entity_registry WHERE project_uid=? AND entity_type=? AND status <> 'deleted'
               ORDER BY code`
@@ -295,7 +310,7 @@ export function resolveMatrixResources(
         db
           .prepare(
             `SELECT i.uid, e.code, COALESCE(e.title, r.title) AS title, e.entity_type AS entityType,
-                    e.design_category AS designCategory, e.status, i.item_type AS itemType
+                    CASE WHEN e.entity_type LIKE 'model_%' THEN e.entity_type END AS modelType, e.status, i.item_type AS itemType
                FROM extracted_item i
                JOIN entity_registry e ON e.uid=i.uid AND e.project_uid=? AND e.status <> 'deleted'
                LEFT JOIN entity_registry r ON r.uid=i.resource_uid
@@ -309,7 +324,7 @@ export function resolveMatrixResources(
         db
           .prepare(
             `SELECT i.uid, e.code, COALESCE(e.title, r.title) AS title, e.entity_type AS entityType,
-                    e.design_category AS designCategory, e.status, i.item_type AS itemType
+                    CASE WHEN e.entity_type LIKE 'model_%' THEN e.entity_type END AS modelType, e.status, i.item_type AS itemType
                FROM intermediate_item i
                JOIN entity_registry e ON e.uid=i.uid AND e.project_uid=? AND e.status <> 'deleted'
                LEFT JOIN entity_registry r ON r.uid=i.resource_uid
@@ -323,7 +338,7 @@ export function resolveMatrixResources(
         db
           .prepare(
             `SELECT c.uid, e.code, e.title, e.entity_type AS entityType,
-                    e.design_category AS designCategory, e.status, NULL AS itemType
+                    CASE WHEN e.entity_type LIKE 'model_%' THEN e.entity_type END AS modelType, e.status, NULL AS itemType
                FROM chunk c
                JOIN entity_registry e ON e.uid=c.uid AND e.project_uid=? AND e.status <> 'deleted'
               WHERE c.intermediate_document_uid=? ORDER BY c.sort_order, e.code`
@@ -347,8 +362,21 @@ export function getEditableTraceMatrix(
   const rows = resolveMatrixResources(db, projectUid, rowScopeIds)
   const cols = resolveMatrixResources(db, projectUid, colScopeIds)
   const cells: EditableTraceMatrix['cells'] = {}
-  const allowedTypes = (relationTypes ?? []).filter((type) => RELATION_TYPES.includes(type as RelationType))
-  if (rows.length === 0 || cols.length === 0) return { rows, cols, cells, relationTypes: RELATION_TYPES }
+  const relationDefinitions = db
+    .prepare(
+      `SELECT relation_type AS relationType,label,required_attr AS requiredAttr,is_enabled AS isEnabled,icon_color AS iconColor,icon_text AS iconText FROM ontology_relation_definition ORDER BY sort_order,relation_type`
+    )
+    .all()
+    .map((row) => ({
+      ...(row as Omit<MatrixRelationDefinition, 'isEnabled'> & { isEnabled: number }),
+      isEnabled: (row as { isEnabled: number }).isEnabled === 1
+    })) as MatrixRelationDefinition[]
+  const definedTypes = new Set(relationDefinitions.map((definition) => definition.relationType))
+  const allowedTypes = (relationTypes ?? []).filter((type) => definedTypes.has(type))
+  const hasRelationFilter = relationTypes !== undefined
+  const allRelationTypes = relationDefinitions.map((definition) => definition.relationType)
+  if (rows.length === 0 || cols.length === 0)
+    return { rows, cols, cells, relationTypes: allRelationTypes, relationDefinitions }
 
   const rowSet = new Set(rows.map((row) => row.uid))
   const colSet = new Set(cols.map((col) => col.uid))
@@ -359,7 +387,13 @@ export function getEditableTraceMatrix(
       `SELECT t.uid, t.from_uid, t.to_uid, t.relation_type, t.review_status
          FROM trace_link t JOIN entity_registry le ON le.uid=t.uid AND le.status <> 'deleted'
         WHERE t.from_uid IN (${placeholders}) AND t.to_uid IN (${placeholders})
-          ${allowedTypes.length > 0 ? `AND t.relation_type IN (${allowedTypes.map(() => '?').join(',')})` : ''}
+          ${
+            hasRelationFilter
+              ? allowedTypes.length > 0
+                ? `AND t.relation_type IN (${allowedTypes.map(() => '?').join(',')})`
+                : 'AND 1=0'
+              : ''
+          }
         ORDER BY t.relation_type, t.uid`
     )
     .all(...allIds, ...allIds, ...allowedTypes) as {
@@ -393,7 +427,7 @@ export function getEditableTraceMatrix(
       })
     }
   }
-  return { rows, cols, cells, relationTypes: RELATION_TYPES }
+  return { rows, cols, cells, relationTypes: allRelationTypes, relationDefinitions }
 }
 
 export interface MatrixUpdateInput {
@@ -401,23 +435,15 @@ export interface MatrixUpdateInput {
   relationTypes: readonly RelationType[]
   direction: 'row_to_col' | 'col_to_row'
   operation: 'add' | 'delete' | 'toggle'
+  relationAttributes?: Readonly<Record<string, string>>
 }
 
-function defaultRelationAttributes(relationType: RelationType, targetCategory: string | null): TraceLinkAttributes {
-  if (relationType === 'based_on') return { basisKind: 'human_approved' }
-  if (relationType === 'allocated_to') {
-    const kinds = {
-      STRUCT: 'structure',
-      BEH: 'behavior',
-      STATE: 'state',
-      IF: 'interface',
-      DATA: 'data'
-    } as const
-    return { allocationKind: kinds[targetCategory as keyof typeof kinds] ?? 'structure' }
-  }
-  if (relationType === 'decomposes') return { decompositionKind: 'refinement' }
-  if (relationType === 'uses') return { usageKind: 'read' }
-  if (relationType === 'conflicts_with') return { conflictStatus: 'suspected' }
+function explicitRelationAttributes(requiredAttr: string | null, value: string | undefined): TraceLinkAttributes {
+  if (!requiredAttr || !value) return {}
+  if (requiredAttr === 'basis_kind') return { basisKind: value }
+  if (requiredAttr === 'allocation_kind') return { allocationKind: value }
+  if (requiredAttr === 'usage_kind') return { usageKind: value }
+  if (requiredAttr === 'conflict_status') return { conflictStatus: value }
   return {}
 }
 
@@ -427,7 +453,11 @@ export function updateTraceMatrixLinks(
   projectUid: string,
   input: MatrixUpdateInput
 ): { added: number; deleted: number; unchanged: number } {
-  const relationTypes = [...new Set(input.relationTypes)].filter((type) => RELATION_TYPES.includes(type))
+  const definitions = db
+    .prepare(`SELECT relation_type AS relationType,required_attr AS requiredAttr FROM ontology_relation_definition`)
+    .all() as { relationType: string; requiredAttr: string | null }[]
+  const definitionByType = new Map(definitions.map((definition) => [definition.relationType, definition]))
+  const relationTypes = [...new Set(input.relationTypes)].filter((type) => definitionByType.has(type))
   const pairs = [...new Map(input.pairs.map((pair) => [`${pair.rowUid}\0${pair.colUid}`, pair])).values()].slice(
     0,
     5000
@@ -447,8 +477,10 @@ export function updateTraceMatrixLinks(
       const fromUid = input.direction === 'row_to_col' ? pair.rowUid : pair.colUid
       const toUid = input.direction === 'row_to_col' ? pair.colUid : pair.rowUid
       const target = db
-        .prepare(`SELECT design_category FROM entity_registry WHERE uid=? AND project_uid=? AND status <> 'deleted'`)
-        .get(toUid, projectUid) as { design_category: string | null } | undefined
+        .prepare(
+          `SELECT entity_type AS model_type FROM entity_registry WHERE uid=? AND project_uid=? AND status <> 'deleted'`
+        )
+        .get(toUid, projectUid) as { model_type: string | null } | undefined
       const source = db
         .prepare(`SELECT uid FROM entity_registry WHERE uid=? AND project_uid=? AND status <> 'deleted'`)
         .get(fromUid, projectUid)
@@ -471,13 +503,24 @@ export function updateTraceMatrixLinks(
         } else if (existing.length > 0) {
           unchanged += 1
         } else {
+          const requiredAttr = definitionByType.get(relationType)?.requiredAttr ?? null
+          const explicitValue = input.relationAttributes?.[relationType]
+          const requestedStatus =
+            requiredAttr === 'review_status' && explicitValue
+              ? (explicitValue as 'creating' | 'draft' | 'review' | 'approved' | 'rejected' | 'provisional')
+              : 'approved'
+          const prepared = prepareRelationDraft(
+            requiredAttr,
+            explicitRelationAttributes(requiredAttr, explicitValue),
+            requestedStatus
+          )
           createTraceLink(db, projectUid, {
             fromUid,
             toUid,
             relationType,
-            attributes: defaultRelationAttributes(relationType, target.design_category),
+            attributes: prepared.attributes,
             createdBy: 'human',
-            reviewStatus: relationType === 'relates_to' ? 'provisional' : 'approved'
+            reviewStatus: prepared.reviewStatus
           })
           added += 1
         }

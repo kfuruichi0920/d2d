@@ -46,6 +46,13 @@
   color: var(--d2d-fg-muted);
   font-size: 11px;
 }
+.trace-relation-select-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 5px;
+  cursor: pointer;
+}
 .trace-relation-options {
   display: flex;
   flex-wrap: wrap;
@@ -3723,4 +3730,43 @@ mark.d2d-term {
 }
 .resource-description-llm {
   margin-left: 8px;
+}
+
+.d2d-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  background: rgb(0 0 0 / 45%);
+}
+
+.d2d-modal {
+  display: grid;
+  width: min(560px, calc(100vw - 40px));
+  max-height: calc(100vh - 40px);
+  gap: 12px;
+  padding: 18px;
+  overflow: auto;
+  color: var(--d2d-fg);
+  background: var(--d2d-surface);
+  border: 1px solid var(--d2d-border);
+  border-radius: 6px;
+  box-shadow: 0 12px 40px rgb(0 0 0 / 35%);
+}
+
+.d2d-modal h2,
+.d2d-modal p {
+  margin: 0;
+}
+
+.d2d-modal label {
+  display: grid;
+  gap: 4px;
+}
+
+.d2d-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }

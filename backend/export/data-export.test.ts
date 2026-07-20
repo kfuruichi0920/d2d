@@ -56,8 +56,7 @@ describe('P12 データ出力・アーカイブ・Git', () => {
   function addRequirement(title: string): { uid: string; code: string } {
     const created = registerEntity(db, {
       projectUid,
-      entityType: 'resource_text',
-      designCategory: 'REQ',
+      entityType: 'model_req',
       title,
       createdBy: 'user'
     })
@@ -89,7 +88,7 @@ describe('P12 データ出力・アーカイブ・Git', () => {
       expect(readFileSync(join(outDir, 'elements.md'), 'utf-8')).toContain('REQ-000001')
       expect(readFileSync(join(outDir, 'elements.csv'), 'utf-8')).toContain('第一要求')
       expect(existsSync(join(outDir, 'relations.csv'))).toBe(true)
-      expect(existsSync(join(outDir, 'matrix_REQ_FUNC.csv'))).toBe(true)
+      expect(existsSync(join(outDir, 'matrix_model_req_model_func.csv'))).toBe(true)
     })
 
     it('FTS 仮想テーブル・影テーブルはエクスポート対象から除外する', () => {

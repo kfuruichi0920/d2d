@@ -361,9 +361,7 @@ export function ResourceEditor({
   const [llmRunUid, setLlmRunUid] = useState<string | undefined>()
   const [derivedMode, setDerivedMode] = useState<'new' | 'existing'>('new')
   const [derivedValue, setDerivedValue] = useState('')
-  const [derivedRelation, setDerivedRelation] = useState<'contains' | 'decomposes' | 'uses' | 'relates_to'>(
-    'relates_to'
-  )
+  const [derivedRelation, setDerivedRelation] = useState<'contains' | 'uses' | 'relates_to'>('relates_to')
   const [confirming, setConfirming] = useState(false)
   const [saving, setSaving] = useState(false)
   const [merging, setMerging] = useState(false)
@@ -874,7 +872,7 @@ export function ResourceEditor({
                 >
                   <option value="relates_to">relates_to</option>
                   <option value="contains">contains</option>
-                  <option value="decomposes">decomposes</option>
+
                   <option value="uses">uses</option>
                 </select>
               </label>

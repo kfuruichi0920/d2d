@@ -6,7 +6,6 @@ export type SemanticRelationType =
   | 'allocated_to'
   | 'verifies'
   | 'contains'
-  | 'decomposes'
   | 'implements'
   | 'uses'
   | 'calls'
@@ -83,7 +82,6 @@ export const SEMANTIC_RELATIONS: SemanticRelationType[] = [
   'allocated_to',
   'verifies',
   'contains',
-  'decomposes',
   'implements',
   'uses',
   'calls',

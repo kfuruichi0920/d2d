@@ -1,7 +1,4 @@
-/**
- * entity_type と表示コード prefix の対応（sdd_data_structure §10.1）。
- */
-
+/** entity_type と表示コード prefix の対応（sdd_data_structure §10.1）。 */
 export const ENTITY_CODE_PREFIX = {
   project: 'PRJ',
   batch_operation_info: 'BATCH',
@@ -22,14 +19,22 @@ export const ENTITY_CODE_PREFIX = {
   resource_formula: 'FORM',
   resource_code: 'CODE',
   resource_model: 'MODEL',
-  resource_scenario: 'SCN',
-  resource_interface: 'IF',
-  resource_state_transition: 'STM',
-  resource_data_structure: 'DATA',
   resource_reference: 'REF',
-  resource_metadata: 'META',
   resource_glossary: 'GLOSS',
   resource_glossary_synonym: 'GSYN',
+  model_src: 'SRC',
+  model_std: 'STD',
+  model_req: 'REQ',
+  model_cst: 'CST',
+  model_func: 'FUNC',
+  model_struct: 'STRUCT',
+  model_beh: 'BEH',
+  model_state: 'STATE',
+  model_data: 'DATA',
+  model_if: 'IF',
+  model_verif: 'VERIF',
+  model_impl: 'IMPL',
+  model_mgmt: 'MGMT',
   trace_link: 'TRACE',
   llm_run_ref: 'LLM',
   prompt_template: 'PROMPT'
@@ -37,24 +42,24 @@ export const ENTITY_CODE_PREFIX = {
 
 export type EntityType = keyof typeof ENTITY_CODE_PREFIX
 
-/** 設計13分類（SRS §9.1）。④昇格済みリソースは分類を code prefix として採番できる（§10.1） */
-export const DESIGN_CATEGORIES = [
-  'SRC',
-  'STD',
-  'REQ',
-  'CST',
-  'FUNC',
-  'STRUCT',
-  'BEH',
-  'STATE',
-  'IF',
-  'DATA',
-  'VERIF',
-  'MGMT',
-  'IMPL'
+/** ④設計モデルの組込物理テーブル（SRS §9.1、schema 2.0.0）。 */
+export const BUILTIN_MODEL_TYPES = [
+  'model_src',
+  'model_std',
+  'model_req',
+  'model_cst',
+  'model_func',
+  'model_struct',
+  'model_beh',
+  'model_state',
+  'model_data',
+  'model_if',
+  'model_verif',
+  'model_impl',
+  'model_mgmt'
 ] as const
-
-export type DesignCategory = (typeof DESIGN_CATEGORIES)[number]
+export type BuiltinModelType = (typeof BUILTIN_MODEL_TYPES)[number]
+export type ModelType = `model_${string}`
 
 export const ENTITY_STATUSES = ['draft', 'review', 'approved', 'rejected', 'deleted'] as const
 export type EntityStatus = (typeof ENTITY_STATUSES)[number]

@@ -79,20 +79,20 @@ export function exportDbToText(db: Database, projectUid: string, projectRoot: st
 
 /** 要素一覧・関係一覧・マトリクスの Markdown/CSV 出力（DATA-021） */
 function exportSummaries(db: Database, projectUid: string, outDir: string): string[] {
-  const elements = db
+  const elementRows = db
     .prepare(
-      `SELECT e.code, e.design_category, e.title, e.status, t.text_body AS description
-         FROM entity_registry e LEFT JOIN resource_text t ON t.uid = e.uid
-        WHERE e.design_category IS NOT NULL AND e.status <> 'deleted'
+      `SELECT e.uid, e.code, e.entity_type AS model_type, e.title, e.status
+         FROM entity_registry e
+        WHERE e.entity_type LIKE 'model_%' AND e.status <> 'deleted'
         ORDER BY e.code`
     )
-    .all() as {
-    code: string
-    design_category: string
-    title: string | null
-    status: string
-    description: string | null
-  }[]
+    .all() as { uid: string; code: string; model_type: string; title: string | null; status: string }[]
+  const elements = elementRows.map((element) => {
+    if (!/^model_[a-z][a-z0-9_]*$/.test(element.model_type)) return { ...element, description: null }
+    const model = db.prepare(`SELECT summary FROM "${element.model_type}" WHERE uid = ?`).get(element.uid) as
+      { summary: string | null } | undefined
+    return { ...element, description: model?.summary ?? null }
+  })
 
   const relations = db
     .prepare(
@@ -122,7 +122,7 @@ function exportSummaries(db: Database, projectUid: string, outDir: string): stri
     join(outDir, 'elements.csv'),
     [
       'code,category,title,status,description',
-      ...elements.map((e) => [e.code, e.design_category, e.title, e.status, e.description].map(csv).join(','))
+      ...elements.map((e) => [e.code, e.model_type, e.title, e.status, e.description].map(csv).join(','))
     ].join('\n') + '\n',
     'utf-8'
   )
@@ -133,7 +133,7 @@ function exportSummaries(db: Database, projectUid: string, outDir: string): stri
       '',
       '| code | category | title | status |',
       '| --- | --- | --- | --- |',
-      ...elements.map((e) => `| ${e.code} | ${e.design_category} | ${md(e.title)} | ${e.status} |`),
+      ...elements.map((e) => `| ${e.code} | ${e.model_type} | ${md(e.title)} | ${e.status} |`),
       ''
     ].join('\n'),
     'utf-8'
@@ -162,16 +162,16 @@ function exportSummaries(db: Database, projectUid: string, outDir: string): stri
   )
 
   // トレースマトリクス（既定 REQ 行 × FUNC 列。P9 のマトリクスと同一ロジック）
-  const matrix = getTraceMatrix(db, projectUid, 'REQ', 'FUNC')
+  const matrix = getTraceMatrix(db, projectUid, 'model_req', 'model_func')
   const matrixLines = [
     ['', ...matrix.cols.map((c) => c.code)].map(csv).join(','),
     ...matrix.rows.map((row) =>
       [row.code, ...matrix.cols.map((col) => (matrix.cells[row.uid]?.[col.uid] ?? []).join(';'))].map(csv).join(',')
     )
   ]
-  writeFileSync(join(outDir, 'matrix_REQ_FUNC.csv'), matrixLines.join('\n') + '\n', 'utf-8')
+  writeFileSync(join(outDir, 'matrix_model_req_model_func.csv'), matrixLines.join('\n') + '\n', 'utf-8')
 
-  return ['elements.csv', 'elements.md', 'relations.csv', 'relations.md', 'matrix_REQ_FUNC.csv']
+  return ['elements.csv', 'elements.md', 'relations.csv', 'relations.md', 'matrix_model_req_model_func.csv']
 }
 
 /** SQLite dump（P12-2）: schema.sql / data.sql を exports/sqlite_dump/ へ出力する */

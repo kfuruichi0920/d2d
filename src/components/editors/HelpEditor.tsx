@@ -1,5 +1,7 @@
 /** D2Dの概念を視覚的に説明する読取専用Help Resource（P3-10、UI-051/057）。 */
+import { useEffect, useState } from 'react'
 import { useEditorStore } from '../../stores/editor-store'
+import { invoke, onBackendEvent } from '../../services/backend'
 
 export type HelpTopic = 'workflow' | 'schema' | 'design-model' | 'addresses'
 
@@ -8,24 +10,6 @@ const topics: { id: HelpTopic; label: string; title: string }[] = [
   { id: 'schema', label: 'データスキーマ', title: 'D2Dのデータスキーマ' },
   { id: 'design-model', label: '設計モデル', title: '設計モデルの考え方' },
   { id: 'addresses', label: 'アドレス', title: 'アドレスの使い方' }
-]
-
-const modelGroups = [
-  { title: '根拠と規範', items: ['SRC 一次情報', 'STD 規範情報'] },
-  {
-    title: '要求と設計',
-    items: [
-      'REQ 要求',
-      'CST 制約',
-      'FUNC 機能',
-      'STRUCT 構造',
-      'BEH 振舞',
-      'STATE 状態',
-      'IF インタフェース',
-      'DATA データ'
-    ]
-  },
-  { title: '確認と実現', items: ['VERIF 検証', 'MGMT 管理', 'IMPL 実装'] }
 ]
 
 export function HelpEditor({ topic }: { topic: HelpTopic }): React.JSX.Element {
@@ -152,9 +136,14 @@ function SchemaHelp(): React.JSX.Element {
             <p>原本、抽出文書、位置、版</p>
           </section>
           <section className="d2d-schema-box">
-            <b>意味内容層</b>
+            <b>②③ Resource層</b>
             <h3>resource_*</h3>
-            <p>text / table / model / interface / state …</p>
+            <p>text / table / model / reference …</p>
+          </section>
+          <section className="d2d-schema-box">
+            <b>④ 設計モデル層</b>
+            <h3>model_*</h3>
+            <p>共通部 / 種別固有 detail_json</p>
           </section>
           <section className="d2d-schema-box">
             <b>関係層</b>
@@ -182,62 +171,102 @@ function SchemaHelp(): React.JSX.Element {
 }
 
 function DesignModelHelp(): React.JSX.Element {
+  const [unavailable, setUnavailable] = useState(false)
+  const [ontology, setOntology] = useState<{
+    version: string
+    models: Array<{ model_type: string; label: string; layer: string; definition: string; is_enabled: number }>
+    relations: Array<{ relation_type: string; label: string; definition: string; is_enabled: number }>
+    allowances: Array<{ relation_type: string; source_model_type: string; target_model_type: string; allowed: number }>
+  } | null>(null)
+  useEffect(() => {
+    const load = (): void => {
+      void invoke<typeof ontology>('ontology.get').then((result) => {
+        if (result.ok) {
+          setOntology(result.result)
+          setUnavailable(false)
+        } else setUnavailable(true)
+      })
+    }
+    load()
+    return onBackendEvent((event) => {
+      if (event === 'ontology.updated') load()
+    })
+  }, [])
+  if (!ontology)
+    return (
+      <div className="d2d-empty">
+        {unavailable
+          ? 'プロジェクトを開くと、そのプロジェクトで採用中のオントロジー定義を表示します。'
+          : 'プロジェクトのオントロジー設定を読込中…'}
+      </div>
+    )
+  const layers = new Map<string, typeof ontology.models>()
+  for (const model of ontology.models.filter((item) => item.is_enabled === 1))
+    (layers.get(model.layer) ?? layers.set(model.layer, []).get(model.layer)!).push(model)
   return (
     <>
       <p className="d2d-help-lead">
-        ④設計モデルは、13分類の「設計要素」と、要素同士を結ぶ「関係」を分離して管理します。LLMの出力は候補であり、人が採用するまで確定情報ではありません。
+        ④設計モデルは②③の <code>resource_*</code> と分離した <code>model_*</code>{' '}
+        テーブルで管理します。このページは現在確定中のオントロジー設定 v{ontology.version} を表示しています。
       </p>
       <div className="d2d-model-groups">
-        {modelGroups.map((group) => (
-          <section key={group.title}>
-            <h2>{group.title}</h2>
+        {[...layers].map(([layer, models]) => (
+          <section key={layer}>
+            <h2>{layer}</h2>
             <div>
-              {group.items.map((item) => (
-                <span key={item}>{item}</span>
+              {models.map((model) => (
+                <span key={model.model_type} title={model.definition}>
+                  <code>{model.model_type}</code> {model.label}
+                  <small style={{ display: 'block' }}>{model.definition}</small>
+                </span>
               ))}
             </div>
           </section>
         ))}
       </div>
+      <h2>有効な設計モデル関係</h2>
       <div className="d2d-relation-map">
-        <section>
-          <b>根拠</b>
-          <code>based_on</code>
-          <p>SRCは主に根拠の接続先</p>
-        </section>
-        <section>
-          <b>設計</b>
-          <code>satisfies / allocated_to / contains / decomposes</code>
-          <p>要求を満たし、責務を割り当て、構造化する</p>
-        </section>
-        <section>
-          <b>検証・実装</b>
-          <code>verifies / implements / uses / calls</code>
-          <p>確認方法と実現物まで接続する</p>
-        </section>
+        {ontology.relations
+          .filter((item) => item.is_enabled === 1)
+          .map((item) => (
+            <section key={item.relation_type}>
+              <b>{item.label}</b>
+              <code>{item.relation_type}</code>
+              <p>{item.definition}</p>
+              {item.relation_type === 'based_on' ? (
+                <small>許容: model_* → ①〜③の根拠Resource</small>
+              ) : (
+                <details>
+                  <summary>
+                    許容組合せ{' '}
+                    {
+                      ontology.allowances.filter(
+                        (allowance) => allowance.relation_type === item.relation_type && allowance.allowed === 1
+                      ).length
+                    }{' '}
+                    件
+                  </summary>
+                  <p>
+                    {ontology.allowances
+                      .filter((allowance) => allowance.relation_type === item.relation_type && allowance.allowed === 1)
+                      .map((allowance) => `${allowance.source_model_type} → ${allowance.target_model_type}`)
+                      .join('、') || '許容組合せなし'}
+                  </p>
+                </details>
+              )}
+            </section>
+          ))}
       </div>
       <div className="d2d-review-gate">
-        <span>LLM候補</span>
+        <span>③中間データ</span>
         <span aria-hidden="true">→</span>
         <b>
-          人間レビュー
+          定義を入力に候補導出
           <br />
-          採用・修正・棄却
+          人間レビュー
         </b>
         <span aria-hidden="true">→</span>
-        <span>確定した設計モデル</span>
-      </div>
-      <div className="d2d-owner-compare">
-        <section>
-          <code>owner_uid</code>
-          <b>所有者・管理主体</b>
-          <p>状態、IF、データ等のライフサイクル責任</p>
-        </section>
-        <section>
-          <code>allocated_to</code>
-          <b>要求・制約・機能の割当</b>
-          <p>どの構造要素が責務を担うかという関係</p>
-        </section>
+        <span>④ model_* 正本</span>
       </div>
     </>
   )

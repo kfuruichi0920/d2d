@@ -58,7 +58,7 @@ export function listResourceAddresses(db: Database, projectUid: string, scheme: 
                  SELECT 1 FROM llm_run_ref r WHERE r.uid=e.uid AND r.process_name='design-candidates'
                )`
             : scheme === 'design'
-              ? 'e.design_category IS NOT NULL'
+              ? "e.entity_type LIKE 'model_%'"
               : `e.entity_type LIKE 'resource_%'`
   const rows = db
     .prepare(

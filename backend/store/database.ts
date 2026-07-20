@@ -8,7 +8,7 @@ import { existsSync } from 'node:fs'
 import { BackendError } from '../api/errors'
 import { INITIAL_SCHEMA_SQL, INITIAL_SCHEMA_VERSION } from '../db/schema/initial-schema'
 import { runMigrations } from '../db/migrations'
-import { seedRelationRules } from '../db/seed/relation-rules'
+import { seedOntology } from '../ontology/ontology-service'
 import { newUid } from './uid'
 
 function applyPragmas(db: Database): void {
@@ -51,7 +51,7 @@ export function createDatabase(dbFilePath: string, options: CreateDatabaseOption
       INITIAL_SCHEMA_VERSION
     )
 
-    seedRelationRules(db)
+    seedOntology(db)
     // 新規 DB も最新 schema_version までマイグレーションを適用する
     runMigrations(db, dbFilePath)
     return db
