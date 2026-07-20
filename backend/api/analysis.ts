@@ -10,12 +10,14 @@ import { getProjectSettings, setProjectSetting } from '../settings/settings-serv
 import {
   ANALYSIS_SLOT_COUNT,
   DEFAULT_ANALYSIS_SLOTS,
+  loadAnalysisResult,
   normalizeAnalysisSlots,
   parseAnalysisDsl,
   runAnalysis,
   saveAnalysisReport,
   validateAgainstOntology,
-  type AnalysisQuerySlot
+  type AnalysisQuerySlot,
+  type AnalysisReportFormat
 } from '../analysis/analysis-service'
 import { eventBus } from '../events/event-bus'
 
@@ -110,16 +112,28 @@ export function registerAnalysisApi(router: ApiRouter): void {
       startUid: typeof p.startUid === 'string' && p.startUid ? p.startUid : undefined,
       endUid: typeof p.endUid === 'string' && p.endUid ? p.endUid : undefined
     })
-    const report = saveAnalysisReport(info.rootPath, result)
+    // ANA-009: HTML 形式の指定（既定は markdown）
+    const format: AnalysisReportFormat = p.format === 'html' ? 'html' : 'markdown'
+    const report = saveAnalysisReport(info.rootPath, result, format)
     return {
       name: result.name,
       fileName: report.fileName,
       path: report.path,
+      dataFileName: report.dataFileName,
+      format,
       elementCount: result.elements.length,
       relationCount: result.relations.length,
       pathCount: result.paths.length,
       stepCount: result.steps.length,
       truncated: result.truncated
     }
+  })
+
+  /** グラフ表示用の構造化結果の取得（ANA-008。analysis:// エディタが使用） */
+  router.register('analysis.getResult', (params) => {
+    const p = asRecord(params)
+    const { info } = requireProject()
+    const dataFileName = typeof p.dataFileName === 'string' ? p.dataFileName : ''
+    return loadAnalysisResult(info.rootPath, dataFileName)
   })
 }

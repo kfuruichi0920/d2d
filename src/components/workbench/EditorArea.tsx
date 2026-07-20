@@ -32,6 +32,7 @@ import {
   StoreBrowserEditor
 } from '../views/HistoryViews'
 import { ReportPreviewEditor } from '../views/ReportViews'
+import { AnalysisGraphEditor } from '../views/AnalysisViews'
 import { ResourceEditorPage } from '../editors/ResourceEditor'
 import { PipelineStageEditor, type PipelineStage } from '../editors/PipelineStageEditor'
 import { ResizeHandle } from './ResizeHandle'
@@ -82,6 +83,7 @@ function resolveEditor(uri: string): React.JSX.Element {
   if (uri.startsWith('diff://git/')) return <GitCommitViewer hash={uri.slice('diff://git/'.length)} />
   if (uri === 'store://tables') return <StoreBrowserEditor />
   if (uri.startsWith('report://')) return <ReportPreviewEditor fileName={uri.slice('report://'.length)} />
+  if (uri.startsWith('analysis://')) return <AnalysisGraphEditor dataFileName={uri.slice('analysis://'.length)} />
   return <div className="d2d-empty">この Resource（{uri}）の Editor Provider は未実装です。</div>
 }
 

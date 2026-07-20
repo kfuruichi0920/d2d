@@ -12,6 +12,7 @@ import { createProjectLayout } from '../project/layout'
 import { createDesignElement, createTraceLink } from '../design/design-service'
 import {
   buildAnalysisReportMarkdown,
+  loadAnalysisResult,
   normalizeAnalysisSlots,
   parseAnalysisDsl,
   runAnalysis,
@@ -158,11 +159,100 @@ describe('設計分析（ANA-001〜006）', () => {
     expect(saved.fileName.endsWith('.md')).toBe(true)
   })
 
-  it('クエリ規則スロットは常に10枠へ正規化される（ANA-004）', () => {
-    const slots = normalizeAnalysisSlots([{ name: 'A', dsl: 'FROM TYPE model_req' }, { bogus: true }])
+  it('クエリ規則スロットは常に10枠へ正規化される（ANA-004、MCP-011）', () => {
+    const slots = normalizeAnalysisSlots([
+      { name: 'A', dsl: 'FROM TYPE model_req', mcpDescription: '要求一覧を返す' },
+      { bogus: true }
+    ])
     expect(slots).toHaveLength(10)
-    expect(slots[0]).toEqual({ name: 'A', dsl: 'FROM TYPE model_req' })
-    expect(slots[1]).toEqual({ name: '', dsl: '' })
-    expect(slots[9]).toEqual({ name: '', dsl: '' })
+    expect(slots[0]).toEqual({ name: 'A', dsl: 'FROM TYPE model_req', mcpDescription: '要求一覧を返す' })
+    expect(slots[1]).toEqual({ name: '', dsl: '', mcpDescription: '' })
+    expect(slots[9]).toEqual({ name: '', dsl: '', mcpDescription: '' })
+  })
+
+  it('DSL拡張: 関係属性WHERE・要素属性ATTR・否定NOTで絞り込める（ANA-007）', () => {
+    // WHERE: satisfies(approved) は通り、存在しない値では辿らない
+    const whereHit = runAnalysis(db, projectUid, {
+      name: 'where-hit',
+      dsl: 'TRAVERSE satisfies DOWN WHERE review_status=approved',
+      startUid: funcUid
+    })
+    expect(whereHit.elements.map((element) => element.uid)).toContain(reqUid)
+    const whereMiss = runAnalysis(db, projectUid, {
+      name: 'where-miss',
+      dsl: 'TRAVERSE satisfies DOWN WHERE review_status=draft',
+      startUid: funcUid
+    })
+    expect(whereMiss.elements.map((element) => element.uid)).not.toContain(reqUid)
+
+    // FILTER ATTR: title 部分一致
+    const attr = runAnalysis(db, projectUid, {
+      name: 'attr',
+      dsl: ['FROM TYPE *', 'FILTER ATTR title~応答時間'].join('\n')
+    })
+    expect(attr.elements.map((element) => element.uid).sort()).toEqual([reqUid, verifUid].sort())
+
+    // FILTER NOT TYPE: 要求を除外
+    const negate = runAnalysis(db, projectUid, {
+      name: 'not',
+      dsl: ['FROM TYPE model_req,model_func', 'FILTER NOT TYPE model_req'].join('\n')
+    })
+    expect(negate.elements.map((element) => element.uid)).toEqual([funcUid])
+
+    // 不正なWHERE属性は検証エラー
+    expect(parseAnalysisDsl('TRAVERSE * DOWN WHERE bogus_attr=1').ok).toBe(false)
+  })
+
+  it('DSL拡張: SET による集合演算ができる（ANA-007）', () => {
+    // 全モデル保存 → 要求だけ残す → 保存済み全集合との EXCEPT で「要求以外」を得る
+    const result = runAnalysis(db, projectUid, {
+      name: 'set-ops',
+      dsl: [
+        'FROM TYPE *',
+        'SET SAVE all',
+        'FILTER TYPE model_req',
+        'SET SAVE reqs',
+        'SET LOAD all',
+        'SET EXCEPT reqs'
+      ].join('\n')
+    })
+    expect(result.elements.map((element) => element.uid).sort()).toEqual([funcUid, verifUid].sort())
+    expect(result.steps.filter((step) => step.kind === 'set')).toHaveLength(4)
+
+    // SAVE していない集合の参照は静的エラー
+    expect(parseAnalysisDsl('SET LOAD unknown').ok).toBe(false)
+    // INTERSECT
+    const intersect = runAnalysis(db, projectUid, {
+      name: 'intersect',
+      dsl: [
+        'FROM TYPE model_req,model_func',
+        'SET SAVE a',
+        'FROM TYPE model_verif',
+        'FILTER TYPE model_req',
+        'SET UNION a',
+        'SET INTERSECT a'
+      ].join('\n')
+    })
+    expect(intersect.elements.map((element) => element.uid).sort()).toEqual([funcUid, reqUid].sort())
+  })
+
+  it('HTML形式レポートと構造化結果JSONを保存できる（ANA-008/009）', () => {
+    const result = runAnalysis(db, projectUid, {
+      name: 'html-report',
+      dsl: 'TRAVERSE * DOWN DEPTH 2',
+      startUid: funcUid
+    })
+    const saved = saveAnalysisReport(root, result, 'html')
+    expect(saved.fileName.endsWith('.html')).toBe(true)
+    const html = readFileSync(join(root, saved.path), 'utf-8')
+    expect(html).toContain('<!DOCTYPE html>')
+    expect(html).toContain('設計分析レポート: html-report')
+    // グラフ表示用 JSON（reportFileName 付き）
+    const data = loadAnalysisResult(root, saved.dataFileName) as ReturnType<typeof runAnalysis> & {
+      reportFileName?: string
+    }
+    expect(data.reportFileName).toBe(saved.fileName)
+    expect(data.elements.map((element) => element.uid)).toContain(reqUid)
+    expect(() => loadAnalysisResult(root, 'missing.json')).toThrow(/見つかりません/)
   })
 })

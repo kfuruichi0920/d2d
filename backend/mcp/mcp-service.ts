@@ -10,7 +10,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { BackendError } from '../api/errors'
 import { eventBus } from '../events/event-bus'
-import { MCP_TOOL_DEFINITIONS, callMcpTool, type McpToolContext } from './mcp-tools'
+import { MCP_TOOL_DEFINITIONS, callMcpTool, listMcpTools, type McpToolContext } from './mcp-tools'
 import { McpAccessLog } from './access-log'
 
 /** MCP プロトコル版数。initialize でクライアント指定があればそれを尊重する */
@@ -230,7 +230,8 @@ export class McpServerService {
       case 'ping':
         return {}
       case 'tools/list':
-        return { tools: MCP_TOOL_DEFINITIONS }
+        // 静的6ツール + 定義済み分析スロット（MCP-011。プロジェクト未オープン時は静的分のみ）
+        return { tools: listMcpTools(this.contextProvider()) }
       case 'tools/call': {
         const name = typeof params.name === 'string' ? params.name : ''
         const ctx = this.contextProvider()

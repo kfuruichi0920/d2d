@@ -5,6 +5,7 @@
  * メソッドを追加・削除した場合は本配列も更新すること。
  */
 export const API_METHODS = [
+  'analysis.getResult',
   'analysis.getSlots',
   'analysis.run',
   'analysis.saveSlots',
@@ -48,6 +49,9 @@ export const API_METHODS = [
   'export.listDbToText',
   'export.openFolder',
   'export.sqliteDump',
+  'eval.runConversion',
+  'eval.runImpact',
+  'eval.seedSample',
   'extracted.approve',
   'extracted.delete',
   'extracted.get',

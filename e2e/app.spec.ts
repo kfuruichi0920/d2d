@@ -2536,12 +2536,15 @@ test('Undo拡張: ③削除の復元とマトリクス関係の取り消し（W7
 
 test('ナビゲーション履歴・フォーカスショートカット（W9/W10）', async () => {
   // W9: リンク移動の履歴を Alt+←／Alt+→ で行き来する
+  // 候補が確定する前の Enter で空振りしないよう、選択中候補の表示を待ってから実行する
   await page.keyboard.press('Control+Shift+P')
   await page.getByTestId('palette-input').fill('ヘルプ: 操作フロー')
+  await expect(page.locator('.wb-palette-item.selected')).toContainText('操作フロー')
   await page.keyboard.press('Enter')
   await expect(page.getByTestId('help-workflow')).toBeVisible()
   await page.keyboard.press('Control+Shift+P')
   await page.getByTestId('palette-input').fill('ツール設定を開く')
+  await expect(page.locator('.wb-palette-item.selected')).toContainText('ツール設定')
   await page.keyboard.press('Enter')
   await expect(page.getByTestId('settings-editor')).toBeVisible()
 
@@ -2702,13 +2705,16 @@ test('MCPサーバの設定・起動・応答・停止（MCP-001〜008）', asyn
   const toolsList = (await rpc({ jsonrpc: '2.0', id: 2, method: 'tools/list' })) as {
     result: { tools: { name: string }[] }
   }
+  // 静的6ツール + 既定スロット2件の分析ツール（MCP-011）
   expect(toolsList.result.tools.map((tool) => tool.name)).toEqual([
     'list_element_types',
     'get_element_type',
     'search_elements',
     'get_elements',
     'trace_upstream',
-    'trace_downstream'
+    'trace_downstream',
+    'analysis_slot_1',
+    'analysis_slot_2'
   ])
   const listTypes = (await rpc({
     jsonrpc: '2.0',
@@ -2794,6 +2800,56 @@ test('設計分析: クエリ規則の定義・検証・実行→過程付きレ
   const pathPreview = page.locator('[data-testid="report-md-preview"]:visible').last()
   await expect(pathPreview).toContainText('意味的経路')
   await expect(pathPreview).toContainText('FUNC-000001')
+
+  // 分析結果のグラフ表示（ANA-008）
+  await section.getByTestId('analysis-open-graph').click()
+  const graph = page.locator('[data-testid="analysis-graph-editor"]:visible')
+  await expect(graph).toBeVisible()
+  await expect(graph.getByTestId('analysis-graph-svg')).toBeVisible()
+  await expect(graph.locator('[data-testid="analysis-node-FUNC-000001"]')).toBeVisible()
+  // グラフからレポートへ戻れる
+  await expect(graph.getByTestId('analysis-graph-open-report')).toBeVisible()
+
+  // スロット設定にMCP向け説明欄がある（MCP-011。LLM生成はProvider依存のためE2E対象外）
+  await page.getByTestId('activity-settings').click()
+  await page.getByTestId('open-design-model-settings').click()
+  const slotSettings2 = page.getByTestId('analysis-slot-settings')
+  await slotSettings2.scrollIntoViewIfNeeded()
+  await expect(slotSettings2.getByTestId('analysis-slot-mcp-0')).toBeVisible()
+  await expect(slotSettings2.getByTestId('analysis-slot-mcp-generate-0')).toBeVisible()
+  await closeAllEditorTabs()
+})
+
+test('評価: サンプルデータ投入→影響分析精度評価→レポート（EVAL-001/003）', async () => {
+  await closeAllEditorTabs()
+  // 先行のオントロジー設定E2Eが allocated_to を無効化しているため、サンプル投入前に再有効化する
+  await page.evaluate(async () =>
+    window.api.invoke('ontology.saveRelation', {
+      relationType: 'allocated_to',
+      label: '割当',
+      definition: '機能または責務を構造、振舞、状態へ割り当てる。',
+      requiredAttr: 'allocation_kind',
+      enabled: true
+    })
+  )
+  // Reports Activity の評価セクションから実行する
+  await page.getByTestId('activity-reports').click()
+  const evalSection = page.getByTestId('eval-section')
+  await evalSection.scrollIntoViewIfNeeded()
+  await expect(evalSection).toBeVisible()
+
+  // サンプルデータ投入（確認ダイアログ → 完了通知）
+  await evalSection.getByTestId('eval-seed').click()
+  await page.getByTestId('confirm-ok').click()
+  await expect(page.getByTestId('notifications')).toContainText('サンプルデータを投入しました', { timeout: 30_000 })
+
+  // 評価②: 影響分析精度（LLM不要）。期待影響集合と完全一致し F1=1.000
+  await evalSection.getByTestId('eval-run-impact').click()
+  await expect(page.getByTestId('notifications')).toContainText('評価②が完了しました: F1=1.000', { timeout: 30_000 })
+  const evalPreview = page.locator('[data-testid="report-md-preview"]:visible')
+  await expect(evalPreview).toContainText('評価②レポート')
+  await expect(evalPreview).toContainText('上限警報しきい値の仕様変更')
+  await expect(evalPreview).toContainText('期待影響集合と完全一致')
   await closeAllEditorTabs()
 })
 

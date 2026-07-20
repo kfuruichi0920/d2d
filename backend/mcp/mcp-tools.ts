@@ -15,6 +15,15 @@ import { getOntology, parseFieldSchema } from '../ontology/ontology-service'
 import { listTraceLinks } from '../design/design-service'
 import { getTraceSubgraph, type TraceDirection } from '../traceability/trace-service'
 import { searchElements, type SearchSettings } from '../search/search-service'
+import { getProjectSettings } from '../settings/settings-service'
+import {
+  DEFAULT_ANALYSIS_SLOTS,
+  normalizeAnalysisSlots,
+  parseAnalysisDsl,
+  runAnalysis,
+  saveAnalysisReport,
+  type AnalysisQuerySlot
+} from '../analysis/analysis-service'
 
 /** MCP tools/list で応答するツール定義（inputSchema は JSON Schema）。 */
 export interface McpToolDefinition {
@@ -27,6 +36,7 @@ export interface McpToolDefinition {
 export interface McpToolContext {
   db: Database
   projectUid: string
+  rootPath: string
   searchSettings: SearchSettings
 }
 
@@ -168,6 +178,91 @@ function asRecord(value: unknown): Record<string, unknown> {
     throw new BackendError('validation', 'ツール引数はオブジェクトで指定してください', String(value))
   }
   return value as Record<string, unknown>
+}
+
+// ---- 分析クエリ規則スロットの MCP 公開（MCP-011） ----
+
+const SLOT_TOOL_PATTERN = /^analysis_slot_(\d{1,2})$/
+
+function loadSlotList(ctx: McpToolContext): AnalysisQuerySlot[] {
+  const raw = getProjectSettings(ctx.rootPath)['analysis.querySlots']
+  return normalizeAnalysisSlots(raw === undefined ? DEFAULT_ANALYSIS_SLOTS : raw)
+}
+
+/** 定義済みスロット（DSLあり）を analysis_slot_<n> ツールとして公開する。説明は mcpDescription を優先 */
+function slotToolDefinitions(ctx: McpToolContext): McpToolDefinition[] {
+  return loadSlotList(ctx)
+    .map((slot, index) => ({ slot, index }))
+    .filter(({ slot }) => slot.dsl.trim())
+    .map(({ slot, index }) => {
+      const validation = parseAnalysisDsl(slot.dsl)
+      const properties: Record<string, unknown> = {}
+      const required: string[] = []
+      if (validation.requiresStart) {
+        properties.start_uid = { type: 'string', description: '起点要素の UID（search_elements で特定できる）' }
+        required.push('start_uid')
+      } else {
+        properties.start_uid = { type: 'string', description: '起点要素の UID（このクエリでは任意）' }
+      }
+      if (validation.requiresEnd) {
+        properties.end_uid = { type: 'string', description: '終点要素の UID（経路検索の到達先）' }
+        required.push('end_uid')
+      }
+      const description =
+        slot.mcpDescription.trim() ||
+        `設計分析クエリ規則「${slot.name || `スロット${index + 1}`}」を実行し、対象要素・関係・経路を返す。DSL: ${slot.dsl.replaceAll('\n', ' / ').slice(0, 200)}`
+      return {
+        name: `analysis_slot_${index + 1}`,
+        description,
+        inputSchema: {
+          type: 'object',
+          properties,
+          ...(required.length > 0 ? { required } : {}),
+          additionalProperties: false
+        }
+      }
+    })
+}
+
+/** 静的6ツール + 定義済み分析スロットツール（MCP-011）。ctx が無い場合は静的分だけ返す */
+export function listMcpTools(ctx: McpToolContext | null): McpToolDefinition[] {
+  if (!ctx) return MCP_TOOL_DEFINITIONS
+  try {
+    return [...MCP_TOOL_DEFINITIONS, ...slotToolDefinitions(ctx)]
+  } catch {
+    return MCP_TOOL_DEFINITIONS
+  }
+}
+
+/** analysis_slot_<n> の実行（MCP-011）。過程付きレポートも保存し、参照名を応答へ含める */
+function callSlotTool(ctx: McpToolContext, slotIndex: number, args: Record<string, unknown>): unknown {
+  const slot = loadSlotList(ctx)[slotIndex]
+  if (!slot || !slot.dsl.trim()) {
+    throw new BackendError('validation', `分析スロット${slotIndex + 1} にクエリ規則が定義されていません`, '')
+  }
+  const result = runAnalysis(ctx.db, ctx.projectUid, {
+    name: slot.name || `スロット${slotIndex + 1}`,
+    dsl: slot.dsl,
+    startUid: typeof args.start_uid === 'string' && args.start_uid ? args.start_uid : undefined,
+    endUid: typeof args.end_uid === 'string' && args.end_uid ? args.end_uid : undefined
+  })
+  const report = saveAnalysisReport(ctx.rootPath, result)
+  return {
+    name: result.name,
+    dsl: slot.dsl,
+    truncated: result.truncated,
+    steps: result.steps.map((step) => ({
+      line: step.line,
+      text: step.text,
+      input_count: step.inputCount,
+      output_count: step.outputCount,
+      note: step.note
+    })),
+    elements: result.elements,
+    relations: result.relations,
+    paths: result.paths,
+    report_file: report.path
+  }
 }
 
 function requireString(params: Record<string, unknown>, key: string): string {
@@ -417,6 +512,8 @@ function trace(ctx: McpToolContext, args: Record<string, unknown>, direction: Tr
 /** ツール名 → 実行関数のディスパッチ。未知のツールは validation エラー。 */
 export function callMcpTool(ctx: McpToolContext, name: string, rawArgs: unknown): unknown {
   const args = rawArgs === undefined || rawArgs === null ? {} : asRecord(rawArgs)
+  const slotMatch = SLOT_TOOL_PATTERN.exec(name)
+  if (slotMatch) return callSlotTool(ctx, Number(slotMatch[1]) - 1, args)
   switch (name) {
     case 'list_element_types':
       return listElementTypes(ctx)

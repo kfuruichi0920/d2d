@@ -27,7 +27,7 @@ describe('MCPサーバ（MCP-001〜008）', () => {
     createProjectLayout(root)
     db = createDatabase(join(root, 'project.db'), { projectName: 'p' })
     projectUid = getProjectRow(db).uid
-    ctx = { db, projectUid, searchSettings: { useMecab: false } }
+    ctx = { db, projectUid, rootPath: root, searchSettings: { useMecab: false } }
 
     const req = createDesignElement(db, projectUid, { modelType: 'model_req', title: '応答時間要求' })
     const func = createDesignElement(db, projectUid, {
@@ -193,15 +193,19 @@ describe('MCPサーバ（MCP-001〜008）', () => {
       })
 
       const list = await rpc({ jsonrpc: '2.0', id: 2, method: 'tools/list' })
-      const tools = (list.body as { result: { tools: { name: string }[] } }).result.tools
+      const tools = (list.body as { result: { tools: { name: string; description: string }[] } }).result.tools
+      // 静的6ツール + 既定スロット2件の分析ツール（MCP-011）
       expect(tools.map((tool) => tool.name)).toEqual([
         'list_element_types',
         'get_element_type',
         'search_elements',
         'get_elements',
         'trace_upstream',
-        'trace_downstream'
+        'trace_downstream',
+        'analysis_slot_1',
+        'analysis_slot_2'
       ])
+      expect(tools.find((tool) => tool.name === 'analysis_slot_1')?.description).toContain('影響')
 
       const call = await rpc({
         jsonrpc: '2.0',
@@ -212,6 +216,36 @@ describe('MCPサーバ（MCP-001〜008）', () => {
       const content = (call.body as { result: { content: { type: string; text: string }[]; isError?: boolean } }).result
       expect(content.isError).toBeUndefined()
       expect(JSON.parse(content.content[0]!.text)).toMatchObject({ results: [{ code: 'REQ-000001' }] })
+    })
+
+    it('分析スロットを MCP ツールとして実行できる（MCP-011）', async () => {
+      const call = await rpc({
+        jsonrpc: '2.0',
+        id: 5,
+        method: 'tools/call',
+        params: { name: 'analysis_slot_1', arguments: { start_uid: funcUid } }
+      })
+      const result = (call.body as { result: { isError?: boolean; content: { text: string }[] } }).result
+      expect(result.isError).toBeUndefined()
+      const payload = JSON.parse(result.content[0]!.text) as {
+        name: string
+        elements: { uid: string }[]
+        report_file: string
+        steps: unknown[]
+      }
+      expect(payload.name).toBe('影響範囲（下流3段）')
+      expect(payload.elements.map((element) => element.uid)).toContain(reqUid)
+      expect(payload.report_file).toContain('exports')
+      expect(payload.steps.length).toBeGreaterThan(0)
+
+      // 起点必須スロットの起点未指定はツールエラー
+      const missing = await rpc({
+        jsonrpc: '2.0',
+        id: 6,
+        method: 'tools/call',
+        params: { name: 'analysis_slot_1' }
+      })
+      expect((missing.body as { result: { isError?: boolean } }).result.isError).toBe(true)
     })
 
     it('アクセスログがリクエスト単位で記録される（MCP-009）', async () => {
