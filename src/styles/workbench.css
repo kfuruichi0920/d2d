@@ -46,6 +46,13 @@
   color: var(--d2d-fg-muted);
   font-size: 11px;
 }
+.trace-relation-select-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 5px;
+  cursor: pointer;
+}
 .trace-relation-options {
   display: flex;
   flex-wrap: wrap;

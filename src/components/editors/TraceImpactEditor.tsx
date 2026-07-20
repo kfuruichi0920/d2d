@@ -212,7 +212,7 @@ export function TraceImpactEditor({ contextUri }: { contextUri: string }): React
       setConfigs((current) => {
         if (current.length > 0) return current
         if (contextUri === 'trace://list-link/pipeline') {
-          return (['extracted', 'intermediate', 'design'] as const).map((kind, index) => ({
+          return (['extracted', 'intermediate', 'chunk', 'design'] as const).map((kind, index) => ({
             id: `impact-column-${index + 1}`,
             scopeIds: [`all:${kind}`]
           }))

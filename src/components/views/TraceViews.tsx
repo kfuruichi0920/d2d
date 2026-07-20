@@ -141,7 +141,7 @@ export function TraceSideBar(): React.JSX.Element {
         className="d2d-btn"
         style={{ width: '100%', marginBottom: 4 }}
         onClick={() =>
-          openResource(uniqueTraceUri('trace://matrix/model_func/model_req'), 'トレースマトリクス', { preview: false })
+          openResource(uniqueTraceUri('trace://matrix/all:design/all:design'), 'トレースマトリクス', { preview: false })
         }
         data-testid="open-matrix"
       >

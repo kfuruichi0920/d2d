@@ -171,6 +171,15 @@ describe('④設計モデル（P8）', () => {
       requiredAttr: 'usage_kind'
     })
     expect(checkRelationAllowed(db, 'relates_to', 'model_req', 'model_mgmt').allowed).toBe(true) // ANY
+    expect(checkRelationAllowed(db, 'based_on', 'intermediate_item', 'extracted_item')).toEqual({
+      allowed: true,
+      requiredAttr: 'basis_kind'
+    })
+    expect(checkRelationAllowed(db, 'based_on', 'model_req', 'model_src')).toEqual({
+      allowed: false,
+      requiredAttr: null,
+      reason: 'based_on は設計モデル同士には設定できません'
+    })
     expect(checkRelationAllowed(db, 'depends_on', 'model_req', 'model_func').allowed).toBe(false) // 非採用 relation_type
   })
 

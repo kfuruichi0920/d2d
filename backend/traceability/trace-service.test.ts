@@ -163,6 +163,39 @@ describe('トレーサビリティ（P9）', () => {
     )
   })
 
+  it('汎用マトリクス: 根拠Resource同士へbased_onを設定し、設計モデル同士は拒否する', () => {
+    const extracted = registerEntity(db, { projectUid, entityType: 'extracted_item', title: '抽出根拠' })
+    const intermediate = registerEntity(db, { projectUid, entityType: 'intermediate_item', title: '中間根拠' })
+    const input = {
+      pairs: [{ rowUid: intermediate.uid, colUid: extracted.uid }],
+      relationTypes: ['based_on'] as const,
+      direction: 'row_to_col' as const,
+      operation: 'add' as const
+    }
+    expect(updateTraceMatrixLinks(db, projectUid, input)).toMatchObject({ added: 1, deleted: 0 })
+    expect(
+      db
+        .prepare(
+          `SELECT basis_kind,review_status FROM trace_link WHERE from_uid=? AND to_uid=? AND relation_type='based_on'`
+        )
+        .get(intermediate.uid, extracted.uid)
+    ).toEqual({ basis_kind: 'inferred', review_status: 'creating' })
+    expect(() =>
+      updateTraceMatrixLinks(db, projectUid, {
+        pairs: [{ rowUid: func1.uid, colUid: req1.uid }],
+        relationTypes: ['based_on'],
+        direction: 'row_to_col',
+        operation: 'add'
+      })
+    ).toThrow(/設計モデル同士/)
+  })
+
+  it('汎用マトリクス: 関係種別を全選択OFFにすると関係を表示しない', () => {
+    const matrix = getEditableTraceMatrix(db, projectUid, ['design:model_func'], ['design:model_req'], [])
+    expect(matrix.relationDefinitions.length).toBeGreaterThan(0)
+    expect(matrix.cells).toEqual({})
+  })
+
   it('汎用マトリクス: 選択セルへ関係を一括追加・論理削除できる（TRACE-027）', () => {
     const added = updateTraceMatrixLinks(db, projectUid, {
       pairs: [{ rowUid: func1.uid, colUid: req2.uid }],

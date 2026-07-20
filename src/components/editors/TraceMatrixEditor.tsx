@@ -110,8 +110,8 @@ export function TraceMatrixEditor({
     void invoke<MatrixScope[]>('trace.matrixScopes').then((result) => {
       if (!result.ok) return
       setScopes(result.result)
-      const initialRowId = `design:${initialRow}`
-      const initialColId = `design:${initialCol}`
+      const initialRowId = initialRow.includes(':') ? initialRow : `design:${initialRow}`
+      const initialColId = initialCol.includes(':') ? initialCol : `design:${initialCol}`
       setRowScopeIds((current) =>
         current.length > 0
           ? current
@@ -341,6 +341,22 @@ export function TraceMatrixEditor({
         <div className="trace-matrix-edit-config">
           <fieldset>
             <legend>表示・編集する関係種別（複数選択可）</legend>
+            <label className="trace-relation-select-all">
+              <input
+                type="checkbox"
+                checked={
+                  relationDefinitions.length > 0 &&
+                  relationDefinitions.every((definition) => relationTypes.includes(definition.relationType))
+                }
+                onChange={(event) =>
+                  setRelationTypes(
+                    event.target.checked ? relationDefinitions.map((definition) => definition.relationType) : []
+                  )
+                }
+                data-testid="trace-relation-all"
+              />
+              全選択 ON/OFF
+            </label>
             <div className="trace-relation-options">
               {relationDefinitions.map((definition) => {
                 const type = definition.relationType
@@ -401,7 +417,7 @@ export function TraceMatrixEditor({
               onClick={() => void update('add')}
               data-testid="trace-matrix-add"
             >
-              選択へ追加
+              選択
             </button>
             <button
               type="button"
@@ -410,7 +426,7 @@ export function TraceMatrixEditor({
               onClick={() => void update('delete')}
               data-testid="trace-matrix-delete"
             >
-              選択から削除
+              削除
             </button>
             <span>{selectedPairs.length} セル選択</span>
             <label className="trace-matrix-zoom">

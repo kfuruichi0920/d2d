@@ -225,13 +225,15 @@ export function checkRelationAllowed(
   if (!relation || relation.is_enabled !== 1)
     return { allowed: false, requiredAttr: null, reason: `未定義または無効な関係です: ${relationType}` }
   if (relationType === 'based_on') {
-    const ok = Boolean(sourceModelType?.startsWith('model_')) && !targetModelType?.startsWith('model_')
+    const ok =
+      Boolean(sourceModelType && targetModelType) &&
+      !(sourceModelType?.startsWith('model_') && targetModelType?.startsWith('model_'))
     return ok
       ? { allowed: true, requiredAttr: relation.required_attr }
       : {
           allowed: false,
           requiredAttr: null,
-          reason: 'based_on は設計モデルから②③の根拠Resourceへの関係に限定されます'
+          reason: 'based_on は設計モデル同士には設定できません'
         }
   }
   if (!sourceModelType?.startsWith('model_') || !targetModelType?.startsWith('model_'))

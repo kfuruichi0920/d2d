@@ -373,6 +373,7 @@ export function getEditableTraceMatrix(
     })) as MatrixRelationDefinition[]
   const definedTypes = new Set(relationDefinitions.map((definition) => definition.relationType))
   const allowedTypes = (relationTypes ?? []).filter((type) => definedTypes.has(type))
+  const hasRelationFilter = relationTypes !== undefined
   const allRelationTypes = relationDefinitions.map((definition) => definition.relationType)
   if (rows.length === 0 || cols.length === 0)
     return { rows, cols, cells, relationTypes: allRelationTypes, relationDefinitions }
@@ -386,7 +387,13 @@ export function getEditableTraceMatrix(
       `SELECT t.uid, t.from_uid, t.to_uid, t.relation_type, t.review_status
          FROM trace_link t JOIN entity_registry le ON le.uid=t.uid AND le.status <> 'deleted'
         WHERE t.from_uid IN (${placeholders}) AND t.to_uid IN (${placeholders})
-          ${allowedTypes.length > 0 ? `AND t.relation_type IN (${allowedTypes.map(() => '?').join(',')})` : ''}
+          ${
+            hasRelationFilter
+              ? allowedTypes.length > 0
+                ? `AND t.relation_type IN (${allowedTypes.map(() => '?').join(',')})`
+                : 'AND 1=0'
+              : ''
+          }
         ORDER BY t.relation_type, t.uid`
     )
     .all(...allIds, ...allIds, ...allowedTypes) as {

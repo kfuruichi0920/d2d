@@ -252,7 +252,7 @@ const RELATIONS: Array<Omit<OntologyRelationDefinition, 'icon_color' | 'icon_tex
     relation_type: 'based_on',
     label: '根拠',
     definition:
-      '設計モデルが②抽出データまたは③中間データのどの一次情報に基づくかを表す。設計モデル間の意味関係には使用しない。',
+      '①〜③、チャンク、Resource、設計モデルの由来・根拠を表す。根拠Resource同士にも使用できるが、設計モデル同士には使用しない。',
     required_attr: 'basis_kind',
     is_enabled: 1,
     is_builtin: 1,

@@ -481,7 +481,8 @@ export function OntologySettingsSection(): React.JSX.Element {
         </label>
         {relation === 'based_on' ? (
           <p style={{ fontSize: 12 }}>
-            based_on は model_* → ②③Resource に固定し、設計モデル間マトリクスの対象外です。
+            based_on は根拠Resource同士にも設定できますが、model_*
+            同士には設定できないため、設計モデル間マトリクスの対象外です。
           </p>
         ) : (
           <div style={{ overflow: 'auto', maxHeight: 520, marginTop: 8 }}>
