@@ -30,10 +30,18 @@ interface LlmStatus {
   externalSendAllowed: boolean
 }
 
+interface McpStatus {
+  enabled: boolean
+  port: number
+  running: boolean
+  url: string | null
+}
+
 interface WorkbenchStatus {
   git: GitStatusSummary | null
   runtime: RuntimeCapabilityStatus | null
   llm: LlmStatus | null
+  mcp: McpStatus | null
   debugLevel: string
 }
 
@@ -99,6 +107,12 @@ function llmProviderLabel(llm: LlmStatus | null): string {
   return `LLM Provider: ${llm.provider} ${configured ? '設定済' : '未設定'}`
 }
 
+function mcpLabel(mcp: McpStatus | null): string {
+  if (!mcp) return 'MCP: 取得不可'
+  if (mcp.running) return `MCP: 起動中 :${mcp.port}`
+  return mcp.enabled ? 'MCP: 停止（起動失敗）' : 'MCP: 停止'
+}
+
 function llmExternalLabel(llm: LlmStatus | null): string {
   if (!llm) return '外部LLM: 取得不可'
   if (!llm.external) return '外部LLM: 対象外'
@@ -122,10 +136,11 @@ export function StatusBar(): React.JSX.Element {
       setStatus(null)
       return
     }
-    const [git, runtime, llm, projectSettings] = await Promise.all([
+    const [git, runtime, llm, mcp, projectSettings] = await Promise.all([
       invoke<GitStatusSummary>('git.status'),
       invoke<RuntimeCapabilityStatus>('runtime.capabilities'),
       invoke<LlmStatus>('llm.getSettings'),
+      invoke<McpStatus>('mcp.status'),
       invoke<Record<string, unknown>>('settings.getProjectSettings')
     ])
     const level = projectSettings.ok ? projectSettings.result['logging.debugLevel'] : null
@@ -133,6 +148,7 @@ export function StatusBar(): React.JSX.Element {
       git: git.ok ? git.result : null,
       runtime: runtime.ok ? runtime.result : null,
       llm: llm.ok ? llm.result : null,
+      mcp: mcp.ok ? mcp.result : null,
       debugLevel: typeof level === 'string' ? level : 'info'
     })
   }, [project])
@@ -144,7 +160,7 @@ export function StatusBar(): React.JSX.Element {
     const refreshOnFocus = (): void => void refreshStatus()
     window.addEventListener('focus', refreshOnFocus)
     const offEvents = onBackendEvent((event) => {
-      if (event === 'git.committed' || event === 'project.opened') void refreshStatus()
+      if (event === 'git.committed' || event === 'project.opened' || event === 'mcp.statusChanged') void refreshStatus()
     })
     return () => {
       window.clearInterval(timer)
@@ -201,6 +217,14 @@ export function StatusBar(): React.JSX.Element {
               {llmExternalLabel(status?.llm ?? null)}
             </StatusItem>
           </span>
+          <StatusItem
+            icon="server"
+            testId="status-mcp"
+            title={`MCPサーバ設定を開く（${status?.mcp?.url ?? '未起動'}）`}
+            onClick={openToolSettings}
+          >
+            {mcpLabel(status?.mcp ?? null)}
+          </StatusItem>
           <StatusItem
             icon="bug"
             testId="status-debug-level"

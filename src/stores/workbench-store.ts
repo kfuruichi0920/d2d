@@ -19,8 +19,8 @@ export const WORK_MODES: { mode: WorkMode; label: string }[] = [
 
 export type Activity = 'explorer' | 'search' | 'trace' | 'reports' | 'history' | 'settings'
 export const DEFAULT_ACTIVITY_ORDER: Activity[] = ['explorer', 'search', 'trace', 'reports', 'history', 'settings']
-export type PanelTab = 'problems' | 'output' | 'jobs' | 'validation' | 'llm'
-export const PANEL_TAB_ORDER: PanelTab[] = ['problems', 'output', 'jobs', 'validation', 'llm']
+export type PanelTab = 'problems' | 'output' | 'jobs' | 'validation' | 'llm' | 'mcp'
+export const PANEL_TAB_ORDER: PanelTab[] = ['problems', 'output', 'jobs', 'validation', 'llm', 'mcp']
 export type SecondaryTab = 'properties' | 'relations' | 'review' | 'dictionary'
 
 export const SECONDARY_SECTION_ORDER: SecondaryTab[] = ['properties', 'relations', 'review', 'dictionary']

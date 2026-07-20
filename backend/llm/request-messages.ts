@@ -15,12 +15,31 @@ export type LlmRequestOperation =
   | 'design-candidates'
   | 'resource-merge'
   | 'resource-description'
+  | 'analysis-mcp-description'
 
 export interface ResourceMergeSource {
   resourceUid?: string
   type: string
   values: Record<string, unknown>
   outlineContext?: Record<string, unknown> | null
+}
+
+/** 分析クエリ規則の MCP ツール向け説明の生成（MCP-012）。名称と DSL から用途説明を作る */
+export function buildAnalysisMcpDescriptionMessages(name: string, dsl: string): ChatMessage[] {
+  if (!dsl.trim()) throw new BackendError('validation', 'クエリ定義DSLが空です', '')
+  return [
+    {
+      role: 'system',
+      content:
+        'あなたは設計トレーサビリティツールの支援AIです。与えられた設計分析クエリ規則（DSL）の内容から、' +
+        'MCPツールとしてAIエージェントへ公開する際の説明文を日本語で1〜3文で作成してください。' +
+        'DSL仕様: FROM TYPE=種別全要素を集合へ追加 / TRAVERSE 関係 UP(上流)|DOWN(下流)|BOTH DEPTH n=関係を辿って集合へ追加 / ' +
+        'FILTER [NOT] TYPE|STATUS|ATTR=集合の絞り込み / SET SAVE|LOAD|UNION|INTERSECT|EXCEPT=集合演算 / ' +
+        'PATH 関係 MAXDEPTH n=起点(start_uid)から終点(end_uid)への意味的経路の列挙。' +
+        '説明には、何を入力（起点・終点の要否）し何が得られるかを含めてください。説明文だけを出力してください。'
+    },
+    { role: 'user', content: JSON.stringify({ name, dsl }) }
+  ]
 }
 
 export function buildConnectionTestMessages(): ChatMessage[] {

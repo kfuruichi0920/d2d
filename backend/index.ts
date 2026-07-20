@@ -20,7 +20,7 @@ import { SettingsService, type SecretCipher } from './settings/settings-service'
 import { registerBuiltinFeatures } from './features/feature-registry'
 import { callMain, handleBridgeMessage, initMainBridge } from './main-bridge'
 import { runWorker } from './workers/worker-runner'
-import { requireProject, type ProjectInfo } from './project/project-service'
+import { currentProject, requireProject, type ProjectInfo } from './project/project-service'
 import { registerDocumentApi } from './api/documents'
 import { registerLlmApi } from './api/llm'
 import { registerIntermediateApi } from './api/intermediate'
@@ -29,7 +29,12 @@ import { registerTraceApi } from './api/trace'
 import { registerSecondaryApi } from './api/secondary'
 import { registerEditApi } from './api/edit'
 import { registerDataApi, registerDbToTextHook } from './api/data'
-import { registerSearchApi } from './api/search'
+import { registerSearchApi, searchSettings as buildSearchSettings } from './api/search'
+import { applyMcpSettings, readMcpSettings, registerMcpApi } from './api/mcp'
+import { registerAnalysisApi } from './api/analysis'
+import { registerEvalApi } from './api/eval'
+import { buildConversionEvalMarkdown, runConversionEval, saveEvalReport } from './eval/eval-service'
+import { McpServerService } from './mcp/mcp-service'
 import { registerResourceApi } from './api/resource'
 import { parseLlmMergeCandidate } from './resource/resource-service'
 import { createArchive } from './export/archive-service'
@@ -306,6 +311,48 @@ function main(): void {
     }
   })
 
+  // 評価①: LLM変換精度評価ジョブ（EVAL-002）。チャンク毎に候補生成し期待値と照合する
+  jobs.registerExecutor('eval.runConversion', async (params, ctx) => {
+    const { format } = (params as { format?: 'markdown' | 'html' }) ?? {}
+    const { db, info } = requireProject()
+    const result = await runConversionEval(
+      db,
+      info.projectUid,
+      info.rootPath,
+      async (chunkUid, messages) => {
+        const run = await runLlm(
+          db,
+          settings,
+          { projectUid: info.projectUid, rootPath: info.rootPath },
+          { processName: 'eval-conversion', messages, jsonMode: true, inputRefUid: chunkUid, signal: ctx.signal }
+        )
+        return { content: run.content, inputTokens: run.inputTokens ?? null, outputTokens: run.outputTokens ?? null }
+      },
+      (percent, message) => ctx.reportProgress(percent, message)
+    )
+    const report = saveEvalReport(
+      info.rootPath,
+      'conversion',
+      buildConversionEvalMarkdown(result),
+      format === 'html' ? 'html' : 'markdown'
+    )
+    ctx.log('info', `評価①が完了しました: F1=${result.totals.elementMetrics.f1.toFixed(3)}`, {
+      fileName: report.fileName
+    })
+    return {
+      status: 'success',
+      output: {
+        fileName: report.fileName,
+        path: report.path,
+        chunkCount: result.chunks.length,
+        f1: result.totals.elementMetrics.f1,
+        precision: result.totals.elementMetrics.precision,
+        recall: result.totals.elementMetrics.recall,
+        inputTokens: result.totals.inputTokens
+      }
+    }
+  })
+
   // ZIP アーカイブ生成ジョブ（P12-3、DATA-030。blob 量に応じて長時間化するためジョブ化）
   // Resource EditorのLLMマージ候補。候補を返すだけで正本は保存しない（MID-005）。
   jobs.registerExecutor('resource.mergeCandidate', async (params, ctx) => {
@@ -422,6 +469,30 @@ function main(): void {
   registerResourceApi(router, jobs)
   registerSemanticApi(router, settings)
   registerLogsApi(router)
+
+  // MCP サーバ（MCP-001〜003）。設計情報クエリを AI エージェントへ公開する
+  const mcp = new McpServerService(() => {
+    const project = currentProject()
+    if (!project) return null
+    return {
+      db: project.db,
+      projectUid: project.info.projectUid,
+      rootPath: project.info.rootPath,
+      searchSettings: buildSearchSettings(settings, false)
+    }
+  })
+  registerMcpApi(router, settings, mcp)
+  registerAnalysisApi(router)
+  registerEvalApi(router, jobs)
+  // 設定が有効なら Backend 起動時に自動起動する（失敗しても Backend は継続）
+  void applyMcpSettings(mcp, readMcpSettings(settings)).catch((error) => {
+    appendDebugLog(
+      'backend',
+      'warn',
+      'MCPサーバの自動起動に失敗しました',
+      error instanceof Error ? error.message : String(error)
+    )
+  })
   // Backend API の失敗をデバッグログへ記録する（W11）。log.* 自身は除外
   router.onDispatchError = (method, error) => {
     if (method.startsWith('log.')) return

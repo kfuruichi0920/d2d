@@ -318,8 +318,7 @@ export function PipelineStageEditor({ stage }: { stage: PipelineStage }): React.
     }
     notify('info', message)
     setSelectedUid(null)
-    await refresh()
-    await refreshStats()
+    // Undo登録は一覧・集計の再取得を待たずに行う（Ctrl+Zが再取得完了前に届いても取り消せるように）
     if (undoSpec) {
       pushUndo({
         label: undoSpec.label,
@@ -337,6 +336,8 @@ export function PipelineStageEditor({ stage }: { stage: PipelineStage }): React.
         }
       })
     }
+    await refresh()
+    await refreshStats()
   }
   const confirmDelete = async (
     kind: 'document' | 'extracted' | 'intermediate',

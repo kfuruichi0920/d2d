@@ -10,6 +10,7 @@ import { useEditorStore } from '../../stores/editor-store'
 import { useJobsStore } from '../../stores/jobs-store'
 import { useProjectStore } from '../../stores/project-store'
 import { MarkdownPreview } from '../common/MarkdownPreview'
+import { EvalSection } from './EvalViews'
 
 const CATEGORIES = [
   'model_src',
@@ -187,6 +188,7 @@ export function ReportSideBar(): React.JSX.Element {
           </div>
         ))}
       </div>
+      <EvalSection />
     </div>
   )
 }

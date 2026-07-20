@@ -12,6 +12,7 @@ import { getResourceOutlineContext } from '../resource/resource-service'
 import { previewLlm, resolveLlmSettings } from '../llm/llm-service'
 import type { ChatMessage } from '../llm/providers'
 import {
+  buildAnalysisMcpDescriptionMessages,
   buildConnectionTestMessages,
   buildDesignCandidateMessages,
   buildResourceDescriptionMessages,
@@ -121,6 +122,16 @@ export function registerLlmApi(router: ApiRouter, jobs: JobManager, settings: Se
         messages: buildDesignCandidateMessages(db, chunkUid)
       }
     }
+    if (operation === 'analysis-mcp-description') {
+      // MCP-012: 分析クエリ規則の MCP 向け説明の自動生成
+      return {
+        operation,
+        purpose: 'other',
+        processName: 'analysis-mcp-description',
+        jsonMode: false,
+        messages: buildAnalysisMcpDescriptionMessages(String(context.name ?? ''), String(context.dsl ?? ''))
+      }
+    }
     if (operation === 'resource-description') {
       const resourceType = String(context.resourceType ?? '')
       const resourceUid = String(context.resourceUid ?? '')
@@ -187,7 +198,8 @@ export function registerLlmApi(router: ApiRouter, jobs: JobManager, settings: Se
       operation === 'connection-test' ||
       operation === 'semantic-terms' ||
       operation === 'semantic-proofread' ||
-      operation === 'resource-description'
+      operation === 'resource-description' ||
+      operation === 'analysis-mcp-description'
     ) {
       return jobs.enqueue('llm.run', {
         messages,
@@ -198,8 +210,10 @@ export function registerLlmApi(router: ApiRouter, jobs: JobManager, settings: Se
               ? 'semantic-proofread'
               : operation === 'resource-description'
                 ? 'resource-description'
-                : 'semantic-term-candidates',
-        jsonMode: operation !== 'connection-test',
+                : operation === 'analysis-mcp-description'
+                  ? 'analysis-mcp-description'
+                  : 'semantic-term-candidates',
+        jsonMode: operation !== 'connection-test' && operation !== 'analysis-mcp-description',
         promptTemplateUid
       })
     }
