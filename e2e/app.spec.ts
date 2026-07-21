@@ -220,7 +220,7 @@ test('プロジェクト作成でタイトル・パイプラインが更新さ�
   await expect(page.getByTestId('title-project')).toHaveCount(0)
   await expect(page.locator('.wb-titlebar .wb-app-name')).toHaveText('D2D')
   await expect(page.getByTestId('title-app-version')).toHaveText('v0.1.0')
-  await expect(page.getByTestId('title-schema-version')).toHaveText('schema 2.2.0')
+  await expect(page.getByTestId('title-schema-version')).toHaveText('schema 2.4.0')
   await expect(page.getByTestId('toggle-primary-sidebar')).toHaveText('◧')
   await expect(page.getByTestId('toggle-secondary-sidebar')).toHaveText('◨')
   await expect(page.getByTestId('toggle-panel')).toHaveText('▤')
@@ -2851,6 +2851,142 @@ test('評価: サンプルデータ投入→影響分析精度評価→レポー
   await expect(evalPreview).toContainText('上限警報しきい値の仕様変更')
   await expect(evalPreview).toContainText('期待影響集合と完全一致')
   await closeAllEditorTabs()
+})
+
+test('Excel原本→候補生成・編集→範囲限定LLM確認→②抽出の全経路（P5-19）', async () => {
+  const xlsxPath = join(tmpdir(), `d2d-e2e-excel-${Date.now()}.xlsx`)
+  execFileSync(process.platform === 'win32' ? 'python' : 'python3', [
+    join(process.cwd(), 'workers', 'python', 'tests', 'make_xlsx.py'),
+    xlsxPath
+  ])
+
+  const imported = await page.evaluate(
+    async (filePath) => window.api.invoke<{ jobId: string }>('document.import', { filePath }),
+    xlsxPath
+  )
+  expect(imported.ok ? 'ok' : JSON.stringify(imported.error)).toBe('ok')
+
+  const source = await expect
+    .poll(
+      async () =>
+        page.evaluate(async (fileName) => {
+          const result = await window.api.invoke<Array<{ uid: string; code: string; file_name: string }>>(
+            'document.list',
+            {}
+          )
+          return result.ok ? (result.result.find((item) => item.file_name === fileName) ?? null) : null
+        }, basename(xlsxPath)),
+      { timeout: 20_000 }
+    )
+    .not.toBeNull()
+  void source
+  const sourceRow = await page.evaluate(async (fileName) => {
+    const result = await window.api.invoke<Array<{ uid: string; code: string; file_name: string }>>('document.list', {})
+    return result.ok ? result.result.find((item) => item.file_name === fileName)! : null
+  }, basename(xlsxPath))
+  expect(sourceRow).not.toBeNull()
+
+  await page.getByTestId('activity-explorer').click()
+  if (!(await page.getByTestId('documents-tree').isVisible())) await page.getByTestId('activity-explorer').click()
+  await expect(page.getByTestId(`source-doc-${sourceRow!.code}`)).toBeVisible({ timeout: 15_000 })
+  await page.getByTestId(`source-doc-${sourceRow!.code}`).click()
+  await expect(page.getByTestId('original-viewer')).toContainText('excel')
+  await expect(page.getByTestId('extract-button')).toHaveText('抽出グループ候補を生成')
+  await page.getByTestId('extract-button').click()
+
+  await expect
+    .poll(
+      async () =>
+        page.evaluate(async (uid) => {
+          const result = await window.api.invoke<{ excel_draft_status: string | null }>('document.get', { uid })
+          return result.ok ? result.result.excel_draft_status : null
+        }, sourceRow!.uid),
+      { timeout: 30_000 }
+    )
+    .toBe('generated')
+  await expect(page.getByTestId('extract-button')).toBeDisabled()
+  await expect(page.getByTestId('excel-review-button')).toBeEnabled()
+  await page.getByTestId('excel-review-button').click()
+
+  await expect(page.getByTestId('excel-extraction-editor')).toBeVisible()
+  await expect(page.getByTestId('excel-sheet-select')).toHaveValue('要求')
+  await expect(page.getByTestId('excel-sheet-grid')).toContainText('温度異常時に停止する')
+  await expect(page.getByTestId('excel-candidate-list').locator('.excel-candidate-row')).toHaveCount(2)
+  await expect(page.locator('.excel-candidate-overlay')).toHaveCount(2)
+  await expect(page.getByTestId('excel-extraction-editor')).toContainText('候補 2')
+  await expect(page.getByTestId('excel-extraction-editor')).toContainText('採用 2')
+  await expect(page.getByTestId('excel-extraction-editor')).toContainText('不採用 0')
+  await expect(page.getByTestId('excel-candidate-save')).toHaveCount(0)
+
+  const candidateRow = page.getByTestId('excel-candidate-list').locator('.excel-candidate-row').first()
+  await candidateRow.locator('button').click()
+  await expect(page.getByTestId('excel-candidate-text-preview')).toHaveValue(/温度異常時に停止する/)
+  await expect(page.getByTestId('excel-candidate-text-preview')).toHaveCSS('resize', 'vertical')
+  await candidateRow.click({ button: 'right' })
+  await page.getByTestId('excel-bulk-approved').click()
+  await expect(page.getByTestId('excel-candidate-status')).toHaveValue('approved')
+  const figureRow = page.getByTestId('excel-candidate-list').locator('.excel-candidate-row', { hasText: 'figure' })
+  await figureRow.locator('button').click()
+  await expect(page.locator('.excel-figure-preview img')).toBeVisible()
+  await page.getByTestId('excel-candidate-status').selectOption('approved')
+  await candidateRow.locator('button').click()
+
+  const grid = page.getByTestId('excel-sheet-grid')
+  const gridBox = await grid.boundingBox()
+  expect(gridBox).not.toBeNull()
+  await page.mouse.move(gridBox!.x + 48, gridBox!.y + 34)
+  await page.mouse.down()
+  await page.mouse.up()
+  await page.mouse.down()
+  await page.mouse.move(gridBox!.x + 144, gridBox!.y + 58, { steps: 4 })
+  await page.mouse.up()
+  await expect(page.getByTestId('excel-extraction-editor')).toContainText('選択範囲: A1:B2')
+  await grid.focus()
+  await page.keyboard.press('Control+ArrowDown')
+  await page.keyboard.press('Control+ArrowLeft')
+  await expect(page.getByTestId('excel-extraction-editor')).toContainText('選択範囲: A3:A3')
+  await page.keyboard.press('ArrowUp')
+  await page.keyboard.press('ArrowUp')
+  await page.keyboard.press('Shift+ArrowRight')
+  await page.keyboard.press('Shift+ArrowDown')
+  await expect(page.getByTestId('excel-extraction-editor')).toContainText('選択範囲: A1:B2')
+  await page.getByTestId('excel-range-llm').click()
+  await expect(page.getByTestId('llm-request-dialog')).toBeVisible()
+  await page.getByTestId('llm-preview-button').click()
+  await expect(page.getByTestId('llm-preview')).toContainText('温度異常時に停止する')
+  await expect(page.getByTestId('llm-preview')).not.toContainText('LLMへ送信してはいけない秘密')
+  await page.getByTestId('llm-request-dialog').getByRole('button', { name: '閉じる', exact: true }).click()
+
+  await page.getByTestId('excel-sheet-select').selectOption('秘密')
+  const secretRow = page.getByTestId('excel-candidate-list').locator('.excel-candidate-row').first()
+  await expect(secretRow).toContainText('LLMへ送信してはいけない秘密')
+  await secretRow.click({ button: 'right' })
+  await page.getByTestId('excel-bulk-rejected').click()
+  await expect(page.getByTestId('excel-extraction-editor')).toContainText('採用 0')
+  await expect(page.getByTestId('excel-extraction-editor')).toContainText('不採用 1')
+
+  await page.getByTestId('excel-candidate-confirm').click()
+  await expect(page.getByTestId('extraction-review-editor')).toBeVisible({ timeout: 15_000 })
+  await expect(page.getByTestId('element-grid')).toContainText('ID / 要求')
+  await expect(page.getByTestId('element-grid')).toContainText('異常停止')
+  await expect(page.getByTestId('element-grid')).not.toContainText('LLMへ送信してはいけない秘密')
+  const documentAfter = await page.evaluate(
+    async (uid) => window.api.invoke<{ has_extracted_data: number }>('document.get', { uid }),
+    sourceRow!.uid
+  )
+  expect(documentAfter).toMatchObject({ ok: true, result: { has_extracted_data: 1 } })
+
+  await page.getByTestId('resource-address').fill('stage://source')
+  await page.getByTestId('resource-address').press('Enter')
+  await page.getByTestId(`stage-source-row-${sourceRow!.code}`).click()
+  await expect(page.getByTestId('source-stage-preview').getByTestId('extract-button')).toBeDisabled()
+  await expect(page.getByTestId('source-stage-preview').getByTestId('excel-review-button')).toBeEnabled()
+  await page.getByTestId('source-stage-preview').getByTestId('excel-review-button').click()
+  await expect(page.getByTestId('excel-extraction-editor')).toBeVisible()
+  await expect(page.getByTestId('excel-candidate-confirm')).toBeDisabled()
+  await expect(page.getByTestId('excel-candidate-add')).toBeDisabled()
+
+  rmSync(xlsxPath, { force: true })
 })
 
 test('スクリーンショットを保存する', async () => {

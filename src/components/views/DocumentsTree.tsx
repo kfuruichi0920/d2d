@@ -32,6 +32,7 @@ export interface SourceDocumentItem {
   is_archived: number
   is_current: number
   imported_at: string
+  excel_draft_status: string | null
   has_extracted_data: number
 }
 
@@ -543,6 +544,7 @@ export function DocumentsTree({ projectName }: { projectName: string }): React.J
 export function OriginalActions({ doc }: { doc: SourceDocumentItem }): React.JSX.Element {
   const notify = useJobsStore((s) => s.notify)
 
+  const openResource = useEditorStore((state) => state.openResource)
   const openExternal = async (): Promise<void> => {
     const result = await invoke('document.openExternal', { uid: doc.uid })
     if (!result.ok) notify('error', '原本を開けませんでした', result.error.message)
@@ -563,16 +565,46 @@ export function OriginalActions({ doc }: { doc: SourceDocumentItem }): React.JSX
       <button type="button" className="d2d-btn" onClick={() => void openExternal()} data-testid="source-open-external">
         OSアプリで開く
       </button>
-      <button
-        type="button"
-        className="d2d-btn primary"
-        onClick={() => void extract()}
-        disabled={doc.file_type !== 'word' || Boolean(doc.has_extracted_data)}
-        data-testid="extract-button"
-        title={doc.has_extracted_data ? 'この原本の抽出データは既に存在します' : undefined}
-      >
-        ②抽出データの生成（{doc.file_type === 'word' ? '抽出ジョブ実行' : `${doc.file_type} は P5 後続対応`}）
-      </button>
+      {doc.file_type === 'excel' ? (
+        <>
+          <button
+            type="button"
+            className="d2d-btn primary"
+            onClick={() => void extract()}
+            disabled={
+              Boolean(doc.excel_draft_status && doc.excel_draft_status !== 'failed') || Boolean(doc.has_extracted_data)
+            }
+            data-testid="extract-button"
+            title={
+              doc.excel_draft_status && doc.excel_draft_status !== 'failed'
+                ? '抽出グループ候補は生成済みです'
+                : undefined
+            }
+          >
+            抽出グループ候補を生成
+          </button>
+          <button
+            type="button"
+            className="d2d-btn"
+            onClick={() => openResource(`excel-draft://${doc.uid}`, `Excel候補: ${doc.file_name}`)}
+            disabled={!doc.excel_draft_status || doc.excel_draft_status === 'failed'}
+            data-testid="excel-review-button"
+          >
+            抽出グループ候補を確認
+          </button>
+        </>
+      ) : (
+        <button
+          type="button"
+          className="d2d-btn primary"
+          onClick={() => void extract()}
+          disabled={doc.file_type !== 'word' || Boolean(doc.has_extracted_data)}
+          data-testid="extract-button"
+          title={doc.has_extracted_data ? 'この原本の抽出データは既に存在します' : undefined}
+        >
+          {doc.file_type === 'word' ? '②抽出データの生成（抽出ジョブ実行）' : `${doc.file_type} は P5 後続対応`}
+        </button>
+      )}
     </div>
   )
 }

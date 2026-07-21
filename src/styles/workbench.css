@@ -3770,3 +3770,309 @@ mark.d2d-term {
   justify-content: flex-end;
   gap: 8px;
 }
+/* Excel抽出グループ候補レビュー（P5-19、EXT-055〜062） */
+.d2d-resizable-pane-group.vertical {
+  flex-direction: column;
+}
+.excel-extraction-editor {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-width: 0;
+}
+.excel-extraction-editor .extraction-review-toolbar {
+  flex-wrap: wrap;
+}
+.excel-extraction-editor .extraction-review-toolbar h1 {
+  margin: 0;
+  font-size: 14px;
+}
+.excel-sheet-select {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--d2d-fg-muted);
+  font-size: 11px;
+}
+.excel-sheet-select select {
+  min-width: 150px;
+  max-width: 280px;
+}
+.excel-extraction-warnings,
+.excel-diff-summary {
+  display: flex;
+  gap: 12px;
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--d2d-border);
+  font-size: 11px;
+  overflow-x: auto;
+}
+.excel-extraction-warnings {
+  color: var(--d2d-warning);
+  background: color-mix(in srgb, var(--d2d-warning) 8%, transparent);
+}
+.excel-diff-summary {
+  color: var(--d2d-accent);
+}
+.excel-sheet-pane,
+.excel-candidate-pane {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+}
+.excel-selection-bar {
+  display: flex;
+  gap: 12px;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--d2d-border);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.excel-selection-bar span {
+  color: var(--d2d-fg-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.excel-grid-scroll {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  background: var(--d2d-editor-bg);
+  outline: none;
+}
+.excel-grid-scroll:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--d2d-accent);
+}
+.excel-grid-canvas {
+  position: relative;
+  min-width: 100%;
+  min-height: 100%;
+  background-image:
+    linear-gradient(to right, var(--d2d-border) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--d2d-border) 1px, transparent 1px);
+  background-size: 96px 24px;
+  background-position: 38px 24px;
+}
+.excel-cell,
+.excel-column-header,
+.excel-row-header {
+  position: absolute;
+  box-sizing: border-box;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+}
+.excel-cell {
+  padding: 4px 5px;
+  z-index: 1;
+}
+.excel-column-header {
+  top: 0;
+  height: 24px;
+  padding: 4px;
+  text-align: center;
+  color: var(--d2d-fg-muted);
+  background: var(--d2d-side-bg);
+  border-right: 1px solid var(--d2d-border);
+  border-bottom: 1px solid var(--d2d-border);
+  z-index: 8;
+}
+.excel-row-header {
+  left: 0;
+  width: 38px;
+  padding: 4px;
+  text-align: right;
+  color: var(--d2d-fg-muted);
+  background: var(--d2d-side-bg);
+  border-right: 1px solid var(--d2d-border);
+  border-bottom: 1px solid var(--d2d-border);
+  z-index: 8;
+}
+.excel-selection-overlay {
+  position: absolute;
+  z-index: 3;
+  pointer-events: none;
+  box-sizing: border-box;
+  border: 2px solid var(--d2d-accent);
+  background: color-mix(in srgb, var(--d2d-accent) 9%, transparent);
+}
+.excel-candidate-overlay {
+  position: absolute;
+  z-index: 4;
+  box-sizing: border-box;
+  border: 2px solid currentColor;
+  background: color-mix(in srgb, currentColor 10%, transparent);
+  color: #64748b;
+  pointer-events: none;
+}
+.excel-candidate-overlay.active {
+  z-index: 5;
+  border-width: 3px;
+  filter: saturate(1.4);
+}
+.excel-overlay-move,
+.excel-overlay-resize {
+  position: absolute;
+  color: inherit;
+  border: 1px solid currentColor;
+  background: var(--d2d-editor-bg);
+  font-size: 9px;
+  line-height: 16px;
+  cursor: move;
+  pointer-events: auto;
+}
+.excel-overlay-move {
+  top: -19px;
+  left: -2px;
+  padding: 0 4px;
+}
+.excel-overlay-resize {
+  right: -3px;
+  bottom: -3px;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  cursor: nwse-resize;
+}
+.type-table {
+  color: #2563eb;
+}
+.type-text {
+  color: #059669;
+}
+.type-list {
+  color: #7c3aed;
+}
+.type-formula {
+  color: #d97706;
+}
+.type-figure {
+  color: #db2777;
+}
+.type-model {
+  color: #0891b2;
+}
+.type-unknown {
+  color: #64748b;
+}
+.excel-sheet-meta {
+  padding: 5px 8px;
+  color: var(--d2d-fg-muted);
+  border-top: 1px solid var(--d2d-border);
+  font-size: 10px;
+}
+.excel-candidate-list {
+  height: 100%;
+  overflow: auto;
+}
+.excel-candidate-row {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  min-height: 34px;
+  padding: 2px 6px;
+  border-bottom: 1px solid var(--d2d-border);
+}
+.excel-candidate-row.active {
+  background: var(--d2d-list-active);
+}
+.excel-candidate-row > button {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  gap: 0 6px;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  text-align: left;
+}
+.excel-candidate-row strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+}
+.excel-candidate-row button > span:last-child {
+  grid-column: 2;
+  color: var(--d2d-fg-muted);
+  font-size: 9px;
+}
+.excel-type-tag {
+  grid-row: 1 / span 2;
+  padding: 1px 4px;
+  border: 1px solid currentColor;
+  border-radius: 8px;
+  font-size: 9px;
+}
+.excel-candidate-form {
+  display: grid;
+  gap: 7px;
+  height: 100%;
+  padding: 8px;
+  overflow: auto;
+}
+.excel-candidate-form label {
+  display: grid;
+  gap: 3px;
+  color: var(--d2d-fg-muted);
+  font-size: 11px;
+}
+.excel-candidate-form input,
+.excel-candidate-form select {
+  width: 100%;
+}
+.excel-candidate-range-inputs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.excel-range-text {
+  min-width: 0;
+}
+.excel-range-text textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 76px;
+  height: 112px;
+  max-height: 45vh;
+  margin: 3px 0 0;
+  padding: 6px;
+  overflow: auto;
+  resize: vertical;
+  color: var(--d2d-fg);
+  background: var(--d2d-input-bg);
+  border: 1px solid var(--d2d-border);
+  font: inherit;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.excel-figure-preview {
+  display: flex;
+  min-height: 120px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--d2d-border);
+  background: repeating-conic-gradient(color-mix(in srgb, var(--d2d-border) 35%, transparent) 0 25%, transparent 0 50%)
+    0/16px 16px;
+}
+.excel-figure-preview img {
+  max-width: 100%;
+  max-height: 220px;
+  object-fit: contain;
+}
+.excel-table-headers {
+  display: grid;
+  gap: 5px;
+  padding: 7px;
+  border: 1px solid var(--d2d-border);
+  font-size: 10px;
+}

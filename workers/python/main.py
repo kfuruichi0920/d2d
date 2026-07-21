@@ -61,10 +61,17 @@ def cmd_extract_word(job_id: str, parameters: dict) -> None:
     word.run(job_id, parameters, emit_progress, emit_result, emit_error)
 
 
+def cmd_extract_excel(job_id: str, parameters: dict) -> None:
+    from commands import excel
+
+    excel.run(job_id, parameters, emit_progress, emit_result, emit_error)
+
+
 COMMANDS = {
     "worker.ping": cmd_ping,
     "extract.word": cmd_extract_word,
-    # P5 後続で追加: extract.excel / extract.pptx / extract.pdf / extract.visio / extract.text
+    "extract.excel": cmd_extract_excel,
+    # P5 後続で追加: extract.pptx / extract.pdf / extract.visio / extract.text
 }
 
 

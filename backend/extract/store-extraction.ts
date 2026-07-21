@@ -16,12 +16,26 @@ import { statSync } from 'node:fs'
 
 export interface ExtractionElement {
   id: string
-  type: 'heading' | 'paragraph' | 'list_item' | 'table' | 'figure' | 'caption' | 'shape' | 'group_shape' | 'connector'
+  type:
+    | 'heading'
+    | 'paragraph'
+    | 'list_item'
+    | 'table'
+    | 'figure'
+    | 'caption'
+    | 'shape'
+    | 'group_shape'
+    | 'connector'
+    | 'formula'
   text?: string
   level?: number
   style?: string | null
   section_path?: string
   rows?: { text: string; colspan?: number; v_merge?: string }[][]
+  sheet_name?: string
+  cell_start?: string
+  cell_end?: string
+  candidate_uid?: string
   row_count?: number
   column_count?: number
   image?: string
@@ -68,6 +82,8 @@ function itemTypeOf(element: ExtractionElement): string {
       return 'resource_table'
     case 'figure':
       return 'resource_figure'
+    case 'formula':
+      return 'resource_formula'
     default:
       return 'resource_text'
   }
@@ -156,6 +172,12 @@ export function storeExtractionResult(db: Database, input: StoreExtractionInput)
             JSON.stringify(element.rows ?? [])
           )
           break
+        case 'resource_formula':
+          db.prepare(
+            `INSERT INTO resource_formula (uid, formula_text, formula_format, formula_kind, description)
+             VALUES (?, ?, 'excel', 'calculation', ?)`
+          ).run(resource.uid, element.text ?? '', element.section_path ?? null)
+          break
         case 'resource_figure': {
           // 画像を blobs/extracted/（抽出中間物）へ正規コピーし blob_resource 登録
           const imageRel = element.image ?? ''
@@ -212,9 +234,16 @@ export function storeExtractionResult(db: Database, input: StoreExtractionInput)
         entityType: 'source_location',
         createdBy: 'rule'
       })
-      db.prepare(`INSERT INTO source_location (uid, source_document_uid, section_path, note) VALUES (?, ?, ?, ?)`).run(
+      db.prepare(
+        `INSERT INTO source_location
+           (uid, source_document_uid, sheet_name, cell_start, cell_end, section_path, note)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
+      ).run(
         location.uid,
         sourceDocumentUid,
+        element.sheet_name ?? null,
+        element.cell_start ?? null,
+        element.cell_end ?? null,
         element.section_path ?? '',
         `element:${element.id}`
       )

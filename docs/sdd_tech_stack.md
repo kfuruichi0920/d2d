@@ -67,7 +67,7 @@
 | --- | --- | --- | --- | --- |
 | Python ランタイム | Python | 3.11+ | PSF License | 安定版、型ヒント充実 |
 | Word 抽出 | Python標準ライブラリ（zipfile + xml.etree.ElementTree） + python-docx補助 | 3.11+ / 1.x | PSF License / MIT | .docx のOpenXMLを直接解析し、見出し、段落、階層リスト、結合表、図、キャプション、脚注、コメント、変更履歴、参照、テキストボックスを抽出する。python-docxは補助用途に限定し、取得できないOpenXML構造は標準ライブラリで直接読む |
-| Excel 抽出 | 【未適用】openpyxl | 3.x | MIT | .xlsx のセル・シート・結合セル抽出（SRS IMP-002, EXT-009） |
+| Excel 抽出 | Python標準ライブラリ（zipfile / ElementTree） | 3.12 | PSF | .xlsx のOOXML物理抽出・候補生成。マクロを実行せず、DTD/entity・展開量・パストラバーサルを検査（SRS IMP-002, EXT-009, EXT-049〜062） |
 | PowerPoint 抽出 | 【未適用】Python標準ライブラリ（zipfile + xml.etree.ElementTree） + python-pptx補助 | 3.11+ / 0.6+ | PSF License / MIT | .pptx のスライド、図形、テキストボックス、表、画像、ノート、OpenXML座標・関係情報を抽出する。python-pptxで取得しにくいtheme、rels、grpSp座標、notesSlide、media参照はOpenXMLを直接読む |
 | PDF 抽出（標準） | 【未適用】pdfplumber | 0.10+ | MIT | 表bbox、表二次元配列、テキスト、ページ座標抽出（SRS IMP-005, EXT-012, EXT-027〜029） |
 | PDF 抽出（高精度補助） | 【未適用】pymupdf (fitz) | 1.23+ | AGPL 3.0（TBD-01決定: AGPL版で実装し、商用版 P14-6 で差替） | ページ画像レンダリング、bboxクロップ、画像検出、OCR/LLM補正用切り出しに有効。AGPL のため商用配布には商用ライセンス購入が必要 |
@@ -179,7 +179,7 @@ SRS NFR-040〜044 に対応する商用配布可否の確認。
 | MeCab辞書（UniDic、TBD-03決定済） | 辞書ごとに個別ライセンス | 【未検証】 | UniDic 採用は決定済。再配布条件の個別審査は P14-4 で実施する |
 | PlantUML（TBD-02決定済） | GPL 3.0 | ○（ツールとして同梱） | GPL版をツールとしてプロセス境界で分離して同梱する。Javaランタイム・Graphviz も `third_party/` へ同梱（P14-5）。同梱時は各ライセンス文書を同ディレクトリへ含める |
 | Python標準ライブラリによるWord OpenXML抽出 | PSF License | ○ | .docx はZIP + XMLとして解析する |
-| python-docx, openpyxl, python-pptx | MIT | ○ | いずれも現時点未導入（Word抽出は標準ライブラリのみで実装済み）。導入時の審査記録として保持【未適用】 |
+| python-docx, openpyxl, python-pptx | MIT | ○ | いずれも現時点未導入（Word/Excel抽出は標準ライブラリのみで実装済み）。導入時の審査記録として保持【未適用】 |
 | marked | MIT | ○ | Markdownプレビューに利用 |
 | pdfplumber【未適用】 | MIT | ○ | PDF抽出（P5-10）実装時に導入 |
 | Visio 抽出（Python 標準ライブラリ） | PSF License | ○ | |

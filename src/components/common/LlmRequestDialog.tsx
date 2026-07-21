@@ -20,6 +20,7 @@ export interface PreparedLlmRequest {
     | 'design-candidates'
     | 'resource-merge'
     | 'resource-description'
+    | 'excel-candidates'
   purpose: string
   processName: string
   jsonMode: boolean

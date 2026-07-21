@@ -13,6 +13,7 @@ import { JobLogEditor } from '../editors/JobLogEditor'
 import { WelcomeEditor } from '../editors/WelcomeEditor'
 import { HelpEditor, type HelpTopic } from '../editors/HelpEditor'
 import { ExtractionReviewEditor } from '../editors/ExtractionReviewEditor'
+import { ExcelExtractionEditor } from '../editors/ExcelExtractionEditor'
 import { OriginalViewer } from '../views/DocumentsTree'
 import { LlmRunViewer } from '../views/LlmViews'
 import { IntermediateDocumentEditor } from '../editors/IntermediateDocumentEditor'
@@ -56,6 +57,8 @@ function resolveEditor(uri: string): React.JSX.Element {
   if (uri.startsWith('log://llm/')) return <LlmRunViewer uid={uri.slice('log://llm/'.length)} />
   if (uri.startsWith('original://')) return <OriginalViewer uid={uri.slice('original://'.length)} />
   if (uri.startsWith('extracted://')) return <ExtractionReviewEditor uid={uri.slice('extracted://'.length)} />
+  if (uri.startsWith('excel-draft://'))
+    return <ExcelExtractionEditor sourceDocumentUid={uri.slice('excel-draft://'.length)} />
   if (uri.startsWith('intermediate://')) return <IntermediateDocumentEditor uid={uri.slice('intermediate://'.length)} />
   if (uri.startsWith('chunk://'))
     return <IntermediateDocumentEditor uid={uri.slice('chunk://'.length)} initialMode="chunk" />

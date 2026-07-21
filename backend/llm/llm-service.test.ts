@@ -26,7 +26,8 @@ beforeAll(async () => {
     let data = ''
     req.on('data', (c) => (data += c))
     req.on('end', () => {
-      res.writeHead(200, { 'Content-Type': 'application/json' })
+      // 全体並列テストが重い場合も、期限切れ直前のkeep-alive接続を再利用しない。
+      res.writeHead(200, { 'Content-Type': 'application/json', Connection: 'close' })
       // OpenAI / Ollama 双方の形式を返す
       res.end(
         JSON.stringify({
