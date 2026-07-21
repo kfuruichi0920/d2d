@@ -14,6 +14,9 @@ export interface ResourceAddressEntry {
   title: string | null
   entityType: string
   uri: string
+  /** candidate（llm_run_ref）のみ: LLM実行時刻・実行結果状態（LLM-015） */
+  executedAt?: string | null
+  runStatus?: string | null
 }
 
 const SCHEMES: readonly ResourceAddressScheme[] = [
@@ -60,10 +63,12 @@ export function listResourceAddresses(db: Database, projectUid: string, scheme: 
             : scheme === 'design'
               ? "e.entity_type LIKE 'model_%'"
               : `e.entity_type LIKE 'resource_%'`
+  // candidate（llm_run_ref）は作成時刻・実行結果状態も表示する（LLM-015）。他schemeでは常にNULL
   const rows = db
     .prepare(
-      `SELECT e.uid, e.code, e.title, e.entity_type AS entityType
+      `SELECT e.uid, e.code, e.title, e.entity_type AS entityType, lr.executed_at AS executedAt, lr.status AS runStatus
          FROM entity_registry e
+         LEFT JOIN llm_run_ref lr ON lr.uid = e.uid
         WHERE e.project_uid=? AND e.status <> 'deleted' AND ${condition}
         ORDER BY e.code`
     )

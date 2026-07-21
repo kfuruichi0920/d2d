@@ -12,6 +12,8 @@ interface AddressEntry {
   title: string | null
   entityType: string
   uri: string
+  executedAt?: string | null
+  runStatus?: string | null
 }
 
 const LABELS: Record<ListableResourceScheme, string> = {
@@ -65,6 +67,8 @@ export function ResourceAddressListEditor({ scheme }: { scheme: ListableResource
               <th>ID</th>
               <th>名称</th>
               <th>種別</th>
+              {scheme === 'candidate' && <th>作成時刻</th>}
+              {scheme === 'candidate' && <th>ステータス</th>}
               <th>アドレス</th>
             </tr>
           </thead>
@@ -74,11 +78,30 @@ export function ResourceAddressListEditor({ scheme }: { scheme: ListableResource
                 <td>{row.code}</td>
                 <td>{row.title ?? '—'}</td>
                 <td>{row.entityType}</td>
+                {scheme === 'candidate' && (
+                  <td data-testid={`address-entry-time-${row.code}`}>
+                    {row.executedAt ? new Date(row.executedAt).toLocaleString() : '—'}
+                  </td>
+                )}
+                {scheme === 'candidate' && (
+                  <td>
+                    {row.runStatus ? (
+                      <span
+                        className={`d2d-badge status-${row.runStatus === 'success' ? 'success' : row.runStatus === 'partial' ? 'partial' : 'failed'}`}
+                        data-testid={`address-entry-status-${row.code}`}
+                      >
+                        {row.runStatus}
+                      </span>
+                    ) : (
+                      '—'
+                    )}
+                  </td>
+                )}
                 <td>
                   <button
                     type="button"
                     className="d2d-link-button"
-                    title={`${row.uri} を開きます`}
+                    title={`${row.uri} を開きます（保存済みのLLM応答から候補セットを再構成して表示します）`}
                     onClick={() => openResource(row.uri, row.title ?? row.code, { preview: false })}
                   >
                     {row.uri}

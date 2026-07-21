@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react'
 import { useEditorStore } from '../../stores/editor-store'
 import { invoke, onBackendEvent } from '../../services/backend'
+import { OntologyLayerDiagram, SchemaHubDiagram, WorkflowFlowDiagram } from './HelpDiagrams'
 
 export type HelpTopic = 'workflow' | 'schema' | 'design-model' | 'addresses'
 
@@ -74,6 +75,9 @@ function WorkflowHelp(): React.JSX.Element {
         文書を一気にモデルへ変換せず、各段階で人が根拠と意味を確認します。正本を壊さず、新しいResourceと
         <code>based_on</code>を積み重ねるのが基本です。
       </p>
+      <div className="d2d-help-diagram">
+        <WorkflowFlowDiagram />
+      </div>
       <div className="d2d-flow" aria-label="①原本から④設計モデルまでの流れ">
         {stages.map((stage, index) => (
           <div className="d2d-flow-step" key={stage.no}>
@@ -120,6 +124,9 @@ function SchemaHelp(): React.JSX.Element {
       <p className="d2d-help-lead">
         すべてのデータを共通台帳で識別し、内容と関係を分けて保持します。ファイル本体と検索・編集用データにも明確な役割があります。
       </p>
+      <div className="d2d-help-diagram">
+        <SchemaHubDiagram />
+      </div>
       <div className="d2d-schema">
         <section className="d2d-schema-box registry">
           <b>共通台帳</b>
@@ -175,7 +182,14 @@ function DesignModelHelp(): React.JSX.Element {
   const [ontology, setOntology] = useState<{
     version: string
     models: Array<{ model_type: string; label: string; layer: string; definition: string; is_enabled: number }>
-    relations: Array<{ relation_type: string; label: string; definition: string; is_enabled: number }>
+    relations: Array<{
+      relation_type: string
+      label: string
+      definition: string
+      icon_color: string
+      icon_text: string
+      is_enabled: number
+    }>
     allowances: Array<{ relation_type: string; source_model_type: string; target_model_type: string; allowed: number }>
   } | null>(null)
   useEffect(() => {
@@ -209,6 +223,14 @@ function DesignModelHelp(): React.JSX.Element {
         ④設計モデルは②③の <code>resource_*</code> と分離した <code>model_*</code>{' '}
         テーブルで管理します。このページは現在確定中のオントロジー設定 v{ontology.version} を表示しています。
       </p>
+      <h2>SW設計オントロジー（3次元関係空間）</h2>
+      <p className="d2d-help-lead">
+        レイヤーは根拠から実現・知識管理まで積み重なった意味構造です。図はマウスで動かせます:
+        レイヤー帯にマウスを乗せるとそのレイヤーに関わる矢印を強調し、下の凡例チップにマウスを乗せると
+        その関係種別だけを強調表示します。
+      </p>
+      <OntologyLayerDiagram models={ontology.models} relations={ontology.relations} allowances={ontology.allowances} />
+      <h2>設計モデル一覧（レイヤー別定義）</h2>
       <div className="d2d-model-groups">
         {[...layers].map(([layer, models]) => (
           <section key={layer}>

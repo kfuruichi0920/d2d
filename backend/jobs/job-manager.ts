@@ -239,7 +239,10 @@ export class JobManager {
       status: job.status,
       progress: job.progress,
       message: job.message,
-      error: job.error
+      error: job.error,
+      createdAt: job.createdAt,
+      startedAt: job.startedAt,
+      completedAt: job.completedAt
     })
   }
 

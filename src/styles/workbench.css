@@ -2573,6 +2573,52 @@ mark.d2d-term {
   grid-template-columns: 1fr 1fr;
 }
 
+.d2d-help-diagram {
+  margin: 18px 0;
+  overflow-x: auto;
+}
+.d2d-ontology-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+.d2d-legend-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--d2d-border);
+  border-radius: var(--d2d-radius);
+  background: var(--d2d-surface);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.d2d-legend-chip span {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+.d2d-legend-chip.active,
+.d2d-legend-chip:hover {
+  background: color-mix(in srgb, currentColor 14%, var(--d2d-surface));
+}
+/* SVGの流れ矢印を静かに動かし、方向性を直感的に伝える（過度な演出は避ける） */
+@keyframes d2d-flow-dash {
+  to {
+    stroke-dashoffset: -20;
+  }
+}
+.d2d-flow-dash {
+  animation: d2d-flow-dash 1.1s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .d2d-flow-dash {
+    animation: none;
+  }
+}
+
 @media (max-width: 850px) {
   .d2d-terms,
   .d2d-help-launchers,
