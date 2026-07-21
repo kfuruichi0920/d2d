@@ -122,7 +122,7 @@ function asCandidate(value: unknown, preserveUid?: string): ExcelCandidate {
   const endCell = String(item.end_cell ?? '')
     .trim()
     .toUpperCase()
-  const type = String(item.candidate_type ?? 'unknown') as ExcelCandidateType
+  const type = String(item.candidate_type ?? 'text') as ExcelCandidateType
   if (!sheetName) throw new BackendError('validation', '候補の sheet_name は必須です', '')
   if (!CELL_RE.test(startCell) || !CELL_RE.test(endCell))
     throw new BackendError('validation', '候補範囲はA1形式で指定してください', `${startCell}:${endCell}`)
@@ -150,7 +150,7 @@ function asCandidate(value: unknown, preserveUid?: string): ExcelCandidate {
     review_status:
       item.review_status === 'review' || item.review_status === 'approved' || item.review_status === 'rejected'
         ? item.review_status
-        : 'draft',
+        : 'approved',
     llm_suggestion:
       typeof item.llm_suggestion === 'object' && item.llm_suggestion !== null
         ? (item.llm_suggestion as Record<string, unknown>)
@@ -264,7 +264,7 @@ function compareWithPredecessor(
       candidate_uid: previous.candidate_uid,
       candidate_type: previous.candidate_type,
       candidate_status: previous.candidate_status === 'confirmed' ? 'adjusted' : previous.candidate_status,
-      review_status: previous.review_status === 'approved' ? 'review' : previous.review_status,
+      review_status: previous.review_status,
       table_header_row_start: previous.table_header_row_start,
       table_header_row_end: previous.table_header_row_end,
       table_header_column_start: previous.table_header_column_start,
@@ -321,7 +321,7 @@ export function storeExcelDraft(db: Database, sourceDocumentUid: string, output:
       `SELECT xd.source_document_uid
          FROM excel_extraction_draft xd
          JOIN source_document sd ON sd.uid=xd.source_document_uid
-        WHERE sd.file_name=? AND sd.file_type='excel' AND sd.imported_at<=? AND sd.uid<>?
+        WHERE sd.file_name=? AND sd.file_type='excel' AND sd.imported_at<=? AND sd.uid<>? AND xd.status='confirmed'
         ORDER BY sd.imported_at DESC, xd.updated_at DESC LIMIT 1`
     )
     .get(source.file_name, source.imported_at, sourceDocumentUid) as { source_document_uid: string } | undefined
@@ -535,7 +535,7 @@ export function applyExcelLlmSuggestions(
         title: suggestion.suggested_title ?? candidate.title,
         confidence: suggestion.confidence ?? candidate.confidence,
         candidate_status: 'adjusted',
-        review_status: 'review',
+        review_status: 'approved',
         llm_suggestion: {
           reason: suggestion.reason,
           llm_run_uid: llmRunUid,
@@ -578,7 +578,7 @@ export function applyExcelRangeLlmSuggestions(
       detection_methods: ['llm_range_grouping'],
       confidence: suggestion.confidence,
       candidate_status: 'adjusted',
-      review_status: 'review',
+      review_status: 'approved',
       llm_suggestion: { reason: suggestion.reason, llm_run_uid: llmRunUid, received_at: new Date().toISOString() }
     })
     if (!rangesIntersect(`${scope.startCell}:${scope.endCell}`, `${candidate.start_cell}:${candidate.end_cell}`))
@@ -710,7 +710,11 @@ export function confirmExcelDraft(
         WHERE source_document_uid=?`
     ).run(
       JSON.stringify(
-        selected.map((candidate) => ({ ...candidate, candidate_status: 'confirmed', review_status: 'approved' }))
+        draft.candidates.map((candidate) =>
+          candidate.review_status === 'approved'
+            ? { ...candidate, candidate_status: 'confirmed' as const, review_status: 'approved' as const }
+            : { ...candidate, candidate_status: 'rejected' as const, review_status: 'rejected' as const }
+        )
       ),
       stored.extractedDocumentUid,
       now,

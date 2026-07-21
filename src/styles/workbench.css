@@ -3907,7 +3907,7 @@ mark.d2d-term {
   border: 2px solid currentColor;
   background: color-mix(in srgb, currentColor 10%, transparent);
   color: #64748b;
-  pointer-events: auto;
+  pointer-events: none;
 }
 .excel-candidate-overlay.active {
   z-index: 5;
@@ -3923,6 +3923,7 @@ mark.d2d-term {
   font-size: 9px;
   line-height: 16px;
   cursor: move;
+  pointer-events: auto;
 }
 .excel-overlay-move {
   top: -19px;
@@ -4032,14 +4033,27 @@ mark.d2d-term {
   grid-template-columns: 1fr 1fr;
   gap: 8px;
 }
-.excel-range-text p {
-  min-height: 32px;
-  max-height: 70px;
+.excel-range-text {
+  min-width: 0;
+}
+.excel-range-text textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 76px;
+  height: 112px;
+  max-height: 45vh;
   margin: 3px 0 0;
   padding: 6px;
   overflow: auto;
+  resize: vertical;
+  color: var(--d2d-fg);
+  background: var(--d2d-input-bg);
   border: 1px solid var(--d2d-border);
-  font-size: 11px;
+  font: inherit;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .excel-figure-preview {
   display: flex;

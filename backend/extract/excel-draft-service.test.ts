@@ -84,7 +84,7 @@ const OUTPUT: ExcelPhysicalOutput = {
   review_hints: { warnings: [] }
 }
 
-describe('Excel抽出グループ候補（P5-19、EXT-049〜062）', () => {
+describe('Excel抽出グループ候補（P5-19、EXT-049〜067）', () => {
   let dir: string
   let root: string
   let db: Database
@@ -176,7 +176,7 @@ describe('Excel抽出グループ候補（P5-19、EXT-049〜062）', () => {
     expect(result.updatedCount).toBe(1)
     const updated = getExcelDraft(db, sourceDocumentUid)
     expect(updated.candidates[0]!.title).toBe('LLM要求一覧')
-    expect(updated.candidates[0]!.review_status).toBe('review')
+    expect(updated.candidates[0]!.review_status).toBe('approved')
     expect(updated.candidates[1]!.title).toBe('件数式')
   })
 
@@ -207,7 +207,7 @@ describe('Excel抽出グループ候補（P5-19、EXT-049〜062）', () => {
     expect(result.addedCount).toBe(1)
     expect(getExcelDraft(db, sourceDocumentUid).candidates.at(-1)).toMatchObject({
       title: '見出し',
-      review_status: 'review',
+      review_status: 'approved',
       candidate_status: 'adjusted'
     })
   })
@@ -222,6 +222,8 @@ describe('Excel抽出グループ候補（P5-19、EXT-049〜062）', () => {
         table_header_row_end: 'B1'
       }
     ])
+    confirmExcelDraft(db, { projectUid, projectRoot: root, sourceDocumentUid })
+
     const source = join(dir, 'requirements.xlsx')
     writeFileSync(source, 'changed')
     const nextSourceUid = importSourceDocument(db, projectUid, root, source).sourceDocumentUid
@@ -229,7 +231,7 @@ describe('Excel抽出グループ候補（P5-19、EXT-049〜062）', () => {
     expect(next.predecessor_source_document_uid).toBe(sourceDocumentUid)
     expect(next.candidates[0]!.candidate_uid).toBe(first.candidates[0]!.candidate_uid)
     expect(next.candidates[0]).toMatchObject({
-      review_status: 'review',
+      review_status: 'approved',
       table_header_row_start: 'A1',
       table_header_row_end: 'B1'
     })
@@ -240,26 +242,27 @@ describe('Excel抽出グループ候補（P5-19、EXT-049〜062）', () => {
     saveExcelCandidates(
       db,
       sourceDocumentUid,
-      draft.candidates.map((candidate) => ({ ...candidate, review_status: 'approved' }))
+      draft.candidates.map((candidate, index) => ({
+        ...candidate,
+        review_status: index === 0 ? 'approved' : 'rejected'
+      }))
     )
     const result = confirmExcelDraft(db, { projectUid, projectRoot: root, sourceDocumentUid })
-    expect(result.elementCount).toBe(2)
+    expect(result.elementCount).toBe(1)
     const items = db
       .prepare(`SELECT item_type FROM extracted_item WHERE extracted_document_uid=? ORDER BY rowid`)
       .all(result.extractedDocumentUid) as { item_type: string }[]
-    expect(items.map((item) => item.item_type)).toEqual(['resource_table', 'resource_formula'])
+    expect(items.map((item) => item.item_type)).toEqual(['resource_table'])
     const locations = db
       .prepare(
         `SELECT sheet_name,cell_start,cell_end FROM source_location
           WHERE source_document_uid=? AND sheet_name IS NOT NULL ORDER BY cell_start`
       )
       .all(sourceDocumentUid)
-    expect(locations).toEqual([
-      { sheet_name: '要求', cell_start: 'A1', cell_end: 'B2' },
-      { sheet_name: '要求', cell_start: 'A3', cell_end: 'A3' }
-    ])
+    expect(locations).toEqual([{ sheet_name: '要求', cell_start: 'A1', cell_end: 'B2' }])
     const confirmed = getExcelDraft(db, sourceDocumentUid)
     expect(confirmed.status).toBe('confirmed')
+    expect(confirmed.candidates.map((candidate) => candidate.review_status)).toEqual(['approved', 'rejected'])
     expect(confirmed.confirmed_extracted_document_uid).toBe(result.extractedDocumentUid)
     expect(() => confirmExcelDraft(db, { projectUid, projectRoot: root, sourceDocumentUid })).toThrowError(/確定済み/)
   })

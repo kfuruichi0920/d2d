@@ -11,7 +11,7 @@ import { showContextMenu } from '../common/ContextMenu'
 import { ResizablePaneGroup } from '../workbench/ResizablePaneGroup'
 
 type CandidateType = 'table' | 'text' | 'list' | 'formula' | 'figure' | 'model' | 'unknown'
-type ReviewStatus = 'draft' | 'review' | 'approved' | 'rejected'
+type ReviewStatus = 'approved' | 'rejected'
 interface Cell {
   address: string
   row: number
@@ -150,7 +150,12 @@ export function ExcelExtractionEditor({ sourceDocumentUid }: { sourceDocumentUid
     const result = await invoke<Draft>('excelDraft.get', { sourceDocumentUid })
     if (!result.ok) return notify('error', 'Excel候補を取得できませんでした', result.error.message)
     setDraft(result.result)
-    setCandidates(result.result.candidates)
+    setCandidates(
+      result.result.candidates.map((candidate) => ({
+        ...candidate,
+        review_status: candidate.review_status === 'rejected' ? 'rejected' : 'approved'
+      }))
+    )
     setSheetName(
       (current) =>
         current ||
@@ -201,15 +206,17 @@ export function ExcelExtractionEditor({ sourceDocumentUid }: { sourceDocumentUid
     .map((cell) => cell.display_value)
     .filter(Boolean)
     .join(' / ')
-  const counts = sheetCandidates.reduce<Record<ReviewStatus, number>>(
+  const counts = sheetCandidates.reduce(
     (acc, item) => {
-      acc[item.review_status]++
+      if (item.review_status === 'rejected') acc.rejected++
+      else acc.approved++
       return acc
     },
-    { draft: 0, review: 0, approved: 0, rejected: 0 }
+    { approved: 0, rejected: 0 }
   )
 
-  const patchCandidate = (uid: string, patch: Partial<Candidate>): void =>
+  const patchCandidate = (uid: string, patch: Partial<Candidate>): void => {
+    if (draft?.status === 'confirmed') return
     setCandidates((items) =>
       items.map((item) =>
         item.candidate_uid === uid
@@ -217,7 +224,9 @@ export function ExcelExtractionEditor({ sourceDocumentUid }: { sourceDocumentUid
           : item
       )
     )
-  const patchSelectedStatus = (status: ReviewStatus, targetUids: Set<string> = selectedUids): void =>
+  }
+  const patchSelectedStatus = (status: ReviewStatus, targetUids: Set<string> = selectedUids): void => {
+    if (draft?.status === 'confirmed') return
     setCandidates((items) =>
       items.map((item) =>
         targetUids.has(item.candidate_uid)
@@ -225,34 +234,36 @@ export function ExcelExtractionEditor({ sourceDocumentUid }: { sourceDocumentUid
           : item
       )
     )
+  }
   const save = async (): Promise<boolean> => {
     const result = await invoke('excelDraft.saveCandidates', { sourceDocumentUid, candidates })
     if (!result.ok) {
       notify('error', 'Excel候補を保存できませんでした', result.error.message)
       return false
     }
-    notify('info', 'Excel抽出グループ候補を保存しました')
     await load()
     return true
   }
   const addCandidate = (): void => {
+    if (draft?.status === 'confirmed') return
     const next: Candidate = {
       candidate_uid: 'new-' + Date.now(),
       sheet_name: sheetName,
       start_cell: address(sr1, sc1),
       end_cell: address(sr2, sc2),
-      candidate_type: 'unknown',
+      candidate_type: 'text',
       title: rangeText.slice(0, 120) || '新しい抽出グループ',
       detection_methods: ['manual_overlay'],
       confidence: 1,
       candidate_status: 'adjusted',
-      review_status: 'review'
+      review_status: 'approved'
     }
     setCandidates((items) => [...items, next])
     setActiveUid(next.candidate_uid)
     setSelectedUids(new Set([next.candidate_uid]))
   }
   const removeSelected = (): void => {
+    if (draft?.status === 'confirmed') return
     setCandidates((items) => items.filter((item) => !selectedUids.has(item.candidate_uid)))
     setSelectedUids(new Set())
     setActiveUid(null)
@@ -367,11 +378,53 @@ export function ExcelExtractionEditor({ sourceDocumentUid }: { sourceDocumentUid
       columns: Math.ceil(node.clientWidth / CELL_W)
     })
   }
+  const scrollCellIntoView = (row: number, column: number): void => {
+    const node = gridRef.current
+    if (!node) return
+    const top = COL_HEADER + (row - 1) * CELL_H
+    const left = ROW_HEADER + (column - 1) * CELL_W
+    if (top < node.scrollTop + COL_HEADER) node.scrollTop = Math.max(0, top - COL_HEADER)
+    else if (top + CELL_H > node.scrollTop + node.clientHeight) node.scrollTop = top + CELL_H - node.clientHeight
+    if (left < node.scrollLeft + ROW_HEADER) node.scrollLeft = Math.max(0, left - ROW_HEADER)
+    else if (left + CELL_W > node.scrollLeft + node.clientWidth) node.scrollLeft = left + CELL_W - node.clientWidth
+  }
+  const ctrlArrowTarget = (row: number, column: number, dr: number, dc: number): [number, number] => {
+    const occupied = new Set(
+      (sheet?.cells ?? [])
+        .filter((cell) => cell.display_value != null && cell.display_value !== '')
+        .map((cell) => `${cell.row}:${cell.column}`)
+    )
+    const boundary: [number, number] = [dr < 0 ? 1 : dr > 0 ? maxRow : row, dc < 0 ? 1 : dc > 0 ? maxColumn : column]
+    let nextRow = row + dr
+    let nextColumn = column + dc
+    const valid = (): boolean => nextRow >= 1 && nextRow <= maxRow && nextColumn >= 1 && nextColumn <= maxColumn
+    const currentOccupied = occupied.has(`${row}:${column}`)
+    if (currentOccupied && valid() && occupied.has(`${nextRow}:${nextColumn}`)) {
+      while (valid() && occupied.has(`${nextRow}:${nextColumn}`)) {
+        row = nextRow
+        column = nextColumn
+        nextRow += dr
+        nextColumn += dc
+      }
+      return [row, column]
+    }
+    while (valid()) {
+      if (occupied.has(`${nextRow}:${nextColumn}`)) return [nextRow, nextColumn]
+      nextRow += dr
+      nextColumn += dc
+    }
+    return boundary
+  }
   const pointFromPointer = (event: React.PointerEvent): [number, number] => {
-    const rect = event.currentTarget.getBoundingClientRect()
+    const node = gridRef.current
+    if (!node) return [1, 1]
+    const rect = node.getBoundingClientRect()
     return [
-      Math.max(1, Math.floor((event.clientY - rect.top - COL_HEADER) / CELL_H) + 1),
-      Math.max(1, Math.floor((event.clientX - rect.left - ROW_HEADER) / CELL_W) + 1)
+      Math.min(maxRow, Math.max(1, Math.floor((event.clientY - rect.top + node.scrollTop - COL_HEADER) / CELL_H) + 1)),
+      Math.min(
+        maxColumn,
+        Math.max(1, Math.floor((event.clientX - rect.left + node.scrollLeft - ROW_HEADER) / CELL_W) + 1)
+      )
     ]
   }
 
@@ -398,18 +451,24 @@ export function ExcelExtractionEditor({ sourceDocumentUid }: { sourceDocumentUid
           </select>
         </label>
         <span className="d2d-badge">候補 {sheetCandidates.length}</span>
-        <span className="d2d-badge">未確認 {counts.draft}</span>
-        <span className="d2d-badge">要修正 {counts.review}</span>
+
         <span className="d2d-badge">採用 {counts.approved}</span>
-        <span className="d2d-badge">不要 {counts.rejected}</span>
+        <span className="d2d-badge">不採用 {counts.rejected}</span>
         <span style={{ flex: 1 }} />
-        <button className="d2d-btn small" type="button" onClick={addCandidate} data-testid="excel-candidate-add">
+        <button
+          className="d2d-btn small"
+          type="button"
+          onClick={addCandidate}
+          disabled={draft.status === 'confirmed'}
+          data-testid="excel-candidate-add"
+        >
           選択範囲を候補追加
         </button>
         <button
           className="d2d-btn small"
           type="button"
           onClick={() => void prepareRangeLlm()}
+          disabled={draft.status === 'confirmed'}
           data-testid="excel-range-llm"
         >
           選択範囲をLLMでグループ化
@@ -417,7 +476,7 @@ export function ExcelExtractionEditor({ sourceDocumentUid }: { sourceDocumentUid
         <button
           className="d2d-btn small"
           type="button"
-          disabled={!selectedUids.size}
+          disabled={draft.status === 'confirmed' || !selectedUids.size}
           onClick={() => void prepareCandidateLlm()}
           data-testid="excel-candidate-llm"
         >
@@ -426,19 +485,19 @@ export function ExcelExtractionEditor({ sourceDocumentUid }: { sourceDocumentUid
         <button
           className="d2d-btn small"
           type="button"
-          disabled={!selectedUids.size}
+          disabled={draft.status === 'confirmed' || !selectedUids.size}
           onClick={removeSelected}
           data-testid="excel-candidate-delete"
         >
           削除
         </button>
-        <button className="d2d-btn small" type="button" onClick={() => void save()} data-testid="excel-candidate-save">
-          保存
-        </button>
+
         <button
           className="d2d-btn primary"
           type="button"
-          disabled={draft.status === 'confirmed' || !candidates.length}
+          disabled={
+            draft.status === 'confirmed' || !candidates.some((candidate) => candidate.review_status === 'approved')
+          }
           onClick={() => void confirm()}
           data-testid="excel-candidate-confirm"
         >
@@ -473,20 +532,24 @@ export function ExcelExtractionEditor({ sourceDocumentUid }: { sourceDocumentUid
             onScroll={updateViewport}
             onKeyDown={(event) => {
               const [row, column] = selection.focus
-              const next: [number, number] = [
-                Math.max(1, row + (event.key === 'ArrowDown' ? 1 : event.key === 'ArrowUp' ? -1 : 0)),
-                Math.max(1, column + (event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0))
-              ]
-              if (next[0] !== row || next[1] !== column) {
-                event.preventDefault()
-                setSelection((current) => ({ anchor: event.shiftKey ? current.anchor : next, focus: next }))
-              }
+              const dr = event.key === 'ArrowDown' ? 1 : event.key === 'ArrowUp' ? -1 : 0
+              const dc = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0
+              if (!dr && !dc) return
+              event.preventDefault()
+              const next: [number, number] =
+                event.ctrlKey || event.metaKey
+                  ? ctrlArrowTarget(row, column, dr, dc)
+                  : [Math.min(maxRow, Math.max(1, row + dr)), Math.min(maxColumn, Math.max(1, column + dc))]
+              setSelection((current) => ({ anchor: event.shiftKey ? current.anchor : next, focus: next }))
+              scrollCellIntoView(next[0], next[1])
             }}
           >
             <div
               className="excel-grid-canvas"
               style={{ width: ROW_HEADER + maxColumn * CELL_W, height: COL_HEADER + maxRow * CELL_H }}
               onPointerDown={(event) => {
+                if (event.button !== 0) return
+                gridRef.current?.focus()
                 const point = pointFromPointer(event)
                 draggingSelection.current = true
                 setSelection({ anchor: event.shiftKey ? selection.anchor : point, focus: point })
@@ -496,7 +559,12 @@ export function ExcelExtractionEditor({ sourceDocumentUid }: { sourceDocumentUid
                 if (draggingSelection.current)
                   setSelection((current) => ({ ...current, focus: pointFromPointer(event) }))
               }}
-              onPointerUp={() => {
+              onPointerUp={(event) => {
+                draggingSelection.current = false
+                if (event.currentTarget.hasPointerCapture(event.pointerId))
+                  event.currentTarget.releasePointerCapture(event.pointerId)
+              }}
+              onPointerCancel={() => {
                 draggingSelection.current = false
               }}
             >
@@ -620,28 +688,9 @@ export function ExcelExtractionEditor({ sourceDocumentUid }: { sourceDocumentUid
                               : new Set([candidate.candidate_uid])
                           )
                       },
+
                       {
-                        label: '要修正',
-                        run: () =>
-                          patchSelectedStatus(
-                            'review',
-                            selectedUids.has(candidate.candidate_uid)
-                              ? selectedUids
-                              : new Set([candidate.candidate_uid])
-                          )
-                      },
-                      {
-                        label: '未確認',
-                        run: () =>
-                          patchSelectedStatus(
-                            'draft',
-                            selectedUids.has(candidate.candidate_uid)
-                              ? selectedUids
-                              : new Set([candidate.candidate_uid])
-                          )
-                      },
-                      {
-                        label: '抽出不要',
+                        label: '不採用',
                         testId: 'excel-bulk-rejected',
                         run: () =>
                           patchSelectedStatus(
@@ -677,22 +726,27 @@ export function ExcelExtractionEditor({ sourceDocumentUid }: { sourceDocumentUid
               <div className="excel-candidate-form" data-testid="excel-candidate-form">
                 <div className="excel-range-text">
                   <label>選択範囲内の文字列</label>
-                  <p data-testid="excel-candidate-text-preview">
-                    {(sheet?.cells ?? [])
-                      .filter((cell) => {
-                        const [r1, c1, r2, c2] = bounds(candidateRange(active))
-                        return cell.row >= r1 && cell.row <= r2 && cell.column >= c1 && cell.column <= c2
-                      })
-                      .map((cell) => cell.display_value)
-                      .filter(Boolean)
-                      .join(' / ') || '（文字列なし）'}
-                  </p>
+                  <textarea
+                    readOnly
+                    data-testid="excel-candidate-text-preview"
+                    value={
+                      (sheet?.cells ?? [])
+                        .filter((cell) => {
+                          const [r1, c1, r2, c2] = bounds(candidateRange(active))
+                          return cell.row >= r1 && cell.row <= r2 && cell.column >= c1 && cell.column <= c2
+                        })
+                        .map((cell) => cell.display_value)
+                        .filter(Boolean)
+                        .join(' / ') || '（文字列なし）'
+                    }
+                  />
                 </div>
                 <div className="excel-candidate-range-inputs">
                   <label>
                     開始セル
                     <input
                       value={active.start_cell}
+                      disabled={draft.status === 'confirmed'}
                       onChange={(event) =>
                         patchCandidate(active.candidate_uid, { start_cell: event.target.value.toUpperCase() })
                       }
@@ -703,6 +757,7 @@ export function ExcelExtractionEditor({ sourceDocumentUid }: { sourceDocumentUid
                     終了セル
                     <input
                       value={active.end_cell}
+                      disabled={draft.status === 'confirmed'}
                       onChange={(event) =>
                         patchCandidate(active.candidate_uid, { end_cell: event.target.value.toUpperCase() })
                       }
@@ -714,6 +769,7 @@ export function ExcelExtractionEditor({ sourceDocumentUid }: { sourceDocumentUid
                   種別
                   <select
                     value={active.candidate_type}
+                    disabled={draft.status === 'confirmed'}
                     onChange={(event) =>
                       patchCandidate(active.candidate_uid, { candidate_type: event.target.value as CandidateType })
                     }
@@ -728,15 +784,14 @@ export function ExcelExtractionEditor({ sourceDocumentUid }: { sourceDocumentUid
                   採否
                   <select
                     value={active.review_status}
+                    disabled={draft.status === 'confirmed'}
                     onChange={(event) =>
                       patchCandidate(active.candidate_uid, { review_status: event.target.value as ReviewStatus })
                     }
                     data-testid="excel-candidate-status"
                   >
-                    <option value="draft">未確認</option>
-                    <option value="review">要修正</option>
                     <option value="approved">採用</option>
-                    <option value="rejected">抽出不要</option>
+                    <option value="rejected">不採用</option>
                   </select>
                 </label>
                 {active.candidate_type === 'figure' && (

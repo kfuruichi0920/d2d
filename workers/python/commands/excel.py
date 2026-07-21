@@ -316,7 +316,7 @@ def _drawing_candidates(drawings: list[dict], sheet_name: str) -> list[dict]:
         "candidate_type": "figure", "title": drawing.get("text") or drawing.get("name") or "図",
         "detection_methods": ["drawingml_anchor", drawing["drawing_type"]],
         "confidence": 1.0 if drawing["drawing_type"] == "image" else 0.9,
-        "candidate_status": "detected", "review_status": "draft", "drawing_refs": [drawing["drawing_uid"]],
+        "candidate_status": "detected", "review_status": "approved", "drawing_refs": [drawing["drawing_uid"]],
     } for drawing in drawings]
 
 def _candidate_regions(cells: list[dict], merged_ranges: list[str], tables: list[dict], sheet_name: str) -> list[dict]:
@@ -338,7 +338,7 @@ def _candidate_regions(cells: list[dict], merged_ranges: list[str], tables: list
                 "detection_methods": ["structured_table"],
                 "confidence": 1.0,
                 "candidate_status": "detected",
-                "review_status": "draft",
+                "review_status": "approved",
             }
         )
     for point in occupied:
@@ -376,7 +376,15 @@ def _candidate_regions(cells: list[dict], merged_ranges: list[str], tables: list
             methods.append("border_continuity")
         rows = max_row - min_row + 1
         cols = max_col - min_col + 1
-        candidate_type = "table" if rows > 1 and cols > 1 else ("formula" if all(cell.get("formula") for cell in component) else "text")
+        values = [str(cell.get("display_value") or "").strip() for cell in component]
+        obvious_list = cols == 1 and rows > 1 and all(re.match(r"^(?:[-*・]|\d+[.)、])\s*\S", value) for value in values)
+        obvious_table = rows > 1 and cols > 1 and ("border_continuity" in methods or "merged_header" in methods)
+        candidate_type = (
+            "formula" if all(cell.get("formula") for cell in component)
+            else "table" if obvious_table
+            else "list" if obvious_list
+            else "text"
+        )
         confidence = min(0.95, 0.52 + min(len(component), 25) / 100 + (0.12 if candidate_type == "table" else 0))
         candidates.append(
             {
@@ -388,7 +396,7 @@ def _candidate_regions(cells: list[dict], merged_ranges: list[str], tables: list
                 "detection_methods": methods,
                 "confidence": round(confidence, 2),
                 "candidate_status": "detected",
-                "review_status": "draft",
+                "review_status": "approved",
             }
         )
     return candidates

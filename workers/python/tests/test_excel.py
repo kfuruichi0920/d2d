@@ -8,7 +8,7 @@ from pathlib import Path
 import os
 import unittest
 
-from commands.excel import extract_excel
+from commands.excel import _candidate_regions, extract_excel
 
 
 def _write_xlsx(path: Path) -> None:
@@ -131,6 +131,7 @@ def assert_excel_extraction() -> None:
     assert by_address["A2"]["hyperlink"]["external"] is True
     assert by_address["A3"]["formula"] == "LEN(B2)"
     assert output["candidates"][0]["detection_methods"] == ["structured_table"]
+    assert all(candidate["review_status"] == "approved" for candidate in output["candidates"])
     assert len(sheet["drawings"]) == 2
     assert sheet["drawings"][0]["text"] == "停止フロー"
     assert sheet["drawings"][0]["style"]["fill"]["rgb"] == "FFCC00"
@@ -144,6 +145,31 @@ def assert_excel_extraction() -> None:
 class ExcelExtractionTest(unittest.TestCase):
     def test_preserves_physical_facts_and_generates_candidates(self) -> None:
         assert_excel_extraction()
+
+    def test_defaults_to_text_and_only_classifies_obvious_lists(self) -> None:
+        plain = _candidate_regions(
+            [
+                {"row": 1, "column": 1, "display_value": "見出し"},
+                {"row": 1, "column": 2, "display_value": "説明"},
+                {"row": 2, "column": 1, "display_value": "項目"},
+                {"row": 2, "column": 2, "display_value": "本文"},
+            ],
+            [],
+            [],
+            "Sheet1",
+        )
+        bullets = _candidate_regions(
+            [
+                {"row": 1, "column": 1, "display_value": "・開始"},
+                {"row": 2, "column": 1, "display_value": "・停止"},
+            ],
+            [],
+            [],
+            "Sheet1",
+        )
+        self.assertEqual(plain[0]["candidate_type"], "text")
+        self.assertEqual(bullets[0]["candidate_type"], "list")
+        self.assertEqual(plain[0]["review_status"], "approved")
 
 
 if __name__ == "__main__":
