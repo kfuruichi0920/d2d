@@ -112,18 +112,11 @@ export function registerDocumentApi(router: ApiRouter, jobs: JobManager): void {
     return { restored: true }
   })
 
-  /** 原本から②抽出ジョブを開始（P4-2 / P5、UI-010 / UI-046。現状 Word のみ） */
+  /** 原本から抽出を開始。Excelは候補生成後のユーザー確定で②へ変換する（P5-19、EXT-049〜055）。 */
   router.register('document.extract', (params) => {
     const p = asRecord(params)
     const { db } = requireProject()
     const doc = getSourceDocument(db, requireString(p, 'uid'))
-    if (doc.file_type !== 'word') {
-      throw new BackendError(
-        'validation',
-        `${doc.file_type} 形式の抽出は未実装です（P5 後続で対応）`,
-        '現在は Word (.docx) のみ抽出できます'
-      )
-    }
     if (doc.has_extracted_data) {
       throw new BackendError(
         'validation',
@@ -131,7 +124,22 @@ export function registerDocumentApi(router: ApiRouter, jobs: JobManager): void {
         '既存の②抽出データを使用してください'
       )
     }
-    return jobs.enqueue('extract.word', { sourceDocumentUid: doc.uid })
+    if (doc.file_type === 'word') return jobs.enqueue('extract.word', { sourceDocumentUid: doc.uid })
+    if (doc.file_type === 'excel') {
+      if (doc.excel_draft_status && doc.excel_draft_status !== 'failed') {
+        throw new BackendError(
+          'conflict',
+          'このExcel原本の抽出グループ候補は既に存在します',
+          '既存の候補を確認してください'
+        )
+      }
+      return jobs.enqueue('extract.excel', { sourceDocumentUid: doc.uid })
+    }
+    throw new BackendError(
+      'validation',
+      `${doc.file_type} 形式の抽出は未実装です（P5 後続で対応）`,
+      '現在は Word (.docx) と Excel (.xlsx) を抽出できます'
+    )
   })
 
   // ---- ②抽出データ（P5） ----

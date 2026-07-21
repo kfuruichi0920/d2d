@@ -23,6 +23,7 @@ import { runWorker } from './workers/worker-runner'
 import { currentProject, requireProject, type ProjectInfo } from './project/project-service'
 import { registerDocumentApi } from './api/documents'
 import { registerLlmApi } from './api/llm'
+import { registerExcelApi } from './api/excel'
 import { registerIntermediateApi } from './api/intermediate'
 import { registerDesignApi } from './api/design'
 import { registerTraceApi } from './api/trace'
@@ -50,6 +51,7 @@ import type { ChatMessage } from './llm/providers'
 import { getSourceDocument, importSourceDocument } from './import/import-service'
 import { storeExtractionResult, type ExtractionOutput } from './extract/store-extraction'
 import { BackendError } from './api/errors'
+import { applyExcelLlmSuggestions, storeExcelDraft, type ExcelPhysicalOutput } from './extract/excel-draft-service'
 import { readFileSync } from 'node:fs'
 
 const BACKEND_VERSION = '0.1.0'
@@ -159,6 +161,76 @@ function main(): void {
       status: workerResult.status === 'partial' ? 'partial' : 'success',
       output: stored
     }
+  })
+
+  // Excel物理抽出・候補生成ジョブ（P5-19、EXT-009/049〜055）
+  jobs.registerExecutor('extract.excel', async (params, ctx) => {
+    const { sourceDocumentUid } = params as { sourceDocumentUid: string }
+    const { db, info, paths } = requireProject()
+    const doc = getSourceDocument(db, sourceDocumentUid)
+    if (doc.file_type !== 'excel') throw new BackendError('validation', 'Excel原本ではありません', doc.file_type)
+    if (!doc.blob_relative_path) {
+      throw new BackendError('not_found', '原本ファイルの blob 参照がありません', sourceDocumentUid)
+    }
+    const filePath = join(info.rootPath, doc.blob_relative_path)
+    const workDir = join(paths.blobsDir, 'extracted', `job-${ctx.jobId}`)
+    ctx.reportProgress(5, 'Excel抽出ワーカーを起動中')
+    const workerResult = await runWorker({
+      request: {
+        job_id: ctx.jobId,
+        project_uid: info.projectUid,
+        worker_name: 'd2d-worker',
+        command: 'extract.excel',
+        parameters: { file_path: filePath, work_dir: workDir }
+      },
+      onProgress: (progress) => ctx.reportProgress(5 + progress.percent * 0.7, progress.message),
+      signal: ctx.signal
+    })
+    if (!workerResult.output_ref) throw new BackendError('worker', 'Excelワーカーが出力を返しませんでした', '')
+    ctx.reportProgress(80, '抽出グループ候補を保存中')
+    const output = JSON.parse(readFileSync(workerResult.output_ref, 'utf-8')) as ExcelPhysicalOutput
+    const draft = storeExcelDraft(db, sourceDocumentUid, output)
+    ctx.log('info', `Excel抽出グループ候補を保存しました: ${draft.candidates.length}件`, {
+      sourceDocumentUid,
+      warnings: draft.physical.review_hints.warnings
+    })
+    eventBus.emit('excelDraft.updated', { sourceDocumentUid, kind: 'generated' })
+    return {
+      status: workerResult.status === 'partial' ? 'partial' : 'success',
+      output: { sourceDocumentUid, candidateCount: draft.candidates.length }
+    }
+  })
+
+  // 選択範囲だけを対象とするExcel候補LLM支援（P5-19C、EXT-052）
+  jobs.registerExecutor('excel.candidateLlm', async (params, ctx) => {
+    const { sourceDocumentUid, candidateUids, messages, promptTemplateUid } = params as {
+      sourceDocumentUid: string
+      candidateUids: string[]
+      messages: ChatMessage[]
+      promptTemplateUid?: string
+    }
+    const { db, info } = requireProject()
+    ctx.reportProgress(10, 'Excel候補をLLMへ送信中')
+    const result = await runLlm(
+      db,
+      settings,
+      { projectUid: info.projectUid, rootPath: info.rootPath },
+      {
+        processName: 'excel-candidate-refinement',
+        messages,
+        jsonMode: true,
+        inputRefUid: sourceDocumentUid,
+        promptTemplateUid,
+        signal: ctx.signal
+      }
+    )
+    const applied = applyExcelLlmSuggestions(db, sourceDocumentUid, candidateUids, result.content, result.llmRunUid)
+    ctx.log('info', `Excel候補へのLLM提案を反映しました: ${applied.updatedCount}件`, {
+      sourceDocumentUid,
+      llmRunUid: result.llmRunUid
+    })
+    eventBus.emit('excelDraft.updated', { sourceDocumentUid, kind: 'llm', llmRunUid: result.llmRunUid })
+    return { status: 'success', output: { ...applied, llmRunUid: result.llmRunUid } }
   })
 
   // LLM 実行ジョブ（P6、NFR-003。UI をブロックせず、キャンセル可能）
@@ -457,6 +529,7 @@ function main(): void {
   registerJobApi(router, jobs)
   registerFeatureApi(router)
   registerDocumentApi(router, jobs)
+  registerExcelApi(router, jobs)
   registerLlmApi(router, jobs, settings)
   registerIntermediateApi(router, jobs)
   registerDesignApi(router, jobs)

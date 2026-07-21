@@ -47,9 +47,9 @@ describe('P10 編集機能', () => {
     rmSync(dir, { recursive: true, force: true })
   })
 
-  it('schema 2.2.0: 新規 DB は最新版の表セル・アーカイブ列・セマンティック表・LLM生ログ列を持つ', () => {
-    expect(LATEST_SCHEMA_VERSION).toBe('2.2.0')
-    expect(getSchemaVersion(db)).toBe('2.2.0')
+  it('schema 2.3.0: 新規 DB は最新版の表セル・アーカイブ列・セマンティック表・Excel候補を持つ', () => {
+    expect(LATEST_SCHEMA_VERSION).toBe('2.3.0')
+    expect(getSchemaVersion(db)).toBe('2.3.0')
     const table = db
       .prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'resource_table_cell'`)
       .get()

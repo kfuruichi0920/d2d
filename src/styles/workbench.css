@@ -3770,3 +3770,162 @@ mark.d2d-term {
   justify-content: flex-end;
   gap: 8px;
 }
+/* Excel抽出グループ候補レビュー（P5-19、EXT-055） */
+.excel-extraction-editor {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-width: 0;
+}
+
+.excel-extraction-editor .extraction-review-toolbar h1 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.excel-extraction-warnings {
+  display: flex;
+  gap: 12px;
+  padding: 6px 10px;
+  color: var(--d2d-warning);
+  background: color-mix(in srgb, var(--d2d-warning) 8%, transparent);
+  border-bottom: 1px solid var(--d2d-border);
+  font-size: 11px;
+  overflow-x: auto;
+}
+
+.excel-sheet-pane,
+.excel-candidate-pane {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.excel-sheet-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 6px;
+  border-bottom: 1px solid var(--d2d-border);
+  overflow-x: auto;
+}
+
+.excel-grid-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  background: var(--d2d-editor-bg);
+}
+
+.excel-preview-grid {
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.excel-preview-grid th,
+.excel-preview-grid td {
+  min-width: 84px;
+  max-width: 220px;
+  height: 24px;
+  padding: 2px 5px;
+  border-right: 1px solid var(--d2d-border);
+  border-bottom: 1px solid var(--d2d-border);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.excel-preview-grid th {
+  min-width: 38px;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  color: var(--d2d-fg-muted);
+  background: var(--d2d-side-bg);
+}
+
+.excel-preview-grid tbody th {
+  left: 0;
+}
+
+.excel-preview-grid td.candidate-range {
+  background: color-mix(in srgb, var(--d2d-accent) 18%, var(--d2d-editor-bg));
+  outline: 1px solid color-mix(in srgb, var(--d2d-accent) 65%, transparent);
+}
+
+.excel-sheet-meta {
+  padding: 5px 8px;
+  color: var(--d2d-fg-muted);
+  border-top: 1px solid var(--d2d-border);
+  font-size: 10px;
+}
+
+.excel-candidate-list {
+  max-height: 42%;
+  overflow: auto;
+  border-bottom: 1px solid var(--d2d-border);
+}
+
+.excel-candidate-row {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--d2d-border);
+}
+
+.excel-candidate-row.active {
+  background: var(--d2d-list-active);
+}
+
+.excel-candidate-row > button {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  align-items: flex-start;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  text-align: left;
+}
+
+.excel-candidate-row span {
+  color: var(--d2d-fg-muted);
+  font-size: 10px;
+}
+
+.excel-candidate-form {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  overflow: auto;
+}
+
+.excel-candidate-form label {
+  display: grid;
+  gap: 3px;
+  color: var(--d2d-fg-muted);
+  font-size: 11px;
+}
+
+.excel-candidate-form input,
+.excel-candidate-form select {
+  width: 100%;
+}
+
+.excel-candidate-range-inputs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.excel-candidate-form pre {
+  max-height: 160px;
+  margin: 0;
+  padding: 6px;
+  overflow: auto;
+  border: 1px solid var(--d2d-border);
+  font-size: 10px;
+}

@@ -363,6 +363,33 @@ export const MIGRATIONS: Migration[] = [
       add('resource_table', 'description', 'description TEXT')
       add('resource_code', 'description', 'description TEXT')
     }
+  },
+  {
+    version: '2.3.0',
+    description: 'Excel抽出グループ候補ドラフトを追加（P5-19 / EXT-049〜055）',
+    apply(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS excel_extraction_draft (
+          source_document_uid TEXT PRIMARY KEY,
+          status TEXT NOT NULL DEFAULT 'generated'
+            CHECK (status IN ('generated', 'editing', 'confirmed', 'failed')),
+          physical_json TEXT NOT NULL
+            CHECK (json_valid(physical_json) AND json_type(physical_json)='object'),
+          candidates_json TEXT NOT NULL
+            CHECK (json_valid(candidates_json) AND json_type(candidates_json)='array'),
+          last_llm_run_uid TEXT,
+          confirmed_extracted_document_uid TEXT,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          confirmed_at TEXT,
+          FOREIGN KEY (source_document_uid) REFERENCES source_document(uid) ON DELETE CASCADE,
+          FOREIGN KEY (last_llm_run_uid) REFERENCES llm_run_ref(uid) ON DELETE SET NULL,
+          FOREIGN KEY (confirmed_extracted_document_uid) REFERENCES extracted_document(uid) ON DELETE SET NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_excel_extraction_draft_status
+          ON excel_extraction_draft(status, updated_at);
+      `)
+    }
   }
 ]
 /** 最新の schema_version（新規 DB 作成時にもマイグレーションを適用して到達させる） */
