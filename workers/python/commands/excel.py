@@ -6,6 +6,7 @@ Excelファイルを実行せず、OOXML ZIP/XMLに保存された事実だけ�
 
 from __future__ import annotations
 
+import html
 import json
 import posixpath
 import re
@@ -24,6 +25,10 @@ NS = {
     "cp": "http://schemas.openxmlformats.org/package/2006/metadata/core-properties",
     "dc": "http://purl.org/dc/elements/1.1/",
     "dcterms": "http://purl.org/dc/terms/",
+    "xdr": "http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing",
+    "a": "http://schemas.openxmlformats.org/drawingml/2006/main",
+    "pic": "http://schemas.openxmlformats.org/drawingml/2006/picture",
+    "c": "http://schemas.openxmlformats.org/drawingml/2006/chart",
 }
 MAX_ENTRIES = 20_000
 MAX_TOTAL_SIZE = 256 * 1024 * 1024
@@ -215,6 +220,105 @@ def _table(zf: zipfile.ZipFile, target: str) -> dict | None:
     }
 
 
+def _marker_cell(anchor: ET.Element, name: str, fallback: tuple[int, int]) -> tuple[int, int]:
+    marker = anchor.find(f"xdr:{name}", NS)
+    if marker is None:
+        return fallback
+    row = marker.find("xdr:row", NS)
+    col = marker.find("xdr:col", NS)
+    return (int(row.text or "0") + 1, int(col.text or "0") + 1) if row is not None and col is not None else fallback
+
+
+def _drawing_preview_svg(name: str, text: str, drawing_type: str, style: dict) -> bytes:
+    fill = style.get("fill", {}).get("rgb") or "DDEBFF"
+    line = style.get("line", {}).get("rgb") or "3B82F6"
+    label = html.escape(text or name or drawing_type)
+    if drawing_type == "connector":
+        body = f'<line x1="20" y1="90" x2="300" y2="30" stroke="#{line}" stroke-width="4"/><text x="20" y="120">{label}</text>'
+    else:
+        body = f'<rect x="10" y="10" width="300" height="120" rx="8" fill="#{fill}" stroke="#{line}" stroke-width="3"/><text x="24" y="75">{label}</text>'
+    return ('<svg xmlns="http://www.w3.org/2000/svg" width="320" height="140" viewBox="0 0 320 140"><style>text{font:16px sans-serif;fill:#172033}</style>' + body + '</svg>').encode("utf-8")
+
+
+def _color(node: ET.Element | None) -> dict:
+    if node is None:
+        return {}
+    srgb = node.find("a:srgbClr", NS)
+    scheme = node.find("a:schemeClr", NS)
+    return {"rgb": srgb.get("val") if srgb is not None else None, "scheme": scheme.get("val") if scheme is not None else None}
+
+
+def _drawing_parts(zf: zipfile.ZipFile, target: str, work: Path) -> list[dict]:
+    try:
+        root = _read_xml(zf, target)
+    except KeyError:
+        return []
+    rel_path = posixpath.join(posixpath.dirname(target), "_rels", posixpath.basename(target) + ".rels")
+    relationships = _rels(zf, rel_path, target)
+    media_dir = work / "media"
+    media_dir.mkdir(parents=True, exist_ok=True)
+    result = []
+    for anchor_index, anchor in enumerate(list(root)):
+        local_anchor = anchor.tag.rsplit("}", 1)[-1]
+        if local_anchor not in ("twoCellAnchor", "oneCellAnchor", "absoluteAnchor"):
+            continue
+        start_row, start_col = _marker_cell(anchor, "from", (1, 1))
+        end_row, end_col = _marker_cell(anchor, "to", (start_row + 1, start_col + 1))
+        for element in list(anchor):
+            local = element.tag.rsplit("}", 1)[-1]
+            if local not in ("pic", "sp", "cxnSp", "grpSp", "graphicFrame"):
+                continue
+            drawing_type = {"pic": "image", "sp": "shape", "cxnSp": "connector", "grpSp": "group", "graphicFrame": "chart"}.get(local, "unknown")
+            props = element.find(".//xdr:cNvPr", NS)
+            drawing_id = props.get("id", str(anchor_index + 1)) if props is not None else str(anchor_index + 1)
+            name = props.get("name", "") if props is not None else ""
+            text = "".join((node.text or "") for node in element.findall(".//a:t", NS))
+            solid_fill = element.find(".//a:solidFill", NS)
+            line_fill = element.find(".//a:ln/a:solidFill", NS)
+            transform = element.find(".//a:xfrm", NS)
+            geometry = element.find(".//a:prstGeom", NS)
+            style = {"fill": _color(solid_fill), "line": _color(line_fill), "preset_geometry": geometry.get("prst") if geometry is not None else None, "rotation": transform.get("rot") if transform is not None else None}
+            rel_id = ""
+            preview_file = ""
+            if drawing_type == "image":
+                blip = element.find(".//a:blip", NS)
+                rel_id = blip.get(qn("r:embed"), "") if blip is not None else ""
+                rel = relationships.get(rel_id)
+                if rel and not rel.get("external"):
+                    suffix = Path(rel["target"]).suffix.lower() or ".bin"
+                    preview = media_dir / f"{Path(target).stem}-{drawing_id}{suffix}"
+                    try:
+                        preview.write_bytes(zf.read(rel["target"]))
+                        preview_file = preview.relative_to(work).as_posix()
+                    except KeyError:
+                        preview_file = ""
+            else:
+                preview = media_dir / f"{Path(target).stem}-{drawing_id}.svg"
+                preview.write_bytes(_drawing_preview_svg(name, text, drawing_type, style))
+                preview_file = preview.relative_to(work).as_posix()
+            starts = element.findall(".//a:stCxn", NS)
+            ends = element.findall(".//a:endCxn", NS)
+            connection_status = "resolved" if drawing_type == "connector" and starts and ends else ("unresolved" if drawing_type == "connector" else "not_applicable")
+            result.append({
+                "drawing_uid": f"{target}#{drawing_id}", "drawing_type": drawing_type, "name": name, "text": text,
+                "start_cell": _cell_address(start_row, start_col), "end_cell": _cell_address(end_row, end_col),
+                "anchor": {"kind": local_anchor, "from": {"row": start_row, "column": start_col}, "to": {"row": end_row, "column": end_col}},
+                "style": style, "source_part": target, "relationship_id": rel_id or None, "preview_file": preview_file or None,
+                "connection_status": connection_status,
+                "child_count": len(element.findall(".//xdr:sp", NS)) + len(element.findall(".//xdr:pic", NS)),
+            })
+    return result
+
+
+def _drawing_candidates(drawings: list[dict], sheet_name: str) -> list[dict]:
+    return [{
+        "sheet_name": sheet_name, "start_cell": drawing["start_cell"], "end_cell": drawing["end_cell"],
+        "candidate_type": "figure", "title": drawing.get("text") or drawing.get("name") or "図",
+        "detection_methods": ["drawingml_anchor", drawing["drawing_type"]],
+        "confidence": 1.0 if drawing["drawing_type"] == "image" else 0.9,
+        "candidate_status": "detected", "review_status": "draft", "drawing_refs": [drawing["drawing_uid"]],
+    } for drawing in drawings]
+
 def _candidate_regions(cells: list[dict], merged_ranges: list[str], tables: list[dict], sheet_name: str) -> list[dict]:
     occupied = {(cell["row"], cell["column"]): cell for cell in cells if cell.get("display_value") not in (None, "")}
     visited: set[tuple[int, int]] = set()
@@ -309,6 +413,7 @@ def _sheet(
     path: str,
     shared: list[dict],
     styles: list[dict],
+    work: Path,
 ) -> dict:
     root = _read_xml(zf, path)
     rel_path = posixpath.join(posixpath.dirname(path), "_rels", posixpath.basename(path) + ".rels")
@@ -393,7 +498,9 @@ def _sheet(
             parsed = _table(zf, rel["target"])
             if parsed:
                 tables.append(parsed)
-    candidates = _candidate_regions(cells, merged_ranges, tables, name)
+    drawing_target = next((rel["target"] for rel in relationships.values() if rel["type"] == "drawing" and not rel["external"]), "")
+    drawings = _drawing_parts(zf, drawing_target, work) if drawing_target else []
+    candidates = _candidate_regions(cells, merged_ranges, tables, name) + _drawing_candidates(drawings, name)
     dimension = root.find("x:dimension", NS)
     views = root.find("x:sheetViews/x:sheetView", NS)
     return {
@@ -408,6 +515,7 @@ def _sheet(
         "merged_ranges": merged_ranges,
         "tables": tables,
         "comments": [{"cell": ref, **comment} for ref, comment in comments.items()],
+        "drawings": drawings,
         "truncated": truncated,
         "candidates": candidates,
     }
@@ -439,7 +547,11 @@ def extract_excel(file_path: str, work_dir: str) -> dict:
                 rel["target"],
                 shared,
                 styles,
+                work,
             )
+            unresolved = [item for item in parsed["drawings"] if item.get("connection_status") == "unresolved"]
+            if unresolved:
+                warnings.append(f"{parsed['name']}: 未解決コネクタ {len(unresolved)} 件（接続先を推測せず保持）")
             if parsed["truncated"]:
                 warnings.append(f"{parsed['name']}: セル数上限 {MAX_CELLS} 件でプレビューを打ち切りました")
             sheets.append(parsed)

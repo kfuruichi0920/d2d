@@ -7,7 +7,7 @@
  * LLM 通信等の業務ロジックはすべて本プロセス側に実装する
  * （sdd_function_architecture §2「初期実装方針（2026-07確定）」）。
  */
-import { join } from 'node:path'
+import { join, relative } from 'node:path'
 import { tmpdir } from 'node:os'
 import type { BackendRequest } from '../src/types/ipc'
 import { ApiRouter } from './api/router'
@@ -51,7 +51,12 @@ import type { ChatMessage } from './llm/providers'
 import { getSourceDocument, importSourceDocument } from './import/import-service'
 import { storeExtractionResult, type ExtractionOutput } from './extract/store-extraction'
 import { BackendError } from './api/errors'
-import { applyExcelLlmSuggestions, storeExcelDraft, type ExcelPhysicalOutput } from './extract/excel-draft-service'
+import {
+  applyExcelLlmSuggestions,
+  applyExcelRangeLlmSuggestions,
+  storeExcelDraft,
+  type ExcelPhysicalOutput
+} from './extract/excel-draft-service'
 import { readFileSync } from 'node:fs'
 
 const BACKEND_VERSION = '0.1.0'
@@ -189,6 +194,13 @@ function main(): void {
     if (!workerResult.output_ref) throw new BackendError('worker', 'Excelワーカーが出力を返しませんでした', '')
     ctx.reportProgress(80, '抽出グループ候補を保存中')
     const output = JSON.parse(readFileSync(workerResult.output_ref, 'utf-8')) as ExcelPhysicalOutput
+    for (const sheet of output.workbook.sheets) {
+      for (const drawing of sheet.drawings ?? []) {
+        const previewFile = (drawing as unknown as { preview_file?: string }).preview_file
+        if (previewFile)
+          drawing.preview_path = relative(info.rootPath, join(workDir, previewFile)).replaceAll('\\', '/')
+      }
+    }
     const draft = storeExcelDraft(db, sourceDocumentUid, output)
     ctx.log('info', `Excel抽出グループ候補を保存しました: ${draft.candidates.length}件`, {
       sourceDocumentUid,
@@ -233,6 +245,41 @@ function main(): void {
     return { status: 'success', output: { ...applied, llmRunUid: result.llmRunUid } }
   })
 
+  // 任意矩形範囲から複数候補を生成するLLM支援（P5-19D、EXT-060）
+  jobs.registerExecutor('excel.rangeLlm', async (params, ctx) => {
+    const { sourceDocumentUid, sheetName, startCell, endCell, messages, promptTemplateUid } = params as {
+      sourceDocumentUid: string
+      sheetName: string
+      startCell: string
+      endCell: string
+      messages: ChatMessage[]
+      promptTemplateUid?: string
+    }
+    const { db, info } = requireProject()
+    ctx.reportProgress(10, '指定したExcel範囲をLLMへ送信中')
+    const result = await runLlm(
+      db,
+      settings,
+      { projectUid: info.projectUid, rootPath: info.rootPath },
+      {
+        processName: 'excel-range-grouping',
+        messages,
+        jsonMode: true,
+        inputRefUid: sourceDocumentUid,
+        promptTemplateUid,
+        signal: ctx.signal
+      }
+    )
+    const applied = applyExcelRangeLlmSuggestions(
+      db,
+      sourceDocumentUid,
+      { sheetName, startCell, endCell },
+      result.content,
+      result.llmRunUid
+    )
+    eventBus.emit('excelDraft.updated', { sourceDocumentUid, kind: 'range-llm', llmRunUid: result.llmRunUid })
+    return { status: 'success', output: { ...applied, llmRunUid: result.llmRunUid } }
+  })
   // LLM 実行ジョブ（P6、NFR-003。UI をブロックせず、キャンセル可能）
   jobs.registerExecutor('llm.run', async (params, ctx) => {
     const { messages, processName, jsonMode, promptTemplateUid } = params as {

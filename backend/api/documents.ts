@@ -112,7 +112,7 @@ export function registerDocumentApi(router: ApiRouter, jobs: JobManager): void {
     return { restored: true }
   })
 
-  /** 原本から抽出を開始。Excelは候補生成後のユーザー確定で②へ変換する（P5-19、EXT-049〜055）。 */
+  /** 原本から抽出を開始。Excelは候補生成後のユーザー確定で②へ変換する（P5-19、EXT-049〜062）。 */
   router.register('document.extract', (params) => {
     const p = asRecord(params)
     const { db } = requireProject()

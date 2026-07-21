@@ -9,7 +9,9 @@ import { importSourceDocument } from '../import/import-service'
 import { registerEntity } from '../store/entity-registry'
 import {
   applyExcelLlmSuggestions,
+  applyExcelRangeLlmSuggestions,
   buildExcelCandidateLlmMessages,
+  buildExcelRangeLlmMessages,
   confirmExcelDraft,
   getExcelDraft,
   saveExcelCandidates,
@@ -82,7 +84,7 @@ const OUTPUT: ExcelPhysicalOutput = {
   review_hints: { warnings: [] }
 }
 
-describe('Excel抽出グループ候補（P5-19、EXT-049〜055）', () => {
+describe('Excel抽出グループ候補（P5-19、EXT-049〜062）', () => {
   let dir: string
   let root: string
   let db: Database
@@ -178,6 +180,61 @@ describe('Excel抽出グループ候補（P5-19、EXT-049〜055）', () => {
     expect(updated.candidates[1]!.title).toBe('件数式')
   })
 
+  it('任意矩形だけをLLMへ送り、範囲内の複数候補だけを未確定で追加する', () => {
+    storeExcelDraft(db, sourceDocumentUid, OUTPUT)
+    const messages = buildExcelRangeLlmMessages(db, sourceDocumentUid, '要求', 'A1', 'B2')
+    const body = messages.map((message) => message.content).join('\n')
+    expect(body).toContain('停止する')
+    expect(body).not.toContain('送信対象外の秘密')
+    expect(body).not.toContain('LEN(B2)')
+
+    const llmRun = registerEntity(db, { projectUid, entityType: 'llm_run_ref', createdBy: 'rule' })
+    db.prepare("INSERT INTO llm_run_ref (uid,process_name,status) VALUES (?,'excel-range-grouping','success')").run(
+      llmRun.uid
+    )
+    const result = applyExcelRangeLlmSuggestions(
+      db,
+      sourceDocumentUid,
+      { sheetName: '要求', startCell: 'A1', endCell: 'B2' },
+      JSON.stringify({
+        candidates: [
+          { start_cell: 'A1', end_cell: 'A1', candidate_type: 'text', title: '見出し', confidence: 0.9 },
+          { start_cell: 'A3', end_cell: 'B3', candidate_type: 'table', title: '範囲外', confidence: 0.9 }
+        ]
+      }),
+      llmRun.uid
+    )
+    expect(result.addedCount).toBe(1)
+    expect(getExcelDraft(db, sourceDocumentUid).candidates.at(-1)).toMatchObject({
+      title: '見出し',
+      review_status: 'review',
+      candidate_status: 'adjusted'
+    })
+  })
+
+  it('同名Excel再取込の一意な一致へ候補UIDとレビュー設定を継承し差分を保持する', () => {
+    const first = storeExcelDraft(db, sourceDocumentUid, OUTPUT)
+    saveExcelCandidates(db, sourceDocumentUid, [
+      {
+        ...first.candidates[0]!,
+        review_status: 'approved',
+        table_header_row_start: 'A1',
+        table_header_row_end: 'B1'
+      }
+    ])
+    const source = join(dir, 'requirements.xlsx')
+    writeFileSync(source, 'changed')
+    const nextSourceUid = importSourceDocument(db, projectUid, root, source).sourceDocumentUid
+    const next = storeExcelDraft(db, nextSourceUid, OUTPUT)
+    expect(next.predecessor_source_document_uid).toBe(sourceDocumentUid)
+    expect(next.candidates[0]!.candidate_uid).toBe(first.candidates[0]!.candidate_uid)
+    expect(next.candidates[0]).toMatchObject({
+      review_status: 'review',
+      table_header_row_start: 'A1',
+      table_header_row_end: 'B1'
+    })
+    expect(next.diff?.candidates.some((item) => item.status === 'unchanged')).toBe(true)
+  })
   it('確定操作で採用候補だけを既存②抽出データへ同一変換する', () => {
     const draft = storeExcelDraft(db, sourceDocumentUid, OUTPUT)
     saveExcelCandidates(

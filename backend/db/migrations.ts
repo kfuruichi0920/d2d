@@ -390,6 +390,25 @@ export const MIGRATIONS: Migration[] = [
           ON excel_extraction_draft(status, updated_at);
       `)
     }
+  },
+  {
+    version: '2.4.0',
+    description: 'Excel再取込差分と候補UID継承情報を追加（P5-19 / EXT-062）',
+    apply(db) {
+      const columns = db.prepare(`PRAGMA table_info(excel_extraction_draft)`).all() as { name: string }[]
+      if (!columns.some((item) => item.name === 'predecessor_source_document_uid')) {
+        db.exec(`ALTER TABLE excel_extraction_draft ADD COLUMN predecessor_source_document_uid TEXT;`)
+      }
+      if (!columns.some((item) => item.name === 'diff_json')) {
+        db.exec(
+          `ALTER TABLE excel_extraction_draft ADD COLUMN diff_json TEXT CHECK (diff_json IS NULL OR json_valid(diff_json));`
+        )
+      }
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_excel_extraction_draft_predecessor
+          ON excel_extraction_draft(predecessor_source_document_uid);
+      `)
+    }
   }
 ]
 /** 最新の schema_version（新規 DB 作成時にもマイグレーションを適用して到達させる） */

@@ -49,12 +49,36 @@ def _write_xlsx(path: Path) -> None:
  <mergeCells count="1"><mergeCell ref="A1:B1"/></mergeCells>
  <hyperlinks><hyperlink ref="A2" r:id="rIdLink"/></hyperlinks>
  <tableParts count="1"><tablePart r:id="rIdTable"/></tableParts>
+ <drawing r:id="rIdDrawing"/>
 </worksheet>"""
     sheet_rels = """<?xml version="1.0" encoding="UTF-8"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
  <Relationship Id="rIdComment" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments" Target="../comments1.xml"/>
  <Relationship Id="rIdTable" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/table" Target="../tables/table1.xml"/>
  <Relationship Id="rIdLink" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="https://example.invalid/req" TargetMode="External"/>
+ <Relationship Id="rIdDrawing" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/drawing1.xml"/>
+</Relationships>"""
+    drawing = """<?xml version="1.0" encoding="UTF-8"?>
+<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing"
+ xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+ xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+ <xdr:twoCellAnchor>
+  <xdr:from><xdr:col>2</xdr:col><xdr:row>1</xdr:row></xdr:from>
+  <xdr:to><xdr:col>4</xdr:col><xdr:row>4</xdr:row></xdr:to>
+  <xdr:sp><xdr:nvSpPr><xdr:cNvPr id="2" name="要求図"/></xdr:nvSpPr>
+   <xdr:spPr><a:solidFill><a:srgbClr val="FFCC00"/></a:solidFill><a:ln><a:solidFill><a:srgbClr val="336699"/></a:solidFill></a:ln><a:prstGeom prst="roundRect"/></xdr:spPr>
+   <xdr:txBody><a:p><a:r><a:t>停止フロー</a:t></a:r></a:p></xdr:txBody>
+  </xdr:sp><xdr:clientData/>
+ </xdr:twoCellAnchor>
+ <xdr:twoCellAnchor>
+  <xdr:from><xdr:col>5</xdr:col><xdr:row>1</xdr:row></xdr:from>
+  <xdr:to><xdr:col>7</xdr:col><xdr:row>4</xdr:row></xdr:to>
+  <xdr:pic><xdr:nvPicPr><xdr:cNvPr id="3" name="構成画像"/></xdr:nvPicPr><xdr:blipFill><a:blip r:embed="rIdImage"/></xdr:blipFill></xdr:pic><xdr:clientData/>
+ </xdr:twoCellAnchor>
+</xdr:wsDr>"""
+    drawing_rels = """<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+ <Relationship Id="rIdImage" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/image1.png"/>
 </Relationships>"""
     comments = """<?xml version="1.0" encoding="UTF-8"?>
 <comments xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
@@ -75,6 +99,9 @@ def _write_xlsx(path: Path) -> None:
         zf.writestr("xl/worksheets/_rels/sheet1.xml.rels", sheet_rels)
         zf.writestr("xl/comments1.xml", comments)
         zf.writestr("xl/tables/table1.xml", table)
+        zf.writestr("xl/drawings/drawing1.xml", drawing)
+        zf.writestr("xl/drawings/_rels/drawing1.xml.rels", drawing_rels)
+        zf.writestr("xl/media/image1.png", b"PNG")
         zf.writestr("custom/unsupported.xml", "<custom/>")
 
 
@@ -88,6 +115,7 @@ def assert_excel_extraction() -> None:
         import json
 
         output = json.loads(Path(summary["output_ref"]).read_text(encoding="utf-8"))
+        preview_exists = Path(summary["output_ref"]).parent.joinpath(output["workbook"]["sheets"][0]["drawings"][1]["preview_file"]).exists()
 
     assert summary["sheet_count"] == 1
     assert summary["cell_count"] == 6
@@ -103,6 +131,11 @@ def assert_excel_extraction() -> None:
     assert by_address["A2"]["hyperlink"]["external"] is True
     assert by_address["A3"]["formula"] == "LEN(B2)"
     assert output["candidates"][0]["detection_methods"] == ["structured_table"]
+    assert len(sheet["drawings"]) == 2
+    assert sheet["drawings"][0]["text"] == "停止フロー"
+    assert sheet["drawings"][0]["style"]["fill"]["rgb"] == "FFCC00"
+    assert sheet["drawings"][1]["drawing_type"] == "image"
+    assert preview_exists
     assert output["workbook"]["external_links"][0]["target"].startswith("https://")
     assert output["package"]["unsupported_parts"][0]["part"] == "custom/unsupported.xml"
     assert any("外部参照" in warning for warning in output["review_hints"]["warnings"])
