@@ -217,9 +217,13 @@ export function LlmLogsPanel(): React.JSX.Element {
           key={run.uid}
           className="d2d-list-row"
           onClick={() => openResource(`log://llm/${run.uid}`, `LLM ${run.code}`, { preview: true })}
+          data-testid={`llm-log-row-${run.code}`}
         >
+          <span style={{ color: 'var(--d2d-fg-muted)', fontSize: 11, whiteSpace: 'nowrap' }}>
+            {new Date(run.executed_at).toLocaleString()}
+          </span>
           <span className={`d2d-badge status-${run.status === 'success' ? 'success' : 'failed'}`}>{run.status}</span>
-          <span>{run.process_name}</span>
+          <span title="問い合わせの種別（process_name）">{run.process_name}</span>
           <span style={{ color: 'var(--d2d-fg-muted)' }}>
             {run.tool_name}/{run.model_name}
           </span>
@@ -228,6 +232,20 @@ export function LlmLogsPanel(): React.JSX.Element {
             in:{run.input_tokens ?? '-'} out:{run.output_tokens ?? '-'} {run.duration_ms ?? '-'}ms
             {run.estimated_cost !== null ? ` $${run.estimated_cost.toFixed(4)}` : ''}
           </span>
+          {run.process_name === 'design-candidates' && run.status === 'success' && (
+            <button
+              type="button"
+              className="d2d-btn small"
+              title="この応答から候補セット（candidate://）を再構成して開きます（LLMは再実行しません）"
+              data-testid={`llm-log-open-candidate-${run.code}`}
+              onClick={(event) => {
+                event.stopPropagation()
+                openResource(`candidate://${run.uid}`, `④候補セット ${run.code}`, { preview: false })
+              }}
+            >
+              候補を開く
+            </button>
+          )}
         </div>
       ))}
     </div>
@@ -249,6 +267,7 @@ export function LlmRunViewer({ uid }: { uid: string }): React.JSX.Element {
     | null
   >(null)
   const notify = useJobsStore((s) => s.notify)
+  const openResource = useEditorStore((s) => s.openResource)
   const [retryRequest, setRetryRequest] = useState<PreparedLlmRequest | null>(null)
 
   useEffect(() => {
@@ -309,6 +328,10 @@ export function LlmRunViewer({ uid }: { uid: string }): React.JSX.Element {
         {run.code} — {run.process_name}
       </h1>
       <dl className="d2d-kv" style={{ padding: 0 }}>
+        <dt>実行時刻</dt>
+        <dd>{new Date(run.executed_at).toLocaleString()}</dd>
+        <dt>問い合わせの種別</dt>
+        <dd>{run.process_name}</dd>
         <dt>Provider / モデル</dt>
         <dd>
           {run.tool_name} / {run.model_name}
@@ -322,17 +345,30 @@ export function LlmRunViewer({ uid }: { uid: string }): React.JSX.Element {
         <dd>{run.status}</dd>
       </dl>
       {run.error_detail && <div style={{ color: 'var(--d2d-error)' }}>{run.error_detail}</div>}
-      {run.process_name === 'design-candidates' && run.input_ref_uid && (
-        <button
-          type="button"
-          className="d2d-btn primary small"
-          onClick={openRetry}
-          title="この実行と同じ入力チャンクで④候補生成ジョブを再実行します"
-          data-testid="llm-retry-run"
-        >
-          このログから候補を再作成
-        </button>
-      )}
+      <div style={{ display: 'flex', gap: 8, margin: '8px 0' }}>
+        {run.process_name === 'design-candidates' && (
+          <button
+            type="button"
+            className="d2d-btn small"
+            onClick={() => openResource(`candidate://${run.uid}`, `④候補セット ${run.code}`, { preview: false })}
+            title="この応答から候補セット（candidate://）を再構成して開きます（LLMは再実行しません）"
+            data-testid="llm-open-candidate"
+          >
+            候補セットを開く
+          </button>
+        )}
+        {run.process_name === 'design-candidates' && run.input_ref_uid && (
+          <button
+            type="button"
+            className="d2d-btn primary small"
+            onClick={openRetry}
+            title="この実行と同じ入力チャンクで④候補生成ジョブを再実行します（新しいLLM実行を行います）"
+            data-testid="llm-retry-run"
+          >
+            同じ入力でLLMを再実行
+          </button>
+        )}
+      </div>
       {retryRequest && (
         <LlmRequestDialog
           request={retryRequest}

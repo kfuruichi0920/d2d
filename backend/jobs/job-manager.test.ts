@@ -52,10 +52,15 @@ describe('JobManager（P2-3）', () => {
     expect(done.output).toEqual({ answer: 42 })
 
     // job.updated イベントが状態遷移を通知している（CORE-030〜032 / UI-009）
-    const updates = events.filter((e) => e.event === 'job.updated').map((e) => (e.payload as { status: string }).status)
+    const jobUpdates = events.filter((e) => e.event === 'job.updated').map((e) => e.payload as JobRecord)
+    const updates = jobUpdates.map((payload) => payload.status)
     expect(updates).toContain('waiting')
     expect(updates).toContain('running')
     expect(updates).toContain('success')
+    // 一覧UIが作成・開始・完了時刻を表示できるよう、イベントにも含める
+    expect(jobUpdates.every((payload) => typeof payload.createdAt === 'string')).toBe(true)
+    expect(jobUpdates.find((payload) => payload.status === 'running')?.startedAt).not.toBeNull()
+    expect(jobUpdates.find((payload) => payload.status === 'success')?.completedAt).not.toBeNull()
 
     // JSONL ログ（CORE-022）
     const logFiles = readdirSync(dir)

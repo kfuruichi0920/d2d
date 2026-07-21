@@ -17,6 +17,17 @@ export function JobStatusBadge({ status }: { status: JobRecord['status'] }): Rea
   return <span className={`d2d-badge status-${status}`}>{label[status]}</span>
 }
 
+/** 所要時間を簡潔な表記へ整形する（例: 340ms, 1.2s, 2分15秒） */
+function formatElapsed(startIso: string, endIso: string): string {
+  const ms = new Date(endIso).getTime() - new Date(startIso).getTime()
+  if (!Number.isFinite(ms) || ms < 0) return ''
+  if (ms < 1000) return `${ms}ms`
+  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`
+  const minutes = Math.floor(ms / 60_000)
+  const seconds = Math.round((ms % 60_000) / 1000)
+  return `${minutes}分${seconds}秒`
+}
+
 export function JobsListView(): React.JSX.Element {
   const jobs = useJobsStore((s) => s.jobs)
 
@@ -53,6 +64,20 @@ export function JobsListView(): React.JSX.Element {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <JobStatusBadge status={job.status} />
             <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{job.type}</span>
+            {job.createdAt && (
+              <span
+                style={{ color: 'var(--d2d-fg-muted)', fontSize: 11, whiteSpace: 'nowrap' }}
+                data-testid={`job-time-${job.jobId}`}
+                title={
+                  job.startedAt
+                    ? `作成: ${new Date(job.createdAt).toLocaleString()}\n開始: ${new Date(job.startedAt).toLocaleString()}`
+                    : `作成: ${new Date(job.createdAt).toLocaleString()}`
+                }
+              >
+                {new Date(job.createdAt).toLocaleTimeString()}
+                {job.completedAt && job.startedAt ? `（${formatElapsed(job.startedAt, job.completedAt)}）` : ''}
+              </span>
+            )}
             {(job.status === 'failed' || job.status === 'partial' || job.status === 'aborted') && (
               <button
                 type="button"
