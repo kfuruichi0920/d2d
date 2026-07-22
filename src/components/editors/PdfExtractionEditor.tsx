@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { invoke, onBackendEvent } from '../../services/backend'
 import { executeCommand } from '../../services/command-registry'
+import { useEditorStore } from '../../stores/editor-store'
 import { useJobsStore } from '../../stores/jobs-store'
 import { showContextMenu } from '../common/ContextMenu'
 import { ResizablePaneGroup } from '../workbench/ResizablePaneGroup'
@@ -133,6 +134,7 @@ export function PdfExtractionEditor({ sourceDocumentUid }: { sourceDocumentUid: 
   const draggingSelect = useRef(false)
   const canvasRef = useRef<HTMLDivElement>(null)
   const notify = useJobsStore((state) => state.notify)
+  const openResource = useEditorStore((state) => state.openResource)
 
   const load = useCallback(async (): Promise<void> => {
     const result = await invoke<Draft>('pdfDraft.get', { sourceDocumentUid })
@@ -143,11 +145,20 @@ export function PdfExtractionEditor({ sourceDocumentUid }: { sourceDocumentUid: 
   useEffect(() => {
     void load()
     return onBackendEvent((event, payload) => {
+      // 確定ジョブ完了時は生成された②抽出データを開く（P5-20C）
+      if (event === 'extraction.completed') {
+        const done = payload as { sourceDocumentUid?: string; extractedDocumentUid?: string }
+        if (done.sourceDocumentUid === sourceDocumentUid && done.extractedDocumentUid) {
+          openResource('extracted://' + done.extractedDocumentUid, '抽出: PDF')
+        }
+        void load()
+        return
+      }
       if (event !== 'pdfDraft.updated' && event !== 'job.updated') return
       const uid = (payload as { sourceDocumentUid?: string }).sourceDocumentUid
       if (!uid || uid === sourceDocumentUid) void load()
     })
-  }, [load, sourceDocumentUid])
+  }, [load, openResource, sourceDocumentUid])
 
   const pages = useMemo(() => draft?.physical.document.pages ?? [], [draft])
   const page = pages.find((item) => item.page_index === pageIndex) ?? pages[0]
@@ -236,6 +247,13 @@ export function PdfExtractionEditor({ sourceDocumentUid }: { sourceDocumentUid: 
     setRegions((items) => items.filter((item) => !selectedUids.has(item.region_uid)))
     setSelectedUids(new Set())
     setActiveUid(null)
+  }
+  const confirm = async (): Promise<void> => {
+    if (!(await save())) return
+    const result = await invoke<{ jobId: string }>('pdfDraft.confirm', { sourceDocumentUid })
+    if (!result.ok) return notify('error', 'PDF抽出を確定できませんでした', result.error.message)
+    notify('info', '採用領域から②抽出データの生成を開始しました')
+    void executeCommand('job.openPanel')
   }
   const reanalyzeRegion = async (mode: 'table' | 'text'): Promise<void> => {
     if (!active || !(await save())) return
@@ -390,6 +408,18 @@ export function PdfExtractionEditor({ sourceDocumentUid }: { sourceDocumentUid: 
           data-testid="pdf-region-save"
         >
           候補を保存
+        </button>
+        <button
+          className="d2d-btn primary"
+          type="button"
+          disabled={
+            readOnly ||
+            !regions.some((region) => region.review_status === 'approved' && !EXCLUDED_TYPES.has(region.region_type))
+          }
+          onClick={() => void confirm()}
+          data-testid="pdf-region-confirm"
+        >
+          抽出を実行して②を生成
         </button>
       </div>
       {draft.physical.review_hints.warnings.length > 0 && (

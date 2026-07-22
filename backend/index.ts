@@ -60,9 +60,12 @@ import {
 } from './extract/excel-draft-service'
 import {
   applyPdfRegionReanalysis,
+  confirmPdfDraft,
   getPdfDraft,
+  PDF_EXCLUDED_TYPES,
   storePdfDraft,
-  type PdfPhysicalOutput
+  type PdfPhysicalOutput,
+  type PdfRegionCrop
 } from './extract/pdf-draft-service'
 import { readFileSync } from 'node:fs'
 
@@ -377,6 +380,65 @@ function main(): void {
     })
     eventBus.emit('pdfDraft.updated', { sourceDocumentUid, kind: 'reanalyzed', regionUid })
     return { status: 'success', output: { regionCount: applied.regions.length, regionUid } }
+  })
+
+  // PDF候補の確定→②抽出データ生成ジョブ（P5-20C、EXT-031。図領域はページ画像から切出す）
+  jobs.registerExecutor('pdf.confirm', async (params, ctx) => {
+    const { sourceDocumentUid } = params as { sourceDocumentUid: string }
+    const { db, info, paths } = requireProject()
+    const doc = getSourceDocument(db, sourceDocumentUid)
+    if (!doc.blob_relative_path) {
+      throw new BackendError('not_found', '原本ファイルの blob 参照がありません', sourceDocumentUid)
+    }
+    const draft = getPdfDraft(db, sourceDocumentUid)
+    const figures = draft.regions.filter(
+      (region) =>
+        region.region_type === 'figure' &&
+        region.review_status === 'approved' &&
+        !PDF_EXCLUDED_TYPES.includes(region.region_type)
+    )
+    const crops = new Map<string, PdfRegionCrop>()
+    if (figures.length > 0) {
+      ctx.reportProgress(10, `図領域 ${figures.length} 件を切出し中`)
+      const workDir = join(paths.blobsDir, 'extracted', `job-${ctx.jobId}`)
+      const workerResult = await runWorker({
+        request: {
+          job_id: ctx.jobId,
+          project_uid: info.projectUid,
+          worker_name: 'd2d-worker',
+          command: 'extract.pdf.region',
+          parameters: {
+            file_path: join(info.rootPath, doc.blob_relative_path),
+            work_dir: workDir,
+            regions: figures.map((region) => ({ page_index: region.page_index, bbox: region.bbox, mode: 'crop' }))
+          }
+        },
+        onProgress: (progress) => ctx.reportProgress(10 + progress.percent * 0.5, progress.message),
+        signal: ctx.signal
+      })
+      const output = workerResult.output as { results?: Array<Record<string, unknown>> } | undefined
+      for (const [index, figure] of figures.entries()) {
+        const entry = output?.results?.[index]
+        if (!entry || typeof entry.image_file !== 'string') continue
+        crops.set(figure.region_uid, {
+          image: relative(info.rootPath, join(workDir, entry.image_file)).replaceAll('\\', '/'),
+          width: typeof entry.width === 'number' ? entry.width : undefined,
+          height: typeof entry.height === 'number' ? entry.height : undefined
+        })
+      }
+    }
+    ctx.reportProgress(70, '採用領域から②抽出データを生成中')
+    const stored = confirmPdfDraft(db, {
+      projectUid: info.projectUid,
+      projectRoot: info.rootPath,
+      sourceDocumentUid,
+      crops
+    })
+    ctx.log('info', `PDF候補から②抽出データを生成しました: ${stored.code}`, stored)
+    eventBus.emit('extraction.completed', { sourceDocumentUid, extractedDocumentUid: stored.extractedDocumentUid })
+    eventBus.emit('artifact.updated', { extractedDocumentUid: stored.extractedDocumentUid })
+    eventBus.emit('pdfDraft.updated', { sourceDocumentUid, kind: 'confirmed' })
+    return { status: 'success', output: stored }
   })
 
   // LLM 実行ジョブ（P6、NFR-003。UI をブロックせず、キャンセル可能）

@@ -5,7 +5,7 @@ import type { ApiRouter } from './router'
 import { BackendError } from './errors'
 import type { JobManager } from '../jobs/job-manager'
 import { requireProject } from '../project/project-service'
-import { getPdfDraft, savePdfRegions } from '../extract/pdf-draft-service'
+import { getPdfDraft, savePdfRegions, PDF_EXCLUDED_TYPES } from '../extract/pdf-draft-service'
 import { eventBus } from '../events/event-bus'
 import { existsSync, readFileSync } from 'node:fs'
 import { resolve, sep } from 'node:path'
@@ -52,6 +52,20 @@ export function registerPdfApi(router: ApiRouter, jobs: JobManager): void {
     const result = savePdfRegions(db, requireString(p, 'sourceDocumentUid'), p.regions)
     eventBus.emit('pdfDraft.updated', { sourceDocumentUid: p.sourceDocumentUid, kind: 'saved' })
     return result
+  })
+
+  /** 人間確定した採用領域から②抽出データを生成するジョブを登録する（P5-20C、EXT-031） */
+  router.register('pdfDraft.confirm', (params) => {
+    const p = asRecord(params)
+    const { db } = requireProject()
+    const sourceDocumentUid = requireString(p, 'sourceDocumentUid')
+    const draft = getPdfDraft(db, sourceDocumentUid)
+    if (draft.status === 'confirmed') throw new BackendError('conflict', 'PDF候補は確定済みです', '')
+    const hasTarget = draft.regions.some(
+      (region) => region.review_status === 'approved' && !PDF_EXCLUDED_TYPES.includes(region.region_type)
+    )
+    if (!hasTarget) throw new BackendError('validation', '抽出対象の採用領域がありません', '')
+    return jobs.enqueue('pdf.confirm', { sourceDocumentUid })
   })
 
   /** 領域単位の部分再解析（表・テキスト。EXT-029、検討資料 §14） */

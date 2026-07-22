@@ -51,6 +51,7 @@ export const API_METHODS = [
   'excelDraft.runLlmConfirmed',
   'excelDraft.runRangeLlmConfirmed',
   'excelDraft.saveCandidates',
+  'pdfDraft.confirm',
   'pdfDraft.get',
   'pdfDraft.getPageImage',
   'pdfDraft.reanalyzeRegion',

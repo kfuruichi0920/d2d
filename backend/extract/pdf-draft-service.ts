@@ -7,6 +7,7 @@
 import type { Database } from 'better-sqlite3'
 import { BackendError } from '../api/errors'
 import { newUid } from '../store/uid'
+import { storeExtractionResult, type ExtractionElement } from './store-extraction'
 
 export const PDF_REGION_TYPES = [
   'heading',
@@ -310,6 +311,162 @@ export function savePdfRegions(
     `UPDATE pdf_extraction_draft SET status='editing', regions_json=?, updated_at=? WHERE source_document_uid=?`
   ).run(JSON.stringify(regions), updatedAt, sourceDocumentUid)
   return { regions, updatedAt }
+}
+
+/** 図領域の切出し画像情報（pdf.confirm ジョブが extract.pdf.region crop で生成する） */
+export interface PdfRegionCrop {
+  /** プロジェクトルート相対のPNGパス */
+  image: string
+  width?: number
+  height?: number
+}
+
+const BULLET_RE = /^([-*•・◦▪‣]|[(（]?[0-9a-zA-Z０-９]{1,3}[)）.、]|[①-⑳])\s*/
+
+/**
+ * 採用済み・非除外の領域候補を reading_order 順に②抽出要素へ変換する（P5-20C、EXT-031）。
+ * header/footer/page_number/decoration は採否に関わらず②へ変換しない（検討資料 §6.2/§9）。
+ */
+export function buildPdfExtractionElements(
+  draft: PdfDraft,
+  crops: Map<string, PdfRegionCrop> = new Map()
+): ExtractionElement[] {
+  const selected = draft.regions
+    .filter((region) => region.review_status === 'approved' && !PDF_EXCLUDED_TYPES.includes(region.region_type))
+    .sort((a, b) => a.reading_order - b.reading_order || a.page_index - b.page_index)
+  const captionByTarget = new Map<string, PdfRegion>()
+  for (const region of draft.regions) {
+    if (region.region_type === 'caption' && region.caption_of) captionByTarget.set(region.caption_of, region)
+  }
+  const pageOf = (region: PdfRegion): PdfPage | undefined =>
+    draft.physical.document.pages.find((page) => page.page_index === region.page_index)
+
+  const elements: ExtractionElement[] = []
+  for (const region of selected) {
+    const pageNumber = pageOf(region)?.page_number ?? region.page_index + 1
+    const base = {
+      id: region.region_uid,
+      candidate_uid: region.region_uid,
+      section_path: `p${pageNumber}`,
+      page_no_start: pageNumber,
+      page_no_end: pageNumber,
+      bbox: region.bbox
+    }
+    const text = textInRegion(draft.physical, region) || region.text_preview
+    switch (region.region_type) {
+      case 'heading':
+        elements.push({ ...base, type: 'heading', text, level: region.level ?? 1 })
+        break
+      case 'list': {
+        const lines = text.split('\n').filter((line) => line.trim())
+        if (lines.length === 0) break
+        for (const [index, line] of lines.entries()) {
+          elements.push({
+            ...base,
+            id: `${region.region_uid}-L${index + 1}`,
+            type: 'list_item',
+            text: line.replace(BULLET_RE, '').trim() || line.trim(),
+            level: 0
+          })
+        }
+        break
+      }
+      case 'table': {
+        if (!region.table_data || region.table_data.rows.length === 0) {
+          elements.push({ ...base, type: 'paragraph', text })
+          break
+        }
+        elements.push({
+          ...base,
+          type: 'table',
+          text: region.title,
+          rows: region.table_data.rows.map((row) => row.map((cell) => ({ text: cell }))),
+          row_count: region.table_data.row_count,
+          column_count: region.table_data.column_count
+        })
+        break
+      }
+      case 'figure': {
+        const crop = crops.get(region.region_uid)
+        const caption = captionByTarget.get(region.region_uid)
+        elements.push({
+          ...base,
+          type: 'figure',
+          text: region.title,
+          caption: caption ? textInRegion(draft.physical, caption) || caption.text_preview : null,
+          image: crop?.image,
+          width: crop?.width,
+          height: crop?.height,
+          image_format: crop ? 'PNG' : undefined
+        })
+        break
+      }
+      case 'caption':
+        elements.push({ ...base, type: 'caption', text })
+        break
+      case 'formula':
+        elements.push({ ...base, type: 'formula', text })
+        break
+      default:
+        elements.push({ ...base, type: 'paragraph', text })
+    }
+  }
+  return elements
+}
+
+/**
+ * 人間が確定した領域候補から②抽出データを生成する（P5-20C、検討資料 §25 中核要件11）。
+ * 採用領域だけを storeExtractionResult へ渡し、原本ページ・bbox を source_location に保持する。
+ */
+export function confirmPdfDraft(
+  db: Database,
+  input: {
+    projectUid: string
+    projectRoot: string
+    sourceDocumentUid: string
+    crops?: Map<string, PdfRegionCrop>
+  }
+): { extractedDocumentUid: string; code: string; elementCount: number } {
+  const draft = getPdfDraft(db, input.sourceDocumentUid)
+  if (draft.status === 'confirmed') throw new BackendError('conflict', 'PDF候補は確定済みです', '')
+  const elements = buildPdfExtractionElements(draft, input.crops ?? new Map())
+  if (elements.length === 0) throw new BackendError('validation', '抽出対象の採用領域がありません', '')
+  const extraction = {
+    metadata: draft.physical.metadata,
+    review_hints: draft.physical.review_hints,
+    elements
+  }
+  const txn = db.transaction(() => {
+    const stored = storeExtractionResult(db, {
+      projectUid: input.projectUid,
+      projectRoot: input.projectRoot,
+      sourceDocumentUid: input.sourceDocumentUid,
+      extraction,
+      workDir: input.projectRoot
+    })
+    const now = new Date().toISOString()
+    const excluded = (region: PdfRegion): boolean =>
+      region.review_status === 'rejected' || PDF_EXCLUDED_TYPES.includes(region.region_type)
+    db.prepare(
+      `UPDATE pdf_extraction_draft
+          SET status='confirmed', regions_json=?, confirmed_extracted_document_uid=?, confirmed_at=?, updated_at=?
+        WHERE source_document_uid=?`
+    ).run(
+      JSON.stringify(
+        draft.regions.map((region) =>
+          excluded(region)
+            ? { ...region, candidate_status: 'rejected' as const }
+            : { ...region, candidate_status: 'confirmed' as const }
+        )
+      ),
+      stored.extractedDocumentUid,
+      now,
+      now,
+      input.sourceDocumentUid
+    )
+    return stored
+  })
+  return txn()
 }
 
 /** 領域単位の部分再解析結果（表・テキスト）を該当領域へ反映する（EXT-029、検討資料 §14） */
