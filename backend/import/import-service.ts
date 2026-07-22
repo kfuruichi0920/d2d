@@ -125,6 +125,7 @@ export interface SourceDocumentListItem {
   imported_at: string
   has_extracted_data: number
   excel_draft_status: string | null
+  pdf_draft_status: string | null
 }
 
 export function listSourceDocuments(
@@ -136,7 +137,8 @@ export function listSourceDocuments(
     .prepare(
       `SELECT e.uid, e.code, e.title, e.status, e.is_archived, d.file_name, d.file_type, d.file_hash, d.is_current, d.imported_at,
               EXISTS(SELECT 1 FROM extracted_document x WHERE x.source_document_uid = d.uid) AS has_extracted_data,
-              (SELECT status FROM excel_extraction_draft xd WHERE xd.source_document_uid=d.uid) AS excel_draft_status
+              (SELECT status FROM excel_extraction_draft xd WHERE xd.source_document_uid=d.uid) AS excel_draft_status,
+              (SELECT status FROM pdf_extraction_draft pd WHERE pd.source_document_uid=d.uid) AS pdf_draft_status
          FROM source_document d
          JOIN entity_registry e ON e.uid = d.uid
         WHERE e.project_uid = ? AND e.status <> 'deleted' AND (? = 1 OR e.is_archived = 0)
@@ -154,6 +156,7 @@ export function getSourceDocument(
       `SELECT e.uid, e.code, e.title, e.status, e.is_archived, d.file_name, d.file_type, d.file_hash, d.is_current, d.imported_at,
               EXISTS(SELECT 1 FROM extracted_document x WHERE x.source_document_uid = d.uid) AS has_extracted_data,
               (SELECT status FROM excel_extraction_draft xd WHERE xd.source_document_uid=d.uid) AS excel_draft_status,
+              (SELECT status FROM pdf_extraction_draft pd WHERE pd.source_document_uid=d.uid) AS pdf_draft_status,
               b.relative_path AS blob_relative_path
          FROM source_document d
          JOIN entity_registry e ON e.uid = d.uid

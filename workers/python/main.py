@@ -67,11 +67,25 @@ def cmd_extract_excel(job_id: str, parameters: dict) -> None:
     excel.run(job_id, parameters, emit_progress, emit_result, emit_error)
 
 
+def cmd_extract_pdf(job_id: str, parameters: dict) -> None:
+    from commands import pdf
+
+    pdf.run(job_id, parameters, emit_progress, emit_result, emit_error)
+
+
+def cmd_extract_pdf_region(job_id: str, parameters: dict) -> None:
+    from commands import pdf
+
+    pdf.run_region(job_id, parameters, emit_progress, emit_result, emit_error)
+
+
 COMMANDS = {
     "worker.ping": cmd_ping,
     "extract.word": cmd_extract_word,
     "extract.excel": cmd_extract_excel,
-    # P5 後続で追加: extract.pptx / extract.pdf / extract.visio / extract.text
+    "extract.pdf": cmd_extract_pdf,
+    "extract.pdf.region": cmd_extract_pdf_region,
+    # P5 後続で追加: extract.pptx / extract.visio / extract.text
 }
 
 

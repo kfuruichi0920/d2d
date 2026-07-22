@@ -24,6 +24,7 @@ import { currentProject, requireProject, type ProjectInfo } from './project/proj
 import { registerDocumentApi } from './api/documents'
 import { registerLlmApi } from './api/llm'
 import { registerExcelApi } from './api/excel'
+import { registerPdfApi } from './api/pdf'
 import { registerIntermediateApi } from './api/intermediate'
 import { registerDesignApi } from './api/design'
 import { registerTraceApi } from './api/trace'
@@ -57,6 +58,12 @@ import {
   storeExcelDraft,
   type ExcelPhysicalOutput
 } from './extract/excel-draft-service'
+import {
+  applyPdfRegionReanalysis,
+  getPdfDraft,
+  storePdfDraft,
+  type PdfPhysicalOutput
+} from './extract/pdf-draft-service'
 import { readFileSync } from 'node:fs'
 
 const BACKEND_VERSION = '0.1.0'
@@ -280,6 +287,98 @@ function main(): void {
     eventBus.emit('excelDraft.updated', { sourceDocumentUid, kind: 'range-llm', llmRunUid: result.llmRunUid })
     return { status: 'success', output: { ...applied, llmRunUid: result.llmRunUid } }
   })
+
+  // PDF物理抽出・抽出領域候補生成ジョブ（P5-20A、IMP-005/EXT-012/EXT-027）
+  jobs.registerExecutor('extract.pdf', async (params, ctx) => {
+    const { sourceDocumentUid } = params as { sourceDocumentUid: string }
+    const { db, info, paths } = requireProject()
+    const doc = getSourceDocument(db, sourceDocumentUid)
+    if (doc.file_type !== 'pdf') throw new BackendError('validation', 'PDF原本ではありません', doc.file_type)
+    if (!doc.blob_relative_path) {
+      throw new BackendError('not_found', '原本ファイルの blob 参照がありません', sourceDocumentUid)
+    }
+    const filePath = join(info.rootPath, doc.blob_relative_path)
+    const workDir = join(paths.blobsDir, 'extracted', `job-${ctx.jobId}`)
+    ctx.reportProgress(5, 'PDF抽出ワーカーを起動中')
+    const workerResult = await runWorker({
+      request: {
+        job_id: ctx.jobId,
+        project_uid: info.projectUid,
+        worker_name: 'd2d-worker',
+        command: 'extract.pdf',
+        parameters: { file_path: filePath, work_dir: workDir }
+      },
+      onProgress: (progress) => ctx.reportProgress(5 + progress.percent * 0.7, progress.message),
+      signal: ctx.signal
+    })
+    if (!workerResult.output_ref) throw new BackendError('worker', 'PDFワーカーが出力を返しませんでした', '')
+    ctx.reportProgress(80, '抽出領域候補を保存中')
+    const output = JSON.parse(readFileSync(workerResult.output_ref, 'utf-8')) as PdfPhysicalOutput
+    // ページ画像パスをプロジェクトルート相対へ書き換える（Excelの図プレビューと同じ方式）
+    for (const page of output.document.pages) {
+      if (page.image_file) {
+        page.image_file = relative(info.rootPath, join(workDir, page.image_file)).replaceAll('\\', '/')
+      }
+    }
+    const draft = storePdfDraft(db, sourceDocumentUid, output)
+    ctx.log('info', `PDF抽出領域候補を保存しました: ${draft.regions.length}件`, {
+      sourceDocumentUid,
+      warnings: draft.physical.review_hints.warnings
+    })
+    eventBus.emit('pdfDraft.updated', { sourceDocumentUid, kind: 'generated' })
+    return {
+      status: workerResult.status === 'partial' ? 'partial' : 'success',
+      output: { sourceDocumentUid, regionCount: draft.regions.length }
+    }
+  })
+
+  // PDF領域単位の部分再解析ジョブ（P5-20A、EXT-029、検討資料 §14）
+  jobs.registerExecutor('pdf.regionReanalyze', async (params, ctx) => {
+    const { sourceDocumentUid, regionUid, mode } = params as {
+      sourceDocumentUid: string
+      regionUid: string
+      mode: 'table' | 'text'
+    }
+    const { db, info, paths } = requireProject()
+    const doc = getSourceDocument(db, sourceDocumentUid)
+    if (!doc.blob_relative_path) {
+      throw new BackendError('not_found', '原本ファイルの blob 参照がありません', sourceDocumentUid)
+    }
+    const draft = getPdfDraft(db, sourceDocumentUid)
+    const region = draft.regions.find((entry) => entry.region_uid === regionUid)
+    if (!region) throw new BackendError('not_found', `領域が見つかりません: ${regionUid}`, '')
+    ctx.reportProgress(10, '領域を再解析中')
+    const workerResult = await runWorker({
+      request: {
+        job_id: ctx.jobId,
+        project_uid: info.projectUid,
+        worker_name: 'd2d-worker',
+        command: 'extract.pdf.region',
+        parameters: {
+          file_path: join(info.rootPath, doc.blob_relative_path),
+          work_dir: join(paths.blobsDir, 'extracted', `job-${ctx.jobId}`),
+          regions: [{ page_index: region.page_index, bbox: region.bbox, mode }]
+        }
+      },
+      onProgress: (progress) => ctx.reportProgress(10 + progress.percent * 0.7, progress.message),
+      signal: ctx.signal
+    })
+    const output = workerResult.output as { results?: Array<Record<string, unknown>> } | undefined
+    const entry = output?.results?.[0]
+    if (!entry || typeof entry.error === 'string') {
+      throw new BackendError('worker', '領域の再解析に失敗しました', String(entry?.error ?? ''))
+    }
+    if (mode === 'table' && !entry.table) {
+      return { status: 'partial', output: { warning: String(entry.warning ?? '表を検出できませんでした') } }
+    }
+    const applied = applyPdfRegionReanalysis(db, sourceDocumentUid, regionUid, {
+      table: mode === 'table' ? entry.table : undefined,
+      text: mode === 'text' ? String(entry.text ?? '') : undefined
+    })
+    eventBus.emit('pdfDraft.updated', { sourceDocumentUid, kind: 'reanalyzed', regionUid })
+    return { status: 'success', output: { regionCount: applied.regions.length, regionUid } }
+  })
+
   // LLM 実行ジョブ（P6、NFR-003。UI をブロックせず、キャンセル可能）
   jobs.registerExecutor('llm.run', async (params, ctx) => {
     const { messages, processName, jsonMode, promptTemplateUid } = params as {
@@ -577,6 +676,7 @@ function main(): void {
   registerFeatureApi(router)
   registerDocumentApi(router, jobs)
   registerExcelApi(router, jobs)
+  registerPdfApi(router, jobs)
   registerLlmApi(router, jobs, settings)
   registerIntermediateApi(router, jobs)
   registerDesignApi(router, jobs)
