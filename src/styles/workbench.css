@@ -4226,6 +4226,30 @@ mark.d2d-term {
   min-width: 64px;
   font-size: 11px;
 }
+.pdf-ocr-section {
+  display: grid;
+  gap: 5px;
+  border-top: 1px solid var(--d2d-border);
+  padding-top: 6px;
+}
+.pdf-ocr-result {
+  display: grid;
+  gap: 4px;
+}
+.pdf-ocr-result textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 60px;
+  max-height: 30vh;
+  padding: 5px;
+  resize: vertical;
+  color: var(--d2d-fg);
+  background: var(--d2d-input-bg);
+  border: 1px solid var(--d2d-border);
+  font: inherit;
+  font-size: 11px;
+  white-space: pre-wrap;
+}
 .excel-figure-preview img {
   max-width: 100%;
   max-height: 220px;

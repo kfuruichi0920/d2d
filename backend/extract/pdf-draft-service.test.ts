@@ -9,9 +9,14 @@ import type { Database } from 'better-sqlite3'
 import { closeDatabase, createDatabase, getProjectRow } from '../store/database'
 import { createProjectLayout } from '../project/layout'
 import { importSourceDocument } from '../import/import-service'
+import { registerEntity } from '../store/entity-registry'
 import {
+  applyPdfLlmSuggestions,
+  applyPdfOcrSuggestion,
   applyPdfRegionReanalysis,
   buildPdfExtractionElements,
+  buildPdfOcrMessages,
+  buildPdfRegionLlmMessages,
   confirmPdfDraft,
   getPdfDraft,
   savePdfRegions,
@@ -405,6 +410,115 @@ describe('PDF抽出領域候補（P5-20A、IMP-005/EXT-027〜029）', () => {
     expect(() => confirmPdfDraft(db, { projectUid, projectRoot: root, sourceDocumentUid })).toThrowError(
       /採用領域がありません/
     )
+  })
+
+  it('LLM入力は選択領域と近傍ブロックだけに限定し、提案はブロック境界へスナップして反映する（§16.3）', () => {
+    const draft = storePdfDraft(db, sourceDocumentUid, OUTPUT)
+    const heading = draft.regions.find((region) => region.region_type === 'heading')!
+    const messages = buildPdfRegionLlmMessages(db, sourceDocumentUid, [heading.region_uid])
+    const body = messages.map((message) => message.content).join('\n')
+    // 見出し領域の±60pt: p1-b1/p1-b2 は含み、離れた p1-b3（リスト）は含まない
+    expect(body).toContain('p1-b1')
+    expect(body).toContain('p1-b2')
+    expect(body).not.toContain('p1-b3')
+    expect(body).not.toContain('stop the heater')
+
+    const llmRun = registerEntity(db, { projectUid, entityType: 'llm_run_ref', createdBy: 'rule' })
+    db.prepare(`INSERT INTO llm_run_ref (uid,process_name,status) VALUES (?,'pdf-region-refinement','success')`).run(
+      llmRun.uid
+    )
+    const other = draft.regions.find((region) => region.region_type === 'list')!
+    const applied = applyPdfLlmSuggestions(
+      db,
+      sourceDocumentUid,
+      [heading.region_uid],
+      JSON.stringify({
+        regions: [
+          {
+            region_uid: heading.region_uid,
+            suggested_type: 'text',
+            suggested_title: 'LLM見直しタイトル',
+            suggested_block_ids: ['p1-b1', 'p1-b2'],
+            reason: '本文と連続している',
+            confidence: 0.9
+          },
+          { region_uid: other.region_uid, suggested_type: 'figure' }
+        ]
+      }),
+      llmRun.uid
+    )
+    expect(applied.updatedCount).toBe(1)
+    const after = getPdfDraft(db, sourceDocumentUid)
+    const updated = after.regions.find((region) => region.region_uid === heading.region_uid)!
+    expect(updated.region_type).toBe('text')
+    expect(updated.title).toBe('LLM見直しタイトル')
+    // ブロック p1-b1 ∪ p1-b2 の外接矩形へスナップ（任意座標は採用しない）
+    expect(updated.bbox).toEqual([72, 80, 500, 160])
+    expect(updated.candidate_status).toBe('adjusted')
+    expect(updated.llm_suggestion?.reason).toBe('本文と連続している')
+    // 未選択領域への提案は無視する
+    expect(after.regions.find((region) => region.region_uid === other.region_uid)!.region_type).toBe('list')
+    expect(after.last_llm_run_uid).toBe(llmRun.uid)
+  })
+
+  it('Vision OCR応答を候補として保存し、適用（manual_text）は再計算より優先される（EXT-030）', () => {
+    const draft = storePdfDraft(db, sourceDocumentUid, OUTPUT)
+    const heading = draft.regions.find((region) => region.region_type === 'heading')!
+    const messages = buildPdfOcrMessages(heading, 'text', { mediaType: 'image/png', data: 'aW1hZ2U=' })
+    expect(messages[1]!.attachments).toHaveLength(1)
+
+    const llmRun = registerEntity(db, { projectUid, entityType: 'llm_run_ref', createdBy: 'rule' })
+    db.prepare(`INSERT INTO llm_run_ref (uid,process_name,status) VALUES (?,'pdf-region-ocr','success')`).run(
+      llmRun.uid
+    )
+    applyPdfOcrSuggestion(
+      db,
+      sourceDocumentUid,
+      heading.region_uid,
+      'text',
+      JSON.stringify({ text: 'OCRで読み取った文字列' }),
+      llmRun.uid
+    )
+    const stored = getPdfDraft(db, sourceDocumentUid).regions.find(
+      (region) => region.region_uid === heading.region_uid
+    )!
+    // 候補として保存されるだけで、自動確定しない
+    expect((stored.llm_suggestion?.ocr as { text?: string }).text).toBe('OCRで読み取った文字列')
+    expect(stored.text_preview).toBe('1. System Configuration')
+
+    // ユーザー適用（manual_text）は保存時の物理再計算・②変換より優先される
+    const saved = savePdfRegions(
+      db,
+      sourceDocumentUid,
+      getPdfDraft(db, sourceDocumentUid).regions.map((region) =>
+        region.region_uid === heading.region_uid
+          ? { ...region, manual_text: 'OCRで読み取った文字列', text_preview: 'OCRで読み取った文字列' }
+          : region
+      )
+    )
+    expect(saved.regions.find((region) => region.region_uid === heading.region_uid)!.text_preview).toBe(
+      'OCRで読み取った文字列'
+    )
+    const elements = buildPdfExtractionElements(getPdfDraft(db, sourceDocumentUid))
+    expect(elements[0]!.text).toBe('OCRで読み取った文字列')
+
+    // 表OCRは table_data 候補として保持し、不正応答はエラーにする
+    const table = getPdfDraft(db, sourceDocumentUid).regions.find((region) => region.region_type === 'table')!
+    applyPdfOcrSuggestion(
+      db,
+      sourceDocumentUid,
+      table.region_uid,
+      'table',
+      JSON.stringify({ table: { rows: [['A', 'B']], header_row_count: 1 } }),
+      llmRun.uid
+    )
+    const tableOcr = getPdfDraft(db, sourceDocumentUid).regions.find(
+      (region) => region.region_uid === table.region_uid
+    )!.llm_suggestion?.ocr as { table?: { detection_method?: string } }
+    expect(tableOcr.table?.detection_method).toBe('llm-ocr')
+    expect(() =>
+      applyPdfOcrSuggestion(db, sourceDocumentUid, table.region_uid, 'table', JSON.stringify({}), llmRun.uid)
+    ).toThrowError(/表データがありません/)
   })
 
   it('PDF以外の原本と未生成ドラフトを拒否する', () => {

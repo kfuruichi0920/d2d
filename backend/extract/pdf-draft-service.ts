@@ -8,6 +8,7 @@ import type { Database } from 'better-sqlite3'
 import { BackendError } from '../api/errors'
 import { newUid } from '../store/uid'
 import { storeExtractionResult, type ExtractionElement } from './store-extraction'
+import type { ChatAttachment, ChatMessage } from '../llm/providers'
 
 export const PDF_REGION_TYPES = [
   'heading',
@@ -100,6 +101,8 @@ export interface PdfRegion {
   level?: number
   caption_of?: string
   table_data?: PdfTableData
+  /** ユーザー適用済みのOCR・手動文字列。物理テキストの再計算より優先し、②変換にも使う（EXT-030） */
+  manual_text?: string
   llm_suggestion?: Record<string, unknown>
 }
 
@@ -178,6 +181,7 @@ function asRegion(value: unknown, pages: PdfPage[], preserveUid?: string): PdfRe
     level: Number.isFinite(level) && level >= 1 ? Math.min(Math.trunc(level), 6) : undefined,
     caption_of: typeof item.caption_of === 'string' && item.caption_of ? item.caption_of : undefined,
     table_data: asTableData(item.table_data),
+    manual_text: typeof item.manual_text === 'string' && item.manual_text ? item.manual_text : undefined,
     llm_suggestion:
       typeof item.llm_suggestion === 'object' && item.llm_suggestion !== null
         ? (item.llm_suggestion as Record<string, unknown>)
@@ -299,9 +303,10 @@ export function savePdfRegions(
   })
   const validUids = new Set(regions.map((region) => region.region_uid))
   for (const region of regions) {
-    // 図・装飾以外はレビュー表示用プレビューを物理情報から再計算する（領域調整の即時反映）
+    // 図・装飾以外はレビュー表示用プレビューを物理情報から再計算する（領域調整の即時反映）。
+    // ユーザー適用済みのOCR・手動文字列（manual_text）は再計算より優先する（EXT-030）
     if (region.region_type !== 'figure' && region.region_type !== 'decoration' && !region.table_data) {
-      region.text_preview = textInRegion(draft.physical, region).slice(0, 500)
+      region.text_preview = (region.manual_text ?? textInRegion(draft.physical, region)).slice(0, 500)
     }
     if (!region.title) region.title = region.text_preview.split('\n')[0]?.slice(0, 40) || region.region_type
     if (region.caption_of && !validUids.has(region.caption_of)) region.caption_of = undefined
@@ -352,7 +357,7 @@ export function buildPdfExtractionElements(
       page_no_end: pageNumber,
       bbox: region.bbox
     }
-    const text = textInRegion(draft.physical, region) || region.text_preview
+    const text = region.manual_text || textInRegion(draft.physical, region) || region.text_preview
     switch (region.region_type) {
       case 'heading':
         elements.push({ ...base, type: 'heading', text, level: region.level ?? 1 })
@@ -494,4 +499,227 @@ export function applyPdfRegionReanalysis(
     `UPDATE pdf_extraction_draft SET status='editing', regions_json=?, updated_at=? WHERE source_document_uid=?`
   ).run(JSON.stringify(draft.regions), updatedAt, sourceDocumentUid)
   return { regions: draft.regions }
+}
+
+// ---- LLM支援（P5-20D、EXT-030、検討資料 §16）。LLMは候補生成に限定し自動確定しない ----
+
+/** 領域周辺と判定するマージン（pt）。選択領域＋近傍ブロックだけをLLMへ送る（機密最小化） */
+const LLM_CONTEXT_MARGIN = 60
+
+function expandBbox(bbox: [number, number, number, number], margin: number): [number, number, number, number] {
+  return [bbox[0] - margin, bbox[1] - margin, bbox[2] + margin, bbox[3] + margin]
+}
+
+function bboxIntersects(a: [number, number, number, number], b: [number, number, number, number]): boolean {
+  return a[0] <= b[2] && b[0] <= a[2] && a[1] <= b[3] && b[1] <= a[3]
+}
+
+/**
+ * 選択領域の分類・結合・分割支援のLLM入力を作る（検討資料 §16.3）。
+ * ページ全体画像や全文は渡さず、既存の物理ブロック（id・bbox・文字・フォント）を単位として
+ * 提案させる。座標はLLMに生成させず、提案は suggested_block_ids でブロック境界を参照する。
+ */
+export function buildPdfRegionLlmMessages(
+  db: Database,
+  sourceDocumentUid: string,
+  regionUids: string[]
+): ChatMessage[] {
+  const draft = getPdfDraft(db, sourceDocumentUid)
+  const selected = draft.regions.filter((region) => regionUids.includes(region.region_uid))
+  if (selected.length === 0) throw new BackendError('validation', 'LLM支援対象の領域を選択してください', '')
+  const scopes = selected.map((region) => {
+    const page = draft.physical.document.pages.find((entry) => entry.page_index === region.page_index)
+    if (!page) throw new BackendError('validation', `ページが見つかりません: ${region.page_index}`, '')
+    const context = expandBbox(region.bbox, LLM_CONTEXT_MARGIN)
+    return {
+      region: {
+        region_uid: region.region_uid,
+        page_index: region.page_index,
+        bbox: region.bbox,
+        region_type: region.region_type,
+        title: region.title,
+        text_preview: region.text_preview.slice(0, 500),
+        detection_methods: region.detection_methods,
+        confidence: region.confidence
+      },
+      nearby_blocks: page.blocks
+        .filter((block) => bboxIntersects(block.bbox, context))
+        .map((block) => ({
+          block_id: block.block_id,
+          bbox: block.bbox,
+          text: block.text.slice(0, 500),
+          font_sizes: [...new Set(block.lines.map((line) => line.size))],
+          bold: block.lines.some((line) => line.bold)
+        })),
+      page_size: { width: page.width, height: page.height }
+    }
+  })
+  return [
+    {
+      role: 'system',
+      content:
+        'PDF抽出領域候補を改善してください。入力に含まれるregion_uidだけを対象にし、原本にない情報を作らないでください。' +
+        `region_typeは ${PDF_REGION_TYPES.join('/')} のいずれかです。` +
+        '座標を生成せず、範囲を変える場合は nearby_blocks の block_id を suggested_block_ids で参照してください。' +
+        'JSON objectのregions配列で region_uid, suggested_type, suggested_title, suggested_block_ids, reason, confidence を返してください。'
+    },
+    { role: 'user', content: JSON.stringify({ scopes }, null, 2) }
+  ]
+}
+
+function parsePdfLlmJson(content: string): Record<string, unknown> {
+  const stripped = content
+    .trim()
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```$/, '')
+  try {
+    const parsed = JSON.parse(stripped)
+    if (typeof parsed !== 'object' || parsed === null) throw new Error('objectではありません')
+    return parsed as Record<string, unknown>
+  } catch (error) {
+    throw new BackendError('llm', 'PDF候補のLLM応答をJSONとして解釈できません', String(error))
+  }
+}
+
+/**
+ * LLM提案を選択領域だけへ反映する。suggested_block_ids がある場合は
+ * 該当ブロック境界の外接矩形へスナップする（検討資料 §16.3。任意座標は採用しない）。
+ */
+export function applyPdfLlmSuggestions(
+  db: Database,
+  sourceDocumentUid: string,
+  selectedRegionUids: string[],
+  content: string,
+  llmRunUid: string
+): { updatedCount: number } {
+  const draft = getPdfDraft(db, sourceDocumentUid)
+  if (draft.status === 'confirmed') throw new BackendError('conflict', '確定済みの領域は更新できません', '')
+  const parsed = parsePdfLlmJson(content)
+  const suggestions = Array.isArray(parsed.regions) ? parsed.regions : []
+  const selected = new Set(selectedRegionUids)
+  const suggestionByUid = new Map<string, Record<string, unknown>>()
+  for (const value of suggestions) {
+    if (typeof value !== 'object' || value === null) continue
+    const suggestion = value as Record<string, unknown>
+    const uid = String(suggestion.region_uid ?? '')
+    if (selected.has(uid)) suggestionByUid.set(uid, suggestion)
+  }
+  let updatedCount = 0
+  const regions = draft.regions.map((region) => {
+    const suggestion = suggestionByUid.get(region.region_uid)
+    if (!suggestion) return region
+    const page = draft.physical.document.pages.find((entry) => entry.page_index === region.page_index)
+    let bbox = region.bbox
+    if (page && Array.isArray(suggestion.suggested_block_ids) && suggestion.suggested_block_ids.length > 0) {
+      const blocks = page.blocks.filter((block) =>
+        (suggestion.suggested_block_ids as unknown[]).includes(block.block_id)
+      )
+      if (blocks.length > 0) {
+        bbox = [
+          Math.min(...blocks.map((block) => block.bbox[0])),
+          Math.min(...blocks.map((block) => block.bbox[1])),
+          Math.max(...blocks.map((block) => block.bbox[2])),
+          Math.max(...blocks.map((block) => block.bbox[3]))
+        ]
+      }
+    }
+    updatedCount++
+    return asRegion(
+      {
+        ...region,
+        bbox,
+        region_type: suggestion.suggested_type ?? region.region_type,
+        title: suggestion.suggested_title ?? region.title,
+        confidence: suggestion.confidence ?? region.confidence,
+        candidate_status: 'adjusted',
+        llm_suggestion: {
+          reason: suggestion.reason,
+          llm_run_uid: llmRunUid,
+          received_at: new Date().toISOString()
+        }
+      },
+      draft.physical.document.pages,
+      region.region_uid
+    )
+  })
+  db.prepare(
+    `UPDATE pdf_extraction_draft
+        SET status='editing', regions_json=?, last_llm_run_uid=?, updated_at=?
+      WHERE source_document_uid=?`
+  ).run(JSON.stringify(regions), llmRunUid, new Date().toISOString(), sourceDocumentUid)
+  return { updatedCount }
+}
+
+export type PdfOcrMode = 'text' | 'table' | 'formula'
+
+/**
+ * 選択領域単位の Vision OCR 入力を作る（EXT-030。専用OCRエンジンは使用しない）。
+ * 添付画像は該当領域の切出しPNGだけとし、ページ全体は送らない。
+ */
+export function buildPdfOcrMessages(region: PdfRegion, mode: PdfOcrMode, attachment: ChatAttachment): ChatMessage[] {
+  const instruction =
+    mode === 'table'
+      ? '添付画像は設計文書の表領域です。画像に写っている表を読み取り、{"table":{"rows":[["セル文字列"]],"header_row_count":1}} 形式のJSONだけを返してください。'
+      : mode === 'formula'
+        ? '添付画像は設計文書の数式領域です。画像の数式をTeXで読み取り、{"latex":"...","description":"数式の簡潔な説明"} 形式のJSONだけを返してください。'
+        : '添付画像は設計文書の一部です。画像に写っている文字列を読み順どおりに読み取り、{"text":"..."} 形式のJSONだけを返してください。'
+  return [
+    {
+      role: 'system',
+      content:
+        'あなたは設計文書のOCR支援AIです。画像に存在しない文字を推測で補わず、読めない箇所は "?" としてください。' +
+        instruction
+    },
+    {
+      role: 'user',
+      content: JSON.stringify({
+        region_uid: region.region_uid,
+        page_index: region.page_index,
+        bbox: region.bbox,
+        current_text_preview: region.text_preview.slice(0, 300)
+      }),
+      attachments: [attachment]
+    }
+  ]
+}
+
+/**
+ * Vision OCR の応答を候補（llm_suggestion.ocr）として保存する。
+ * 自動確定せず、ユーザーが「適用」した時だけ text_preview / table_data へ反映される（EXT-030）。
+ */
+export function applyPdfOcrSuggestion(
+  db: Database,
+  sourceDocumentUid: string,
+  regionUid: string,
+  mode: PdfOcrMode,
+  content: string,
+  llmRunUid: string
+): { regionUid: string; mode: PdfOcrMode } {
+  const draft = getPdfDraft(db, sourceDocumentUid)
+  if (draft.status === 'confirmed') throw new BackendError('conflict', '確定済みの領域は更新できません', '')
+  const target = draft.regions.find((region) => region.region_uid === regionUid)
+  if (!target) throw new BackendError('not_found', `領域が見つかりません: ${regionUid}`, '')
+  const parsed = parsePdfLlmJson(content)
+  const ocr: Record<string, unknown> = { mode, llm_run_uid: llmRunUid, received_at: new Date().toISOString() }
+  if (mode === 'table') {
+    const tableData = asTableData(parsed.table)
+    if (!tableData) throw new BackendError('llm', 'OCR応答に表データがありません', content.slice(0, 200))
+    ocr.table = { ...tableData, detection_method: 'llm-ocr' }
+  } else if (mode === 'formula') {
+    if (typeof parsed.latex !== 'string' || !parsed.latex)
+      throw new BackendError('llm', 'OCR応答にlatexがありません', content.slice(0, 200))
+    ocr.latex = parsed.latex
+    if (typeof parsed.description === 'string') ocr.description = parsed.description
+  } else {
+    if (typeof parsed.text !== 'string')
+      throw new BackendError('llm', 'OCR応答にtextがありません', content.slice(0, 200))
+    ocr.text = parsed.text
+  }
+  target.llm_suggestion = { ...(target.llm_suggestion ?? {}), ocr }
+  db.prepare(
+    `UPDATE pdf_extraction_draft
+        SET status='editing', regions_json=?, last_llm_run_uid=?, updated_at=?
+      WHERE source_document_uid=?`
+  ).run(JSON.stringify(draft.regions), llmRunUid, new Date().toISOString(), sourceDocumentUid)
+  return { regionUid, mode }
 }

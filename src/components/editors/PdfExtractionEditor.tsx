@@ -9,6 +9,7 @@ import { invoke, onBackendEvent } from '../../services/backend'
 import { executeCommand } from '../../services/command-registry'
 import { useEditorStore } from '../../stores/editor-store'
 import { useJobsStore } from '../../stores/jobs-store'
+import { LlmRequestDialog, type LlmRequestMessage, type PreparedLlmRequest } from '../common/LlmRequestDialog'
 import { showContextMenu } from '../common/ContextMenu'
 import { ResizablePaneGroup } from '../workbench/ResizablePaneGroup'
 
@@ -63,6 +64,13 @@ interface TableData {
   header_row_count: number
   detection_method: string
 }
+interface OcrSuggestion {
+  mode?: string
+  text?: string
+  latex?: string
+  description?: string
+  table?: TableData
+}
 interface Region {
   region_uid: string
   page_index: number
@@ -79,6 +87,8 @@ interface Region {
   level?: number
   caption_of?: string
   table_data?: TableData
+  manual_text?: string
+  llm_suggestion?: { reason?: unknown; ocr?: OcrSuggestion }
 }
 interface Draft {
   source_document_uid: string
@@ -131,6 +141,9 @@ export function PdfExtractionEditor({ sourceDocumentUid }: { sourceDocumentUid: 
   const [selectedUids, setSelectedUids] = useState<Set<string>>(new Set())
   const [activeUid, setActiveUid] = useState<string | null>(null)
   const [selectRect, setSelectRect] = useState<Bbox | null>(null)
+  const [llmRequest, setLlmRequest] = useState<PreparedLlmRequest | null>(null)
+  const [llmMode, setLlmMode] = useState<'regions' | 'ocr'>('regions')
+  const [ocrMode, setOcrMode] = useState<'text' | 'table' | 'formula'>('text')
   const draggingSelect = useRef(false)
   const canvasRef = useRef<HTMLDivElement>(null)
   const notify = useJobsStore((state) => state.notify)
@@ -254,6 +267,63 @@ export function PdfExtractionEditor({ sourceDocumentUid }: { sourceDocumentUid: 
     if (!result.ok) return notify('error', 'PDF抽出を確定できませんでした', result.error.message)
     notify('info', '採用領域から②抽出データの生成を開始しました')
     void executeCommand('job.openPanel')
+  }
+  const prepareRegionLlm = async (): Promise<void> => {
+    if (!selectedUids.size || !(await save())) return
+    const result = await invoke<PreparedLlmRequest>('pdfDraft.prepareLlm', {
+      sourceDocumentUid,
+      regionUids: [...selectedUids]
+    })
+    if (!result.ok) return notify('error', 'LLM支援の入力を作成できませんでした', result.error.message)
+    setLlmMode('regions')
+    setLlmRequest(result.result)
+  }
+  const prepareOcr = async (): Promise<void> => {
+    if (!active || !(await save())) return
+    const result = await invoke<PreparedLlmRequest>('pdfDraft.prepareOcr', {
+      sourceDocumentUid,
+      regionUid: active.region_uid,
+      mode: ocrMode
+    })
+    if (!result.ok) return notify('error', 'OCR入力を作成できませんでした', result.error.message)
+    setLlmMode('ocr')
+    setLlmRequest(result.result)
+  }
+  const runLlm = async (messages: LlmRequestMessage[], promptTemplateUid?: string): Promise<void> => {
+    const result =
+      llmMode === 'ocr'
+        ? await invoke('pdfDraft.runOcrConfirmed', {
+            sourceDocumentUid,
+            regionUid: active?.region_uid ?? '',
+            mode: ocrMode,
+            messages,
+            promptTemplateUid
+          })
+        : await invoke('pdfDraft.runLlmConfirmed', {
+            sourceDocumentUid,
+            regionUids: [...selectedUids],
+            messages,
+            promptTemplateUid
+          })
+    if (!result.ok) return notify('error', 'PDF候補のLLM支援を開始できませんでした', result.error.message)
+    notify('info', llmMode === 'ocr' ? '領域OCRを開始しました' : 'PDF候補のLLM分類支援を開始しました')
+    void executeCommand('job.openPanel')
+  }
+  const applyOcr = (): void => {
+    const ocr = active?.llm_suggestion?.ocr
+    if (!active || !ocr) return
+    if (ocr.table) {
+      patchRegion(active.region_uid, { table_data: ocr.table })
+    } else if (ocr.latex) {
+      patchRegion(active.region_uid, {
+        region_type: 'formula',
+        manual_text: ocr.latex,
+        text_preview: ocr.latex
+      })
+    } else if (typeof ocr.text === 'string') {
+      patchRegion(active.region_uid, { manual_text: ocr.text, text_preview: ocr.text })
+    }
+    notify('info', 'OCR結果を領域へ適用しました（保存で確定します）')
   }
   const reanalyzeRegion = async (mode: 'table' | 'text'): Promise<void> => {
     if (!active || !(await save())) return
@@ -390,6 +460,15 @@ export function PdfExtractionEditor({ sourceDocumentUid }: { sourceDocumentUid: 
           title={selectRect ? undefined : 'ページ上をドラッグして範囲を指定してください'}
         >
           選択範囲を候補追加
+        </button>
+        <button
+          className="d2d-btn small"
+          type="button"
+          disabled={readOnly || !selectedUids.size}
+          onClick={() => void prepareRegionLlm()}
+          data-testid="pdf-region-llm"
+        >
+          選択領域をLLMで分類
         </button>
         <button
           className="d2d-btn small"
@@ -746,6 +825,54 @@ export function PdfExtractionEditor({ sourceDocumentUid }: { sourceDocumentUid: 
                     })()}
                   </div>
                 )}
+                <div className="pdf-ocr-section" data-testid="pdf-ocr-section">
+                  <div className="pdf-table-editor-head">
+                    <strong>Vision OCR（画像から候補生成）</strong>
+                    <span>
+                      <select
+                        value={ocrMode}
+                        disabled={readOnly}
+                        onChange={(event) => setOcrMode(event.target.value as 'text' | 'table' | 'formula')}
+                        aria-label="OCRモード"
+                        data-testid="pdf-ocr-mode"
+                      >
+                        <option value="text">文字</option>
+                        <option value="table">表</option>
+                        <option value="formula">数式（TeX）</option>
+                      </select>{' '}
+                      <button
+                        className="d2d-btn small"
+                        type="button"
+                        disabled={readOnly}
+                        onClick={() => void prepareOcr()}
+                        data-testid="pdf-ocr-prepare"
+                      >
+                        OCR候補を生成
+                      </button>
+                    </span>
+                  </div>
+                  {active.llm_suggestion?.ocr && (
+                    <div className="pdf-ocr-result" data-testid="pdf-ocr-result">
+                      <textarea
+                        readOnly
+                        value={
+                          active.llm_suggestion.ocr.table
+                            ? active.llm_suggestion.ocr.table.rows.map((row) => row.join(' | ')).join('\n')
+                            : (active.llm_suggestion.ocr.latex ?? active.llm_suggestion.ocr.text ?? '')
+                        }
+                      />
+                      <button
+                        className="d2d-btn small"
+                        type="button"
+                        disabled={readOnly}
+                        onClick={applyOcr}
+                        data-testid="pdf-ocr-apply"
+                      >
+                        OCR結果を適用
+                      </button>
+                    </div>
+                  )}
+                </div>
                 <div>検出根拠: {active.detection_methods.join(', ') || '手動'}</div>
               </div>
             ) : (
@@ -754,6 +881,15 @@ export function PdfExtractionEditor({ sourceDocumentUid }: { sourceDocumentUid: 
           </ResizablePaneGroup>
         </section>
       </ResizablePaneGroup>
+      {llmRequest && (
+        <LlmRequestDialog
+          request={llmRequest}
+          screenId="pdf-regions"
+          title={llmMode === 'ocr' ? '選択領域のVision OCR' : '選択領域をLLM支援'}
+          onClose={() => setLlmRequest(null)}
+          onConfirmed={runLlm}
+        />
+      )}
     </div>
   )
 }

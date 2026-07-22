@@ -59,11 +59,14 @@ import {
   type ExcelPhysicalOutput
 } from './extract/excel-draft-service'
 import {
+  applyPdfLlmSuggestions,
+  applyPdfOcrSuggestion,
   applyPdfRegionReanalysis,
   confirmPdfDraft,
   getPdfDraft,
   PDF_EXCLUDED_TYPES,
   storePdfDraft,
+  type PdfOcrMode,
   type PdfPhysicalOutput,
   type PdfRegionCrop
 } from './extract/pdf-draft-service'
@@ -380,6 +383,72 @@ function main(): void {
     })
     eventBus.emit('pdfDraft.updated', { sourceDocumentUid, kind: 'reanalyzed', regionUid })
     return { status: 'success', output: { regionCount: applied.regions.length, regionUid } }
+  })
+
+  // 選択領域限定のPDF候補LLM分類支援（P5-20D、検討資料 §16.3）
+  jobs.registerExecutor('pdf.regionLlm', async (params, ctx) => {
+    const { sourceDocumentUid, regionUids, messages, promptTemplateUid } = params as {
+      sourceDocumentUid: string
+      regionUids: string[]
+      messages: ChatMessage[]
+      promptTemplateUid?: string
+    }
+    const { db, info } = requireProject()
+    ctx.reportProgress(10, 'PDF領域候補をLLMへ送信中')
+    const result = await runLlm(
+      db,
+      settings,
+      { projectUid: info.projectUid, rootPath: info.rootPath },
+      {
+        processName: 'pdf-region-refinement',
+        messages,
+        jsonMode: true,
+        inputRefUid: sourceDocumentUid,
+        promptTemplateUid,
+        signal: ctx.signal
+      }
+    )
+    const applied = applyPdfLlmSuggestions(db, sourceDocumentUid, regionUids, result.content, result.llmRunUid)
+    ctx.log('info', `PDF領域候補へのLLM提案を反映しました: ${applied.updatedCount}件`, {
+      sourceDocumentUid,
+      llmRunUid: result.llmRunUid
+    })
+    eventBus.emit('pdfDraft.updated', { sourceDocumentUid, kind: 'llm', llmRunUid: result.llmRunUid })
+    return { status: 'success', output: { ...applied, llmRunUid: result.llmRunUid } }
+  })
+
+  // 選択領域単位のVision OCR候補生成（P5-20D、EXT-030。結果は候補保存のみで自動確定しない）
+  jobs.registerExecutor('pdf.regionOcr', async (params, ctx) => {
+    const { sourceDocumentUid, regionUid, mode, messages, promptTemplateUid } = params as {
+      sourceDocumentUid: string
+      regionUid: string
+      mode: PdfOcrMode
+      messages: ChatMessage[]
+      promptTemplateUid?: string
+    }
+    const { db, info } = requireProject()
+    ctx.reportProgress(10, '領域画像をVision LLMへ送信中')
+    const result = await runLlm(
+      db,
+      settings,
+      { projectUid: info.projectUid, rootPath: info.rootPath },
+      {
+        processName: 'pdf-region-ocr',
+        messages,
+        jsonMode: true,
+        inputRefUid: sourceDocumentUid,
+        promptTemplateUid,
+        signal: ctx.signal
+      }
+    )
+    const applied = applyPdfOcrSuggestion(db, sourceDocumentUid, regionUid, mode, result.content, result.llmRunUid)
+    ctx.log('info', 'PDF領域のOCR候補を保存しました（適用はユーザー操作）', {
+      sourceDocumentUid,
+      regionUid,
+      llmRunUid: result.llmRunUid
+    })
+    eventBus.emit('pdfDraft.updated', { sourceDocumentUid, kind: 'ocr', regionUid, llmRunUid: result.llmRunUid })
+    return { status: 'success', output: { ...applied, llmRunUid: result.llmRunUid } }
   })
 
   // PDF候補の確定→②抽出データ生成ジョブ（P5-20C、EXT-031。図領域はページ画像から切出す）
