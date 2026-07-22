@@ -135,10 +135,16 @@ export function registerDocumentApi(router: ApiRouter, jobs: JobManager): void {
       }
       return jobs.enqueue('extract.excel', { sourceDocumentUid: doc.uid })
     }
+    if (doc.file_type === 'pdf') {
+      if (doc.pdf_draft_status && doc.pdf_draft_status !== 'failed') {
+        throw new BackendError('conflict', 'このPDF原本の抽出領域候補は既に存在します', '既存の候補を確認してください')
+      }
+      return jobs.enqueue('extract.pdf', { sourceDocumentUid: doc.uid })
+    }
     throw new BackendError(
       'validation',
       `${doc.file_type} 形式の抽出は未実装です（P5 後続で対応）`,
-      '現在は Word (.docx) と Excel (.xlsx) を抽出できます'
+      '現在は Word (.docx)、Excel (.xlsx)、PDF (.pdf) を抽出できます'
     )
   })
 

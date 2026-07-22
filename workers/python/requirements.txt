@@ -1,0 +1,6 @@
+# D2D Python ワーカー実行時依存（P5-20、IMP-005/EXT-027）
+# Word / Excel 抽出は標準ライブラリのみで動作する。PDF 抽出だけが以下を必要とする。
+# ライセンス: pdfplumber=MIT、pdfminer.six=MIT、Pillow=MIT-CMU、pypdfium2=Apache-2.0/BSD-3
+# （AGPL 依存なし。TBD-01 の pymupdf 案は pypdfium2 へ置換済み）
+pdfplumber>=0.11
+pypdfium2>=4.30

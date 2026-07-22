@@ -14,6 +14,7 @@ import { WelcomeEditor } from '../editors/WelcomeEditor'
 import { HelpEditor, type HelpTopic } from '../editors/HelpEditor'
 import { ExtractionReviewEditor } from '../editors/ExtractionReviewEditor'
 import { ExcelExtractionEditor } from '../editors/ExcelExtractionEditor'
+import { PdfExtractionEditor } from '../editors/PdfExtractionEditor'
 import { OriginalViewer } from '../views/DocumentsTree'
 import { LlmRunViewer } from '../views/LlmViews'
 import { IntermediateDocumentEditor } from '../editors/IntermediateDocumentEditor'
@@ -59,6 +60,8 @@ function resolveEditor(uri: string): React.JSX.Element {
   if (uri.startsWith('extracted://')) return <ExtractionReviewEditor uid={uri.slice('extracted://'.length)} />
   if (uri.startsWith('excel-draft://'))
     return <ExcelExtractionEditor sourceDocumentUid={uri.slice('excel-draft://'.length)} />
+  if (uri.startsWith('pdf-draft://'))
+    return <PdfExtractionEditor sourceDocumentUid={uri.slice('pdf-draft://'.length)} />
   if (uri.startsWith('intermediate://')) return <IntermediateDocumentEditor uid={uri.slice('intermediate://'.length)} />
   if (uri.startsWith('chunk://'))
     return <IntermediateDocumentEditor uid={uri.slice('chunk://'.length)} initialMode="chunk" />

@@ -33,6 +33,7 @@ export interface SourceDocumentItem {
   is_current: number
   imported_at: string
   excel_draft_status: string | null
+  pdf_draft_status: string | null
   has_extracted_data: number
 }
 
@@ -591,6 +592,30 @@ export function OriginalActions({ doc }: { doc: SourceDocumentItem }): React.JSX
             data-testid="excel-review-button"
           >
             抽出グループ候補を確認
+          </button>
+        </>
+      ) : doc.file_type === 'pdf' ? (
+        <>
+          <button
+            type="button"
+            className="d2d-btn primary"
+            onClick={() => void extract()}
+            disabled={
+              Boolean(doc.pdf_draft_status && doc.pdf_draft_status !== 'failed') || Boolean(doc.has_extracted_data)
+            }
+            data-testid="extract-button"
+            title={doc.pdf_draft_status && doc.pdf_draft_status !== 'failed' ? '抽出領域候補は生成済みです' : undefined}
+          >
+            抽出領域候補を生成
+          </button>
+          <button
+            type="button"
+            className="d2d-btn"
+            onClick={() => openResource(`pdf-draft://${doc.uid}`, `PDF候補: ${doc.file_name}`)}
+            disabled={!doc.pdf_draft_status || doc.pdf_draft_status === 'failed'}
+            data-testid="pdf-review-button"
+          >
+            抽出領域候補を確認
           </button>
         </>
       ) : (

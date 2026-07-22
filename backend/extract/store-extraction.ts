@@ -36,6 +36,10 @@ export interface ExtractionElement {
   cell_start?: string
   cell_end?: string
   candidate_uid?: string
+  /** 原本ページ・座標トレース（PDF等。source_location へ保存する。P5-20C、EXT-027） */
+  page_no_start?: number
+  page_no_end?: number
+  bbox?: [number, number, number, number]
   row_count?: number
   column_count?: number
   image?: string
@@ -236,15 +240,18 @@ export function storeExtractionResult(db: Database, input: StoreExtractionInput)
       })
       db.prepare(
         `INSERT INTO source_location
-           (uid, source_document_uid, sheet_name, cell_start, cell_end, section_path, note)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`
+           (uid, source_document_uid, page_no_start, page_no_end, sheet_name, cell_start, cell_end, section_path, bbox_json, note)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(
         location.uid,
         sourceDocumentUid,
+        element.page_no_start ?? null,
+        element.page_no_end ?? null,
         element.sheet_name ?? null,
         element.cell_start ?? null,
         element.cell_end ?? null,
         element.section_path ?? '',
+        element.bbox ? JSON.stringify(element.bbox) : null,
         `element:${element.id}`
       )
 

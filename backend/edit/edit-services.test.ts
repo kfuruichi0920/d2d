@@ -47,9 +47,9 @@ describe('P10 編集機能', () => {
     rmSync(dir, { recursive: true, force: true })
   })
 
-  it('schema 2.4.0: 新規 DB は最新版の表セル・アーカイブ列・セマンティック表・Excel候補を持つ', () => {
-    expect(LATEST_SCHEMA_VERSION).toBe('2.4.0')
-    expect(getSchemaVersion(db)).toBe('2.4.0')
+  it('schema 2.5.0: 新規 DB は最新版の表セル・アーカイブ列・セマンティック表・Excel/PDF候補を持つ', () => {
+    expect(LATEST_SCHEMA_VERSION).toBe('2.5.0')
+    expect(getSchemaVersion(db)).toBe('2.5.0')
     const table = db
       .prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'resource_table_cell'`)
       .get()
@@ -66,6 +66,10 @@ describe('P10 編集機能', () => {
     const excelColumns = db.prepare('PRAGMA table_info(excel_extraction_draft)').all() as { name: string }[]
     expect(excelColumns.map((column) => column.name)).toEqual(
       expect.arrayContaining(['predecessor_source_document_uid', 'diff_json'])
+    )
+    const pdfColumns = db.prepare('PRAGMA table_info(pdf_extraction_draft)').all() as { name: string }[]
+    expect(pdfColumns.map((column) => column.name)).toEqual(
+      expect.arrayContaining(['physical_json', 'regions_json', 'confirmed_extracted_document_uid'])
     )
     const tableColumns = db.prepare('PRAGMA table_info(resource_table)').all() as { name: string }[]
     expect(tableColumns.some((column) => column.name === 'description')).toBe(true)

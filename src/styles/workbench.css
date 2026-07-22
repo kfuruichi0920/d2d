@@ -4110,6 +4110,146 @@ mark.d2d-term {
   background: repeating-conic-gradient(color-mix(in srgb, var(--d2d-border) 35%, transparent) 0 25%, transparent 0 50%)
     0/16px 16px;
 }
+
+/* PDF抽出領域候補レビュー（P5-20B、UI-031/032） */
+.pdf-extraction-editor {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-width: 0;
+}
+.pdf-extraction-editor .extraction-review-toolbar {
+  flex-wrap: wrap;
+}
+.pdf-extraction-editor .extraction-review-toolbar h1 {
+  margin: 0;
+  font-size: 14px;
+}
+.pdf-page-pane {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+}
+.pdf-page-scroll {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px;
+  background: var(--d2d-side-bg);
+}
+.pdf-page-canvas {
+  position: relative;
+  background: #fff;
+  box-shadow: 0 1px 6px rgb(0 0 0 / 30%);
+  touch-action: none;
+  user-select: none;
+}
+.pdf-page-image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.pdf-region-overlay {
+  position: absolute;
+  z-index: 4;
+  box-sizing: border-box;
+  border: 2px solid currentColor;
+  background: color-mix(in srgb, currentColor 10%, transparent);
+  color: #64748b;
+}
+.pdf-region-overlay.active {
+  z-index: 5;
+  border-width: 3px;
+  filter: saturate(1.4);
+}
+.pdf-region-overlay.rejected {
+  border-style: dashed;
+  background: color-mix(in srgb, currentColor 3%, transparent);
+  opacity: 0.75;
+}
+.type-heading {
+  color: #dc2626;
+}
+.type-caption {
+  color: #ca8a04;
+}
+.type-header,
+.type-footer,
+.type-page_number,
+.type-decoration {
+  color: #94a3b8;
+}
+.pdf-region-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 8px;
+}
+.pdf-region-bbox-inputs {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+.pdf-figure-crop {
+  background-repeat: no-repeat;
+  background-color: #fff;
+  border: 1px solid var(--d2d-border);
+}
+.pdf-table-editor {
+  display: grid;
+  gap: 5px;
+}
+.pdf-table-editor-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+}
+.pdf-table-grid {
+  display: grid;
+  gap: 2px;
+  max-height: 40vh;
+  overflow: auto;
+  border: 1px solid var(--d2d-border);
+  padding: 3px;
+}
+.pdf-table-row {
+  display: flex;
+  gap: 2px;
+}
+.pdf-table-row input {
+  flex: 1;
+  min-width: 64px;
+  font-size: 11px;
+}
+.pdf-ocr-section {
+  display: grid;
+  gap: 5px;
+  border-top: 1px solid var(--d2d-border);
+  padding-top: 6px;
+}
+.pdf-ocr-result {
+  display: grid;
+  gap: 4px;
+}
+.pdf-ocr-result textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 60px;
+  max-height: 30vh;
+  padding: 5px;
+  resize: vertical;
+  color: var(--d2d-fg);
+  background: var(--d2d-input-bg);
+  border: 1px solid var(--d2d-border);
+  font: inherit;
+  font-size: 11px;
+  white-space: pre-wrap;
+}
 .excel-figure-preview img {
   max-width: 100%;
   max-height: 220px;
