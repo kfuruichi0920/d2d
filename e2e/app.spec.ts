@@ -3046,6 +3046,128 @@ test('Excel原本→候補生成・編集→範囲限定LLM確認→②抽出の
   rmSync(xlsxPath, { force: true })
 })
 
+test('PDF原本→領域候補生成→オーバーレイレビュー編集・保存（P5-20A/B）', async () => {
+  await closeAllEditorTabs()
+  const pdfPath = join(tmpdir(), `d2d-e2e-pdf-${Date.now()}.pdf`)
+  execFileSync(process.platform === 'win32' ? 'python' : 'python3', [
+    join(process.cwd(), 'workers', 'python', 'tests', 'make_pdf.py'),
+    pdfPath
+  ])
+
+  const imported = await page.evaluate(
+    async (filePath) => window.api.invoke<{ jobId: string }>('document.import', { filePath }),
+    pdfPath
+  )
+  expect(imported.ok ? 'ok' : JSON.stringify(imported.error)).toBe('ok')
+  await expect
+    .poll(
+      async () =>
+        page.evaluate(async (fileName) => {
+          const result = await window.api.invoke<Array<{ uid: string; file_name: string }>>('document.list', {})
+          return result.ok ? (result.result.find((item) => item.file_name === fileName) ?? null) : null
+        }, basename(pdfPath)),
+      { timeout: 20_000 }
+    )
+    .not.toBeNull()
+  const sourceRow = await page.evaluate(async (fileName) => {
+    const result = await window.api.invoke<Array<{ uid: string; code: string; file_name: string }>>('document.list', {})
+    return result.ok ? result.result.find((item) => item.file_name === fileName)! : null
+  }, basename(pdfPath))
+  expect(sourceRow).not.toBeNull()
+
+  // ①原本ビューから抽出領域候補を生成する（pdfplumber/pypdfium2 導入済み Python が必要。STATE.md「E2Eの注意」）
+  await page.getByTestId('activity-explorer').click()
+  if (!(await page.getByTestId('documents-tree').isVisible())) await page.getByTestId('activity-explorer').click()
+  await expect(page.getByTestId(`source-doc-${sourceRow!.code}`)).toBeVisible({ timeout: 15_000 })
+  await page.getByTestId(`source-doc-${sourceRow!.code}`).click()
+  await expect(page.getByTestId('original-viewer')).toContainText('pdf')
+  await expect(page.getByTestId('extract-button')).toHaveText('抽出領域候補を生成')
+  await page.getByTestId('extract-button').click()
+  await expect
+    .poll(
+      async () =>
+        page.evaluate(async (uid) => {
+          const result = await window.api.invoke<{ pdf_draft_status: string | null }>('document.get', { uid })
+          return result.ok ? result.result.pdf_draft_status : null
+        }, sourceRow!.uid),
+      { timeout: 60_000 }
+    )
+    .toBe('generated')
+  await expect(page.getByTestId('extract-button')).toBeDisabled()
+  await expect(page.getByTestId('pdf-review-button')).toBeEnabled()
+  await page.getByTestId('pdf-review-button').click()
+
+  // ページ1: 見出し・本文・リスト候補と、繰返しヘッダ・ページ番号の既定不採用（非破壊除外）
+  await expect(page.getByTestId('pdf-extraction-editor')).toBeVisible()
+  await expect(page.getByTestId('pdf-extraction-editor')).toContainText('候補 15')
+  await expect(page.getByTestId('pdf-extraction-editor')).toContainText('採用 9')
+  await expect(page.getByTestId('pdf-extraction-editor')).toContainText('不採用 6')
+  await expect(page.locator('.pdf-region-overlay')).toHaveCount(5)
+  await expect(page.getByTestId('pdf-page-canvas').locator('img')).toBeVisible()
+  const headingRow = page.getByTestId('pdf-region-list').locator('.excel-candidate-row', { hasText: '見出し' }).first()
+  await headingRow.locator('button').click()
+  await expect(page.getByTestId('pdf-region-text-preview')).toHaveValue(/System Configuration/)
+  await expect(page.getByTestId('pdf-region-type')).toHaveValue('heading')
+  const headerRow = page.getByTestId('pdf-region-list').locator('.excel-candidate-row', { hasText: 'ヘッダ' }).first()
+  await expect(headerRow).toContainText('不採用')
+
+  // ページ2: 罫線表のセル二次元配列（EXT-029）
+  await page.getByTestId('pdf-page-select').selectOption('1')
+  const tableRow = page.getByTestId('pdf-region-list').locator('.excel-candidate-row', { hasText: '表' }).first()
+  await tableRow.locator('button').click()
+  await expect(page.getByTestId('pdf-table-editor')).toBeVisible()
+  await expect(page.getByTestId('pdf-table-editor')).toContainText('3行×3列')
+  await expect(page.getByTestId('pdf-table-editor').locator('input').nth(4)).toHaveValue('Controller')
+
+  // ページ3: 図候補の切出しプレビューとキャプション関連
+  await page.getByTestId('pdf-page-select').selectOption('2')
+  const figureRow = page.getByTestId('pdf-region-list').locator('.excel-candidate-row', { hasText: '図' }).first()
+  await figureRow.locator('button').click()
+  await expect(page.getByTestId('pdf-figure-crop')).toBeVisible()
+  const captionRow = page
+    .getByTestId('pdf-region-list')
+    .locator('.excel-candidate-row', { hasText: 'キャプション' })
+    .first()
+  await captionRow.locator('button').click()
+  await expect(page.getByTestId('pdf-region-form')).toContainText('キャプション対象')
+
+  // ドラッグで新規領域を追加し、種別・採否を編集して保存する（EXT-028）
+  const canvas = page.getByTestId('pdf-page-canvas')
+  const canvasBox = await canvas.boundingBox()
+  expect(canvasBox).not.toBeNull()
+  await page.mouse.move(canvasBox!.x + 80, canvasBox!.y + 60)
+  await page.mouse.down()
+  await page.mouse.move(canvasBox!.x + 220, canvasBox!.y + 140, { steps: 4 })
+  await page.mouse.up()
+  await expect(page.getByTestId('pdf-region-add')).toBeEnabled()
+  await page.getByTestId('pdf-region-add').click()
+  await expect(page.getByTestId('pdf-extraction-editor')).toContainText('候補 16')
+  await page.getByTestId('pdf-region-type').selectOption('figure')
+  await page.getByTestId('pdf-region-save').click()
+  await expect
+    .poll(
+      async () =>
+        page.evaluate(async (uid) => {
+          const result = await window.api.invoke<{ regions: Array<{ region_type: string }>; status: string }>(
+            'pdfDraft.get',
+            { sourceDocumentUid: uid }
+          )
+          return result.ok ? { count: result.result.regions.length, status: result.result.status } : null
+        }, sourceRow!.uid),
+      { timeout: 15_000 }
+    )
+    .toEqual({ count: 16, status: 'editing' })
+
+  // 一括採否（右クリック）と読み順表示
+  await page.getByTestId('pdf-page-select').selectOption('0')
+  const bodyRow = page.getByTestId('pdf-region-list').locator('.excel-candidate-row', { hasText: '本文' }).first()
+  await bodyRow.click({ button: 'right' })
+  await page.getByTestId('pdf-bulk-rejected').click()
+  await expect(page.getByTestId('pdf-extraction-editor')).toContainText('不採用 7')
+
+  rmSync(pdfPath, { force: true })
+})
+
 test('スクリーンショットを保存する', async () => {
   await page.screenshot({ path: 'test-results/workbench.png' })
 })
